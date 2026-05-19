@@ -129,8 +129,7 @@ namespace FloorPlanGeneration.Generation
                 return;
             }
 
-            double midY = (bandMinY + bandMaxY) * 0.5;
-            List<Interval1D> intervals = GeometryPredicates.HorizontalInsideIntervals(_input.Floorplate, midY, _tolerance);
+            List<Interval1D> intervals = HorizontalUsableIntervals(bandMinY, bandMaxY);
             foreach (Interval1D interval in intervals)
             {
                 double start = Math.Max(interval.Start, corridor.MinX);
@@ -161,8 +160,7 @@ namespace FloorPlanGeneration.Generation
                 return;
             }
 
-            double midX = (bandMinX + bandMaxX) * 0.5;
-            List<Interval1D> intervals = GeometryPredicates.VerticalInsideIntervals(_input.Floorplate, midX, _tolerance);
+            List<Interval1D> intervals = VerticalUsableIntervals(bandMinX, bandMaxX);
             foreach (Interval1D interval in intervals)
             {
                 double start = Math.Max(interval.Start, corridor.MinY);
@@ -489,11 +487,18 @@ namespace FloorPlanGeneration.Generation
                 return null;
             }
 
-            List<Interval1D> lower = GeometryPredicates.HorizontalInsideIntervals(_input.Floorplate, minY + _tolerance, _tolerance);
-            List<Interval1D> center = GeometryPredicates.HorizontalInsideIntervals(_input.Floorplate, centerY, _tolerance);
-            List<Interval1D> upper = GeometryPredicates.HorizontalInsideIntervals(_input.Floorplate, maxY - _tolerance, _tolerance);
+            double lowY;
+            double midY;
+            double highY;
+            SampleSpan(minY, maxY, out lowY, out midY, out highY);
+            List<Interval1D> lower = GeometryPredicates.HorizontalInsideIntervals(_input.Floorplate, lowY, _tolerance);
+            List<Interval1D> center = GeometryPredicates.HorizontalInsideIntervals(_input.Floorplate, midY, _tolerance);
+            List<Interval1D> upper = GeometryPredicates.HorizontalInsideIntervals(_input.Floorplate, highY, _tolerance);
             List<Interval1D> shared = GeometryPredicates.IntersectIntervals(GeometryPredicates.IntersectIntervals(lower, center, _tolerance), upper, _tolerance);
-            Interval1D best = shared.OrderByDescending(i => i.Length).FirstOrDefault();
+            List<Interval1D> candidateIntervals = shared
+                .SelectMany(i => SubtractBlockingIntervals(i, minY, maxY, CorridorOrientation.Horizontal))
+                .ToList();
+            Interval1D best = candidateIntervals.OrderByDescending(i => i.Length).FirstOrDefault();
             if (best == null || best.Length < Math.Max(width * 4.0, 7.0))
             {
                 return null;
@@ -521,11 +526,18 @@ namespace FloorPlanGeneration.Generation
                 return null;
             }
 
-            List<Interval1D> left = GeometryPredicates.VerticalInsideIntervals(_input.Floorplate, minX + _tolerance, _tolerance);
-            List<Interval1D> center = GeometryPredicates.VerticalInsideIntervals(_input.Floorplate, centerX, _tolerance);
-            List<Interval1D> right = GeometryPredicates.VerticalInsideIntervals(_input.Floorplate, maxX - _tolerance, _tolerance);
+            double lowX;
+            double midX;
+            double highX;
+            SampleSpan(minX, maxX, out lowX, out midX, out highX);
+            List<Interval1D> left = GeometryPredicates.VerticalInsideIntervals(_input.Floorplate, lowX, _tolerance);
+            List<Interval1D> center = GeometryPredicates.VerticalInsideIntervals(_input.Floorplate, midX, _tolerance);
+            List<Interval1D> right = GeometryPredicates.VerticalInsideIntervals(_input.Floorplate, highX, _tolerance);
             List<Interval1D> shared = GeometryPredicates.IntersectIntervals(GeometryPredicates.IntersectIntervals(left, center, _tolerance), right, _tolerance);
-            Interval1D best = shared.OrderByDescending(i => i.Length).FirstOrDefault();
+            List<Interval1D> candidateIntervals = shared
+                .SelectMany(i => SubtractBlockingIntervals(i, minX, maxX, CorridorOrientation.Vertical))
+                .ToList();
+            Interval1D best = candidateIntervals.OrderByDescending(i => i.Length).FirstOrDefault();
             if (best == null || best.Length < Math.Max(width * 4.0, 7.0))
             {
                 return null;
@@ -542,6 +554,131 @@ namespace FloorPlanGeneration.Generation
                 Width = width
             };
             return CorridorIsUsable(strategy) ? strategy : null;
+        }
+
+        private List<Interval1D> HorizontalUsableIntervals(double minY, double maxY)
+        {
+            double lowY;
+            double midY;
+            double highY;
+            SampleSpan(minY, maxY, out lowY, out midY, out highY);
+
+            List<Interval1D> lower = GeometryPredicates.HorizontalInsideIntervals(_input.Floorplate, lowY, _tolerance);
+            List<Interval1D> center = GeometryPredicates.HorizontalInsideIntervals(_input.Floorplate, midY, _tolerance);
+            List<Interval1D> upper = GeometryPredicates.HorizontalInsideIntervals(_input.Floorplate, highY, _tolerance);
+            return GeometryPredicates.IntersectIntervals(GeometryPredicates.IntersectIntervals(lower, center, _tolerance), upper, _tolerance)
+                .SelectMany(i => SubtractBlockingIntervals(i, minY, maxY, CorridorOrientation.Horizontal))
+                .OrderBy(i => i.Start)
+                .ToList();
+        }
+
+        private List<Interval1D> VerticalUsableIntervals(double minX, double maxX)
+        {
+            double lowX;
+            double midX;
+            double highX;
+            SampleSpan(minX, maxX, out lowX, out midX, out highX);
+
+            List<Interval1D> left = GeometryPredicates.VerticalInsideIntervals(_input.Floorplate, lowX, _tolerance);
+            List<Interval1D> center = GeometryPredicates.VerticalInsideIntervals(_input.Floorplate, midX, _tolerance);
+            List<Interval1D> right = GeometryPredicates.VerticalInsideIntervals(_input.Floorplate, highX, _tolerance);
+            return GeometryPredicates.IntersectIntervals(GeometryPredicates.IntersectIntervals(left, center, _tolerance), right, _tolerance)
+                .SelectMany(i => SubtractBlockingIntervals(i, minX, maxX, CorridorOrientation.Vertical))
+                .OrderBy(i => i.Start)
+                .ToList();
+        }
+
+        private List<Interval1D> SubtractBlockingIntervals(Interval1D source, double spanMin, double spanMax, CorridorOrientation orientation)
+        {
+            List<Interval1D> remaining = new List<Interval1D> { source };
+            foreach (Bounds2 blocker in BlockingBounds())
+            {
+                bool overlapsSpan;
+                double blockedStart;
+                double blockedEnd;
+                if (orientation == CorridorOrientation.Horizontal)
+                {
+                    overlapsSpan = RangesOverlapArea(blocker.MinY, blocker.MaxY, spanMin, spanMax);
+                    blockedStart = blocker.MinX;
+                    blockedEnd = blocker.MaxX;
+                }
+                else
+                {
+                    overlapsSpan = RangesOverlapArea(blocker.MinX, blocker.MaxX, spanMin, spanMax);
+                    blockedStart = blocker.MinY;
+                    blockedEnd = blocker.MaxY;
+                }
+
+                if (!overlapsSpan)
+                {
+                    continue;
+                }
+
+                remaining = SubtractInterval(remaining, blockedStart - _tolerance, blockedEnd + _tolerance);
+                if (remaining.Count == 0)
+                {
+                    break;
+                }
+            }
+
+            return remaining.Where(i => i.Length > _tolerance).ToList();
+        }
+
+        private IEnumerable<Bounds2> BlockingBounds()
+        {
+            foreach (Polygon2 hole in _input.Holes)
+            {
+                yield return hole.Bounds();
+            }
+
+            foreach (CleanedFixedElement fixedElement in _input.FixedElements.Where(f => f.BlocksGeneration))
+            {
+                yield return fixedElement.Polygon.Bounds();
+            }
+        }
+
+        private List<Interval1D> SubtractInterval(IEnumerable<Interval1D> intervals, double removeStart, double removeEnd)
+        {
+            List<Interval1D> result = new List<Interval1D>();
+            foreach (Interval1D interval in intervals)
+            {
+                if (removeEnd <= interval.Start + _tolerance || removeStart >= interval.End - _tolerance)
+                {
+                    result.Add(interval);
+                    continue;
+                }
+
+                if (removeStart - interval.Start > _tolerance)
+                {
+                    result.Add(new Interval1D(interval.Start, Math.Max(interval.Start, removeStart)));
+                }
+
+                if (interval.End - removeEnd > _tolerance)
+                {
+                    result.Add(new Interval1D(Math.Min(interval.End, removeEnd), interval.End));
+                }
+            }
+
+            return result;
+        }
+
+        private bool RangesOverlapArea(double firstMin, double firstMax, double secondMin, double secondMax)
+        {
+            return firstMax > secondMin + _tolerance && secondMax > firstMin + _tolerance;
+        }
+
+        private void SampleSpan(double min, double max, out double low, out double mid, out double high)
+        {
+            double span = Math.Max(0.0, max - min);
+            double inset = Math.Min(Math.Max(_tolerance * 2.0, span * 0.01), span * 0.25);
+            low = min + inset;
+            mid = (min + max) * 0.5;
+            high = max - inset;
+            if (high < low)
+            {
+                low = mid;
+                high = mid;
+            }
         }
 
         private bool CorridorIsUsable(CorridorStrategy strategy)

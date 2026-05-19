@@ -17,10 +17,12 @@ The public orchestration path is:
 1. Normalize missing optional input sections and defaults.
 2. Clean the floorplate, holes, and fixed element polygons.
 3. Stop on invalid geometry diagnostics such as self-intersection.
-4. Generate deterministic corridor/unit/room candidates from the cleaned input.
-5. Normalize generated output ordering and repair duplicate corridor connection labels.
-6. Validate geometry containment, overlap, corridor width, doors, daylight requirements, and strict unit-mix constraints.
-7. Score each variant and rank valid variants before invalid variants.
+4. Run conservative feasibility checks for usable area and corridor-plus-unit-band depth.
+5. Generate deterministic corridor/unit/room candidates from the cleaned input.
+6. Split corridor and unit placement intervals around holes and blocking fixed elements.
+7. Normalize generated output ordering and repair duplicate corridor connection labels.
+8. Validate geometry containment, overlap, corridor width, doors, daylight requirements, and strict unit-mix constraints.
+9. Score each variant and rank valid variants before invalid variants.
 
 ## Input Schema
 
@@ -44,6 +46,11 @@ Example input:
 ```sh
 samples/floor-plan-generation/rectangular-core-input.json
 ```
+
+Additional samples:
+
+- `samples/floor-plan-generation/l-shaped-core-input.json`: L-shaped floorplate with a blocking core; expected to produce valid variants.
+- `samples/floor-plan-generation/infeasible-narrow-input.json`: deliberately too narrow for the MVP corridor and unit-band heuristic; expected to return failed JSON with no variants.
 
 ## Output Schema
 
@@ -79,10 +86,19 @@ Read from stdin and write to stdout:
 dotnet run --project FloorPlanGeneration.Cli -- < samples/floor-plan-generation/rectangular-core-input.json
 ```
 
+Override the input seed or variant count without editing JSON:
+
+```sh
+dotnet run --project FloorPlanGeneration.Cli -- --input samples/floor-plan-generation/l-shaped-core-input.json --seed 5601 --variants 5 --summary
+```
+
+`--summary` writes a compact status line to stderr and leaves stdout clean for JSON when no `--output` path is supplied. `--fail-on-partial` returns a non-zero exit code for partial outputs, which is useful in automated checks.
+
 Exit codes:
 
 - `0`: engine status is not `failed`
 - `2`: engine returned failed JSON output
+- `3`: engine returned partial JSON output and `--fail-on-partial` was supplied
 - `64`: CLI argument error
 
 ## Grasshopper Adapter Mapping
@@ -110,9 +126,10 @@ Grasshopper geometry mapping:
 
 Use these layer names when baking:
 
-- `FP::Input::Floorplate`
+- `FP::Input::Boundary`
 - `FP::Input::Holes`
-- `FP::Input::FixedElements`
+- `FP::Input::Fixed`
+- `FP::Input::Access`
 - `FP::Input::Facade`
 - `FP::Generated::Units`
 - `FP::Generated::Rooms`
@@ -120,8 +137,8 @@ Use these layer names when baking:
 - `FP::Generated::Walls`
 - `FP::Generated::Doors`
 - `FP::Generated::Labels`
-- `FP::Diagnostics`
-- `FP::Topology`
+- `FP::Generated::Diagnostics`
+- `FP::Generated::Topology`
 
 Labels produced by the engine already default to `FP::Generated::Labels`.
 
@@ -131,6 +148,7 @@ The MVP validates:
 
 - Outer boundary has at least three points, finite coordinates, non-zero area, and no self-intersections.
 - Holes and fixed elements are individually valid and contained by the floorplate.
+- Clearly unusable floorplates fail before candidate generation when available area is below `rules.minUnitArea` or bounds cannot fit the MVP corridor width plus a unit band.
 - Blocking fixed elements and holes are avoided by corridors and units.
 - Generated corridors meet minimum width and stay inside the floorplate.
 - Generated units stay inside the floorplate, do not overlap holes/fixed elements/corridors/other units, and meet minimum unit area.
@@ -138,14 +156,14 @@ The MVP validates:
 - Generated units have door/opening connections.
 - `generationSettings.strictness = "strict"` requires exact target unit counts when target counts are supplied.
 
-Invalid outer-boundary geometry stops before candidate generation and returns failed diagnostics with no fake variants.
+Invalid outer-boundary geometry and conservative infeasibility checks stop before candidate generation and return failed diagnostics with no fake variants. When generation does run but cannot produce valid layouts, generation failure codes from variants are summarized at the top level.
 
 ## MVP Limits
 
-- Geometry operations are lightweight polygon predicates, not a full constructive solid geometry kernel.
+- Geometry operations are lightweight polygon predicates and interval splitting, not a full constructive solid geometry kernel.
 - Candidate generation is deterministic and heuristic; it does not solve a global optimization problem.
 - Unit rooms are template-based rectangular subdivisions.
-- Complex non-orthogonal, highly concave, or multi-core buildings may produce partial or failed variants.
+- Complex non-orthogonal, highly concave, multi-core, or code-constrained buildings may produce partial or failed variants.
 - Facade handling is segment-length based and does not model view quality, obstructions, fire separation, or code-specific egress.
 - Validation is architectural sanity checking, not permit-ready building code compliance.
 - The engine does not mutate existing RGeoLib, samples, notebooks, or Python API surfaces.

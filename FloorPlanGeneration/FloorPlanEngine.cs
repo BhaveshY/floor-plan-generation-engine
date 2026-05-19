@@ -65,6 +65,13 @@ namespace FloorPlanGeneration
                 return output;
             }
 
+            output.Diagnostics.AddRange(AnalyzeFeasibility(cleaned));
+            if (HasErrors(output.Diagnostics))
+            {
+                output.Status = "failed";
+                return output;
+            }
+
             CandidateGenerator generator = new CandidateGenerator(cleaned);
             List<LayoutVariant> candidates = generator.Generate();
             if (candidates.Count == 0)
@@ -103,6 +110,11 @@ namespace FloorPlanGeneration
             {
                 output.Status = "failed";
                 output.Diagnostics.Add(Diagnostic.Error("validation.no_valid_variants", "No generated variants passed validation."));
+            }
+
+            if (!string.Equals(output.Status, "succeeded", StringComparison.OrdinalIgnoreCase))
+            {
+                AddVariantGenerationDiagnosticSummary(output, includeWarnings: string.Equals(output.Status, "failed", StringComparison.OrdinalIgnoreCase));
             }
 
             return output;
@@ -186,6 +198,43 @@ namespace FloorPlanGeneration
             }
 
             return cleaned;
+        }
+
+        private static IEnumerable<Diagnostic> AnalyzeFeasibility(CleanedInput input)
+        {
+            List<Diagnostic> diagnostics = new List<Diagnostic>();
+            double tolerance = input.Tolerance;
+            double grossArea = GrossArea(input);
+            double blockingArea = input.FixedElements.Where(f => f.BlocksGeneration).Sum(f => f.Polygon.Area());
+            double usableArea = Math.Max(0.0, grossArea - blockingArea);
+            if (usableArea + tolerance < input.Source.Rules.MinUnitArea)
+            {
+                diagnostics.Add(Diagnostic.Error(
+                    "input.insufficient_usable_area",
+                    "Usable floorplate area after holes and blocking fixed elements is below the configured minimum unit area.",
+                    input.Floorplate.SourceId));
+            }
+
+            Bounds2 bounds = input.Floorplate.Bounds();
+            double corridorWidth = Math.Max(input.Source.Rules.MinCorridorWidth, 1.2);
+            double minCorridorLength = Math.Max(corridorWidth * 4.0, 7.0);
+            double minUnitBandDepth = Math.Max(5.0, Math.Min(input.Source.Rules.MinRoomDepth, input.Source.Rules.MinRoomWidth) * 1.8);
+            bool horizontalCandidatePossible =
+                bounds.Width + tolerance >= minCorridorLength &&
+                (bounds.Height - corridorWidth) + tolerance >= minUnitBandDepth;
+            bool verticalCandidatePossible =
+                bounds.Height + tolerance >= minCorridorLength &&
+                (bounds.Width - corridorWidth) + tolerance >= minUnitBandDepth;
+
+            if (!horizontalCandidatePossible && !verticalCandidatePossible)
+            {
+                diagnostics.Add(Diagnostic.Error(
+                    "input.floorplate_too_narrow_for_mvp",
+                    "Floorplate bounds cannot fit the MVP corridor width plus a usable unit band depth.",
+                    input.Floorplate.SourceId));
+            }
+
+            return diagnostics;
         }
 
         private static void ValidateVariant(LayoutVariant variant, CleanedInput input, UnitMixPlanner mixPlanner)
@@ -375,6 +424,38 @@ namespace FloorPlanGeneration
                 .OrderBy(n => n, StringComparer.OrdinalIgnoreCase))
             {
                 output.Diagnostics.Add(Diagnostic.Error("validation." + name, "One or more variants failed the " + name + " validation check.", "variants"));
+            }
+        }
+
+        private static void AddVariantGenerationDiagnosticSummary(EngineOutput output, bool includeWarnings)
+        {
+            var groupedDiagnostics = output.Variants
+                .SelectMany(v => v.Diagnostics)
+                .Where(d => d.Code != null && d.Code.StartsWith("generation.", StringComparison.OrdinalIgnoreCase))
+                .Where(d => IsError(d.Severity) || (includeWarnings && string.Equals(d.Severity, "warning", StringComparison.OrdinalIgnoreCase)))
+                .GroupBy(d => d.Code, StringComparer.OrdinalIgnoreCase)
+                .OrderBy(g => g.Key, StringComparer.OrdinalIgnoreCase);
+
+            foreach (IGrouping<string, Diagnostic> group in groupedDiagnostics)
+            {
+                if (output.Diagnostics.Any(d => string.Equals(d.Code, group.Key, StringComparison.OrdinalIgnoreCase)))
+                {
+                    continue;
+                }
+
+                Diagnostic first = group.First();
+                string message = group.Count() == output.Variants.Count
+                    ? "All generated variants reported: " + first.Message
+                    : group.Count().ToString(CultureInfo.InvariantCulture) + " generated variant(s) reported: " + first.Message;
+
+                if (IsError(first.Severity))
+                {
+                    output.Diagnostics.Add(Diagnostic.Error(first.Code, message, "variants"));
+                }
+                else
+                {
+                    output.Diagnostics.Add(Diagnostic.Warning(first.Code, message, "variants"));
+                }
             }
         }
 

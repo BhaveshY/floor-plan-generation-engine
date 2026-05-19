@@ -1,0 +1,57 @@
+{
+  "project": {
+    "id": "infeasible-narrow-sample",
+    "name": "Infeasible Narrow Sample",
+    "units": "m",
+    "tolerance": 0.01,
+    "seed": 20260519
+  },
+  "floorplate": {
+    "outer": {
+      "id": "too-narrow-floorplate-01",
+      "points": [
+        { "x": 0.0, "y": 0.0 },
+        { "x": 12.0, "y": 0.0 },
+        { "x": 12.0, "y": 4.0 },
+        { "x": 0.0, "y": 4.0 }
+      ]
+    },
+    "holes": []
+  },
+  "fixedElements": [],
+  "access": {
+    "entryPoints": [],
+    "verticalCoreAccess": [],
+    "corridorStartPoints": [],
+    "corridorEndPoints": [],
+    "corridorCenterlines": []
+  },
+  "facade": {
+    "segments": [],
+    "daylightCapableEdges": [],
+    "nonDaylightEdges": []
+  },
+  "program": {
+    "targetUnitTypes": [
+      { "type": "studio", "minArea": 30.0, "maxArea": 55.0, "targetRatio": 1.0, "weight": 1.0 }
+    ],
+    "roomTypes": []
+  },
+  "rules": {
+    "minCorridorWidth": 2.0,
+    "minRoomWidth": 2.4,
+    "minRoomDepth": 2.4,
+    "doorWidth": 0.9,
+    "wetRoomAdjacencyPreferred": true,
+    "requireDaylightForBedrooms": true,
+    "requireDaylightForLiving": true,
+    "minUnitArea": 25.0
+  },
+  "generationSettings": {
+    "variantCount": 3,
+    "timeLimitMilliseconds": 1000,
+    "strictness": "balanced",
+    "weightedVariation": false,
+    "scoringWeights": {}
+  }
+}
