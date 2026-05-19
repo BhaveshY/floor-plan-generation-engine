@@ -1,0 +1,380 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bhaveshy.github.io/floor-plan-generation-engine/schemas/1.1/floor-plan-engine-input.schema.json",
+  "title": "Floor Plan Generation Engine Input",
+  "description": "Version 1.1 JSON contract for the headless floor plan generation engine input.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "floorplate"
+  ],
+  "properties": {
+    "project": {
+      "$ref": "#/$defs/project"
+    },
+    "floorplate": {
+      "$ref": "#/$defs/floorplate"
+    },
+    "fixedElements": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/fixedElement"
+      }
+    },
+    "access": {
+      "$ref": "#/$defs/access"
+    },
+    "facade": {
+      "$ref": "#/$defs/facade"
+    },
+    "program": {
+      "$ref": "#/$defs/program"
+    },
+    "rules": {
+      "$ref": "#/$defs/rules"
+    },
+    "generationSettings": {
+      "$ref": "#/$defs/generationSettings"
+    }
+  },
+  "$defs": {
+    "project": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "type": "string"
+        },
+        "units": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tolerance": {
+          "type": "number",
+          "minimum": 0.000001
+        },
+        "seed": {
+          "type": "integer"
+        }
+      }
+    },
+    "floorplate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "outer"
+      ],
+      "properties": {
+        "outer": {
+          "$ref": "#/$defs/polygon"
+        },
+        "holes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/polygon"
+          }
+        }
+      }
+    },
+    "polygon": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "points"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "points": {
+          "type": "array",
+          "minItems": 3,
+          "items": {
+            "$ref": "#/$defs/point"
+          }
+        }
+      }
+    },
+    "point": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "x",
+        "y"
+      ],
+      "properties": {
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        }
+      }
+    },
+    "line": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "start": {
+          "$ref": "#/$defs/point"
+        },
+        "end": {
+          "$ref": "#/$defs/point"
+        }
+      }
+    },
+    "fixedElement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "polygon"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        },
+        "polygon": {
+          "$ref": "#/$defs/polygon"
+        },
+        "blocksGeneration": {
+          "type": "boolean"
+        }
+      }
+    },
+    "access": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "entryPoints": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/point"
+          }
+        },
+        "verticalCoreAccess": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/point"
+          }
+        },
+        "corridorStartPoints": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/point"
+          }
+        },
+        "corridorEndPoints": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/point"
+          }
+        },
+        "corridorCenterlines": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/line"
+          }
+        }
+      }
+    },
+    "facade": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "segments": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/facadeSegment"
+          }
+        },
+        "daylightCapableEdges": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "nonDaylightEdges": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "facadeSegment": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "start": {
+          "$ref": "#/$defs/point"
+        },
+        "end": {
+          "$ref": "#/$defs/point"
+        },
+        "daylightCapable": {
+          "type": "boolean"
+        }
+      }
+    },
+    "program": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "targetUnitTypes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/unitTypeTarget"
+          }
+        },
+        "roomTypes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/roomTypeRule"
+          }
+        }
+      }
+    },
+    "unitTypeTarget": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "minArea": {
+          "type": "number",
+          "minimum": 0.000001
+        },
+        "maxArea": {
+          "type": "number",
+          "minimum": 0.000001
+        },
+        "targetCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "targetRatio": {
+          "type": "number",
+          "minimum": 0
+        },
+        "weight": {
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    },
+    "roomTypeRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "minArea": {
+          "type": "number",
+          "minimum": 0
+        },
+        "maxArea": {
+          "type": "number",
+          "minimum": 0
+        },
+        "minWidth": {
+          "type": "number",
+          "minimum": 0
+        },
+        "minDepth": {
+          "type": "number",
+          "minimum": 0
+        },
+        "requiresDaylight": {
+          "type": "boolean"
+        },
+        "isWet": {
+          "type": "boolean"
+        }
+      }
+    },
+    "rules": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "minCorridorWidth": {
+          "type": "number",
+          "minimum": 0.000001
+        },
+        "minRoomWidth": {
+          "type": "number",
+          "minimum": 0.000001
+        },
+        "minRoomDepth": {
+          "type": "number",
+          "minimum": 0.000001
+        },
+        "doorWidth": {
+          "type": "number",
+          "minimum": 0.000001
+        },
+        "wetRoomAdjacencyPreferred": {
+          "type": "boolean"
+        },
+        "requireDaylightForBedrooms": {
+          "type": "boolean"
+        },
+        "requireDaylightForLiving": {
+          "type": "boolean"
+        },
+        "minUnitArea": {
+          "type": "number",
+          "minimum": 0.000001
+        }
+      }
+    },
+    "generationSettings": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "variantCount": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20
+        },
+        "timeLimitMilliseconds": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "strictness": {
+          "type": "string",
+          "enum": [
+            "relaxed",
+            "balanced",
+            "strict"
+          ]
+        },
+        "weightedVariation": {
+          "type": "boolean"
+        },
+        "scoringWeights": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "number",
+            "minimum": 0
+          }
+        }
+      }
+    }
+  }
+}

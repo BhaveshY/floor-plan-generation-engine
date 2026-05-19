@@ -21,7 +21,7 @@ namespace FloorPlanGeneration.Tests
 
             Assert.Equal("succeeded", output.Status);
             Assert.NotNull(output.Metadata);
-            Assert.Equal("1.0", output.Metadata.SchemaVersion);
+            Assert.Equal("1.1", output.Metadata.SchemaVersion);
             Assert.Equal(1234, output.Metadata.Seed);
             Assert.Equal(4, output.Metadata.GenerationSettings.VariantCount);
             Assert.Equal("balanced", output.Metadata.GenerationSettings.Strictness);
@@ -55,6 +55,57 @@ namespace FloorPlanGeneration.Tests
 
             EngineOutput repeated = new FloorPlanEngine().Generate(RectangularInput(seed: 1234, variantCount: 4));
             Assert.Equal(Signatures(output), Signatures(repeated));
+        }
+
+        [Fact]
+        public void GeneratedElementsExposeStableExternalIdsAndLayerValidationChecks()
+        {
+            EngineOutput output = new FloorPlanEngine().Generate(RectangularInput(seed: 20260519, variantCount: 3));
+
+            Assert.Equal("succeeded", output.Status);
+            Assert.All(output.Variants, variant =>
+            {
+                string variantPrefix = "fp://rectangular-test/variants/" + variant.VariantId;
+                Assert.Equal(variantPrefix, variant.ExternalId);
+                Assert.Contains(variant.Validation.Checks, c => c.Name == "stable_external_ids" && c.Passed);
+                Assert.Contains(variant.Validation.Checks, c => c.Name == "generated_layers" && c.Passed);
+
+                Assert.All(variant.Units, unit =>
+                {
+                    Assert.StartsWith(variantPrefix + "/units/", unit.ExternalId, StringComparison.Ordinal);
+                    Assert.Equal(LayerNames.GeneratedUnits, unit.Layer);
+                });
+                Assert.All(variant.Rooms, room =>
+                {
+                    Assert.StartsWith(variantPrefix + "/rooms/", room.ExternalId, StringComparison.Ordinal);
+                    Assert.Equal(LayerNames.GeneratedRooms, room.Layer);
+                });
+                Assert.All(variant.Corridors, corridor =>
+                {
+                    Assert.StartsWith(variantPrefix + "/corridors/", corridor.ExternalId, StringComparison.Ordinal);
+                    Assert.Equal(LayerNames.GeneratedCorridors, corridor.Layer);
+                });
+                Assert.All(variant.Walls, wall =>
+                {
+                    Assert.StartsWith(variantPrefix + "/walls/", wall.ExternalId, StringComparison.Ordinal);
+                    Assert.Equal(LayerNames.GeneratedWalls, wall.Layer);
+                });
+                Assert.All(variant.DoorsOpenings, door =>
+                {
+                    Assert.StartsWith(variantPrefix + "/doors/", door.ExternalId, StringComparison.Ordinal);
+                    Assert.Equal(LayerNames.GeneratedDoors, door.Layer);
+                });
+                Assert.All(variant.Labels, label =>
+                {
+                    Assert.StartsWith(variantPrefix + "/labels/", label.ExternalId, StringComparison.Ordinal);
+                    Assert.Equal(LayerNames.GeneratedLabels, label.Layer);
+                });
+            });
+
+            EngineOutput repeated = new FloorPlanEngine().Generate(RectangularInput(seed: 20260519, variantCount: 3));
+            Assert.Equal(
+                output.Variants.SelectMany(v => v.Units.Select(u => u.ExternalId)),
+                repeated.Variants.SelectMany(v => v.Units.Select(u => u.ExternalId)));
         }
 
         [Fact]

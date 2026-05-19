@@ -9,7 +9,9 @@ The engine accepts architectural boundaries and fixed constraints as JSON, then 
 - `FloorPlanGeneration/` — deterministic C# engine, geometry validation, topology graph, candidate generation, ranking, diagnostics.
 - `FloorPlanGeneration.Cli/` — JSON-in / JSON-out command-line wrapper.
 - `FloorPlanGeneration.Tests/` — xUnit tests for valid generation and failure diagnostics.
+- `schemas/*.schema.json` — published JSON Schema artifacts for the input and output contracts.
 - `docs/floor-plan-generation-engine.md` — detailed architecture, schemas, Rhino layer naming, and MVP limitations.
+- `docs/rhino-grasshopper-adapter-contract.md` — dependency-free adapter contract for Rhino and Grasshopper projects.
 - `docs/roadmap.md` — concise remaining gaps and next integration steps.
 - `samples/floor-plan-generation/*.json` — rectangular, L-shaped, moderately irregular, and infeasible sample inputs.
 
@@ -32,6 +34,13 @@ dotnet run --project FloorPlanGeneration.Cli -- \
   --input samples/floor-plan-generation/rectangular-core-input.json \
   --validate-only \
   --summary
+```
+
+Print the published JSON Schema artifacts without reading engine input:
+
+```bash
+dotnet run --project FloorPlanGeneration.Cli -- --print-input-schema
+dotnet run --project FloorPlanGeneration.Cli -- --print-output-schema
 ```
 
 Useful CLI overrides:
@@ -69,7 +78,8 @@ dotnet run --project FloorPlanGeneration.Cli -- \
 - Honest validation failures with machine-readable diagnostics.
 - Rhino/Grasshopper coupling only through future adapters.
 - Strict CLI JSON parsing: unknown JSON properties fail fast instead of being silently ignored.
-- Adapter-facing output metadata for schema version, seed, effective generation settings, floorplate bounds/areas, and predictable layer names such as `FP::Input::Boundary`, `FP::Input::Fixed`, `FP::Generated::Units`, `FP::Generated::Corridors`, and `FP::Generated::Diagnostics`.
+- Published schema version `1.1` with strict input schema, output schema, and compact golden contract fixtures.
+- Adapter-facing output metadata for schema version, seed, effective generation settings, floorplate bounds/areas, stable `externalId` values, and predictable layer names such as `FP::Input::Boundary`, `FP::Input::Fixed`, `FP::Generated::Units`, `FP::Generated::Corridors`, and `FP::Generated::Diagnostics`.
 
 ## MVP scope
 

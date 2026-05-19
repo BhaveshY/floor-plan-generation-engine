@@ -267,7 +267,7 @@ namespace FloorPlanGeneration.Schema
     {
         public EngineMetadata()
         {
-            SchemaVersion = "1.0";
+            SchemaVersion = "1.1";
             EngineVersion = "0.1.0";
             ProjectUnits = "m";
             Tolerance = 0.01;
@@ -365,6 +365,7 @@ namespace FloorPlanGeneration.Schema
         public LayoutVariant()
         {
             VariantId = string.Empty;
+            ExternalId = string.Empty;
             Seed = 0;
             Status = "candidate";
             Units = new List<UnitLayout>();
@@ -380,6 +381,7 @@ namespace FloorPlanGeneration.Schema
         }
 
         public string VariantId { get; set; }
+        public string ExternalId { get; set; }
         public int Seed { get; set; }
         public string Status { get; set; }
         public List<UnitLayout> Units { get; set; }
@@ -399,6 +401,7 @@ namespace FloorPlanGeneration.Schema
         public UnitLayout()
         {
             Id = string.Empty;
+            ExternalId = string.Empty;
             Type = "studio";
             Polygon = new PolygonInput();
             Bounds = new Bounds2();
@@ -410,6 +413,7 @@ namespace FloorPlanGeneration.Schema
         }
 
         public string Id { get; set; }
+        public string ExternalId { get; set; }
         public string Type { get; set; }
         public PolygonInput Polygon { get; set; }
         public Bounds2 Bounds { get; set; }
@@ -425,6 +429,7 @@ namespace FloorPlanGeneration.Schema
         public RoomLayout()
         {
             Id = string.Empty;
+            ExternalId = string.Empty;
             UnitId = string.Empty;
             RoomType = "room";
             Polygon = new PolygonInput();
@@ -436,6 +441,7 @@ namespace FloorPlanGeneration.Schema
         }
 
         public string Id { get; set; }
+        public string ExternalId { get; set; }
         public string UnitId { get; set; }
         public string RoomType { get; set; }
         public PolygonInput Polygon { get; set; }
@@ -457,6 +463,7 @@ namespace FloorPlanGeneration.Schema
         public CorridorLayout()
         {
             Id = string.Empty;
+            ExternalId = string.Empty;
             Polygon = new PolygonInput();
             Bounds = new Bounds2();
             Centerline = new LineInput();
@@ -466,6 +473,7 @@ namespace FloorPlanGeneration.Schema
         }
 
         public string Id { get; set; }
+        public string ExternalId { get; set; }
         public PolygonInput Polygon { get; set; }
         public Bounds2 Bounds { get; set; }
         public LineInput Centerline { get; set; }
@@ -479,6 +487,7 @@ namespace FloorPlanGeneration.Schema
         public WallLayout()
         {
             Id = string.Empty;
+            ExternalId = string.Empty;
             Centerline = new LineInput();
             Thickness = 0.15;
             LayerType = "partition";
@@ -486,6 +495,7 @@ namespace FloorPlanGeneration.Schema
         }
 
         public string Id { get; set; }
+        public string ExternalId { get; set; }
         public LineInput Centerline { get; set; }
         public double Thickness { get; set; }
         public string LayerType { get; set; }
@@ -497,6 +507,7 @@ namespace FloorPlanGeneration.Schema
         public DoorOpening()
         {
             Id = string.Empty;
+            ExternalId = string.Empty;
             Location = new Point2();
             Width = 0.9;
             HostWall = string.Empty;
@@ -505,6 +516,7 @@ namespace FloorPlanGeneration.Schema
         }
 
         public string Id { get; set; }
+        public string ExternalId { get; set; }
         public Point2 Location { get; set; }
         public double Width { get; set; }
         public string HostWall { get; set; }
@@ -517,6 +529,7 @@ namespace FloorPlanGeneration.Schema
         public LabelLayout()
         {
             Id = string.Empty;
+            ExternalId = string.Empty;
             Text = string.Empty;
             Location = new Point2();
             TargetId = string.Empty;
@@ -524,6 +537,7 @@ namespace FloorPlanGeneration.Schema
         }
 
         public string Id { get; set; }
+        public string ExternalId { get; set; }
         public string Text { get; set; }
         public Point2 Location { get; set; }
         public string TargetId { get; set; }

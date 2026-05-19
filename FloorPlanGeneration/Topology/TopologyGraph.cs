@@ -41,12 +41,14 @@ namespace FloorPlanGeneration.Topology
         public SpaceNode()
         {
             Id = string.Empty;
+            ExternalId = string.Empty;
             Kind = string.Empty;
             ReferenceId = string.Empty;
             ParentId = string.Empty;
         }
 
         public string Id { get; set; }
+        public string ExternalId { get; set; }
         public string Kind { get; set; }
         public string ReferenceId { get; set; }
         public string ParentId { get; set; }
@@ -56,12 +58,14 @@ namespace FloorPlanGeneration.Topology
     {
         public AdjacencyEdge()
         {
+            ExternalId = string.Empty;
             From = string.Empty;
             To = string.Empty;
             Kind = string.Empty;
             Reason = string.Empty;
         }
 
+        public string ExternalId { get; set; }
         public string From { get; set; }
         public string To { get; set; }
         public string Kind { get; set; }

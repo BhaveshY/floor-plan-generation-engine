@@ -1,0 +1,227 @@
+[
+  {
+    "input": "rectangular-core-input.json",
+    "projectId": "rectangular-core-sample",
+    "status": "succeeded",
+    "schemaVersion": "1.1",
+    "seed": 20260519,
+    "variantCount": 6,
+    "grossArea": 924.0,
+    "usableArea": 888.0,
+    "requiredDiagnosticCodes": [
+      "geometry.implicit_close"
+    ],
+    "variants": [
+      {
+        "id": "variant-03",
+        "seed": -546508552,
+        "score": 0.9077,
+        "units": 9,
+        "rooms": 33,
+        "corridors": 1,
+        "firstUnit": "unit-north-05",
+        "topologyNodes": 45,
+        "topologyEdges": 93
+      },
+      {
+        "id": "variant-02",
+        "seed": -546508551,
+        "score": 0.9076,
+        "units": 9,
+        "rooms": 33,
+        "corridors": 1,
+        "firstUnit": "unit-north-05",
+        "topologyNodes": 45,
+        "topologyEdges": 93
+      },
+      {
+        "id": "variant-01",
+        "seed": -546508550,
+        "score": 0.8832,
+        "units": 9,
+        "rooms": 33,
+        "corridors": 1,
+        "firstUnit": "unit-north-05",
+        "topologyNodes": 45,
+        "topologyEdges": 93
+      },
+      {
+        "id": "variant-06",
+        "seed": -546508547,
+        "score": 0.8831,
+        "units": 9,
+        "rooms": 33,
+        "corridors": 1,
+        "firstUnit": "unit-north-05",
+        "topologyNodes": 45,
+        "topologyEdges": 93
+      },
+      {
+        "id": "variant-04",
+        "seed": -546508545,
+        "score": 0.8572,
+        "units": 9,
+        "rooms": 34,
+        "corridors": 1,
+        "firstUnit": "unit-north-05",
+        "topologyNodes": 46,
+        "topologyEdges": 96
+      },
+      {
+        "id": "variant-05",
+        "seed": -546508546,
+        "score": 0.8572,
+        "units": 9,
+        "rooms": 34,
+        "corridors": 1,
+        "firstUnit": "unit-north-05",
+        "topologyNodes": 46,
+        "topologyEdges": 96
+      }
+    ]
+  },
+  {
+    "input": "l-shaped-core-input.json",
+    "projectId": "l-shaped-core-sample",
+    "status": "succeeded",
+    "schemaVersion": "1.1",
+    "seed": 5601,
+    "variantCount": 5,
+    "grossArea": 1128.0,
+    "usableArea": 1092.0,
+    "requiredDiagnosticCodes": [
+      "geometry.implicit_close"
+    ],
+    "variants": [
+      {
+        "id": "variant-01",
+        "seed": 2223596,
+        "score": 0.9248,
+        "units": 10,
+        "rooms": 37,
+        "corridors": 1,
+        "firstUnit": "unit-north-06",
+        "topologyNodes": 50,
+        "topologyEdges": 104
+      },
+      {
+        "id": "variant-05",
+        "seed": 2223592,
+        "score": 0.9239,
+        "units": 10,
+        "rooms": 37,
+        "corridors": 1,
+        "firstUnit": "unit-north-06",
+        "topologyNodes": 50,
+        "topologyEdges": 104
+      },
+      {
+        "id": "variant-03",
+        "seed": 2223598,
+        "score": 0.9134,
+        "units": 9,
+        "rooms": 34,
+        "corridors": 1,
+        "firstUnit": "unit-north-06",
+        "topologyNodes": 46,
+        "topologyEdges": 96
+      },
+      {
+        "id": "variant-04",
+        "seed": 2223593,
+        "score": 0.9133,
+        "units": 9,
+        "rooms": 34,
+        "corridors": 1,
+        "firstUnit": "unit-north-06",
+        "topologyNodes": 46,
+        "topologyEdges": 96
+      },
+      {
+        "id": "variant-02",
+        "seed": 2223599,
+        "score": 0.9102,
+        "units": 9,
+        "rooms": 34,
+        "corridors": 1,
+        "firstUnit": "unit-north-06",
+        "topologyNodes": 46,
+        "topologyEdges": 96
+      }
+    ]
+  },
+  {
+    "input": "moderately-irregular-core-input.json",
+    "projectId": "moderately-irregular-core-sample",
+    "status": "succeeded",
+    "schemaVersion": "1.1",
+    "seed": 9901,
+    "variantCount": 4,
+    "grossArea": 1588.0,
+    "usableArea": 1552.0,
+    "requiredDiagnosticCodes": [
+      "geometry.implicit_close"
+    ],
+    "variants": [
+      {
+        "id": "variant-02",
+        "seed": 3930699,
+        "score": 0.9116,
+        "units": 11,
+        "rooms": 41,
+        "corridors": 1,
+        "firstUnit": "unit-north-06",
+        "topologyNodes": 55,
+        "topologyEdges": 115
+      },
+      {
+        "id": "variant-04",
+        "seed": 3930701,
+        "score": 0.9115,
+        "units": 11,
+        "rooms": 41,
+        "corridors": 1,
+        "firstUnit": "unit-north-07",
+        "topologyNodes": 55,
+        "topologyEdges": 115
+      },
+      {
+        "id": "variant-03",
+        "seed": 3930698,
+        "score": 0.9102,
+        "units": 11,
+        "rooms": 41,
+        "corridors": 1,
+        "firstUnit": "unit-north-06",
+        "topologyNodes": 55,
+        "topologyEdges": 115
+      },
+      {
+        "id": "variant-01",
+        "seed": 3930696,
+        "score": 0.9066,
+        "units": 11,
+        "rooms": 41,
+        "corridors": 1,
+        "firstUnit": "unit-north-07",
+        "topologyNodes": 55,
+        "topologyEdges": 115
+      }
+    ]
+  },
+  {
+    "input": "infeasible-narrow-input.json",
+    "projectId": "infeasible-narrow-sample",
+    "status": "failed",
+    "schemaVersion": "1.1",
+    "seed": 20260519,
+    "variantCount": 0,
+    "grossArea": 48.0,
+    "usableArea": 48.0,
+    "requiredDiagnosticCodes": [
+      "geometry.implicit_close",
+      "input.floorplate_too_narrow_for_mvp"
+    ],
+    "variants": []
+  }
+]

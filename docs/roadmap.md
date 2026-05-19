@@ -1,12 +1,21 @@
 # Roadmap
 
-The current MVP is a headless, deterministic JSON-in/JSON-out engine for rectangular, L-shaped, and moderately irregular orthogonal floorplates with one fixed core. It is intentionally honest about invalid inputs and can now validate contracts without generating variants.
+The current MVP is a headless, deterministic JSON-in/JSON-out engine for rectangular, L-shaped, and moderately irregular orthogonal floorplates with one fixed core. It is intentionally honest about invalid inputs and can validate contracts without generating variants.
+
+Completed product contract work:
+
+- Published Draft 2020-12 JSON Schema artifacts for input and output under `schemas/`.
+- CLI schema tooling via `--print-input-schema` and `--print-output-schema`.
+- Schema version `1.1` policy documented in `schemas/README.md`.
+- Stable `externalId` values on generated variants, elements, topology nodes, and topology edges.
+- Layer and external-id validation checks on generated variants.
+- Compact golden contract fixture coverage for rectangular, L-shaped, moderately irregular, and infeasible samples.
+- Rhino/Grasshopper adapter contract documentation without adding RhinoCommon to the core.
 
 Highest-value remaining work:
 
-1. Add a published JSON Schema artifact and versioned schema migration policy. The CLI rejects unknown properties and invalid contract values today, but there is not yet a standalone `.schema.json` file for external tooling.
-2. Replace the interval-based candidate splitter with a stronger polygon partitioning/optimization layer for highly concave plans, multiple cores, and competing corridor strategies.
-3. Expand validation to egress distance, travel paths, accessible clearances, shaft/fire separation, facade/window ratios, and local code profiles.
-4. Add explicit Rhino/Grasshopper adapter projects for `FP Boundary`, `FP Fixed Elements`, `FP Generate`, `FP Diagnostics`, `FP Variant Picker`, and `FP Bake Variant`.
-5. Add stable external ids/GUIDs and optional IFC/BIM adapter output while keeping RhinoCommon and IFC dependencies out of the core engine.
-6. Add golden JSON fixtures for representative seeds once the output contract is ready to be treated as externally stable.
+1. Replace the interval-based candidate splitter with a stronger polygon partitioning/optimization layer for highly concave plans, multiple cores, and competing corridor strategies.
+2. Expand validation to egress distance, travel paths, accessible clearances, shaft/fire separation, facade/window ratios, and local code profiles.
+3. Add explicit Rhino/Grasshopper adapter projects for `FP Boundary`, `FP Fixed Elements`, `FP Generate`, `FP Diagnostics`, `FP Variant Picker`, and `FP Bake Variant`.
+4. Add IFC/BIM adapter output and IFC-compatible GUID derivation from stable `externalId` values while keeping RhinoCommon and IFC dependencies out of the core engine.
+5. Broaden golden contract fixtures as new geometry strategies and validation profiles become externally stable.

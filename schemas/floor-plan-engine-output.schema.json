@@ -1,0 +1,891 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bhaveshy.github.io/floor-plan-generation-engine/schemas/1.1/floor-plan-engine-output.schema.json",
+  "title": "Floor Plan Generation Engine Output",
+  "description": "Version 1.1 JSON contract for ranked floor plan generation results, validation diagnostics, layer names, and stable external ids.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "projectId",
+    "status",
+    "metadata",
+    "variants",
+    "diagnostics"
+  ],
+  "properties": {
+    "projectId": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "not_started",
+        "validated",
+        "succeeded",
+        "partial",
+        "failed"
+      ]
+    },
+    "metadata": {
+      "$ref": "#/$defs/metadata"
+    },
+    "variants": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/layoutVariant"
+      }
+    },
+    "diagnostics": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/diagnostic"
+      }
+    }
+  },
+  "$defs": {
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "engineVersion",
+        "projectUnits",
+        "tolerance",
+        "seed",
+        "generationSettings",
+        "layers",
+        "floorplate"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "type": "string",
+          "const": "1.1"
+        },
+        "engineVersion": {
+          "type": "string"
+        },
+        "projectUnits": {
+          "type": "string"
+        },
+        "tolerance": {
+          "type": "number",
+          "minimum": 0
+        },
+        "seed": {
+          "type": "integer"
+        },
+        "generationSettings": {
+          "$ref": "#/$defs/generationSettingsSummary"
+        },
+        "layers": {
+          "$ref": "#/$defs/layers"
+        },
+        "floorplate": {
+          "$ref": "#/$defs/floorplateSummary"
+        }
+      }
+    },
+    "generationSettingsSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "variantCount",
+        "timeLimitMilliseconds",
+        "strictness",
+        "weightedVariation",
+        "scoringWeights"
+      ],
+      "properties": {
+        "variantCount": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 20
+        },
+        "timeLimitMilliseconds": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "strictness": {
+          "type": "string",
+          "enum": [
+            "relaxed",
+            "balanced",
+            "strict"
+          ]
+        },
+        "weightedVariation": {
+          "type": "boolean"
+        },
+        "scoringWeights": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "number",
+            "minimum": 0
+          }
+        }
+      }
+    },
+    "layers": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "inputBoundary",
+        "inputHoles",
+        "inputFixed",
+        "inputAccess",
+        "inputFacade",
+        "units",
+        "rooms",
+        "corridors",
+        "walls",
+        "doors",
+        "labels",
+        "diagnostics",
+        "topology"
+      ],
+      "properties": {
+        "inputBoundary": {
+          "type": "string"
+        },
+        "inputHoles": {
+          "type": "string"
+        },
+        "inputFixed": {
+          "type": "string"
+        },
+        "inputAccess": {
+          "type": "string"
+        },
+        "inputFacade": {
+          "type": "string"
+        },
+        "units": {
+          "type": "string",
+          "const": "FP::Generated::Units"
+        },
+        "rooms": {
+          "type": "string",
+          "const": "FP::Generated::Rooms"
+        },
+        "corridors": {
+          "type": "string",
+          "const": "FP::Generated::Corridors"
+        },
+        "walls": {
+          "type": "string",
+          "const": "FP::Generated::Walls"
+        },
+        "doors": {
+          "type": "string",
+          "const": "FP::Generated::Doors"
+        },
+        "labels": {
+          "type": "string",
+          "const": "FP::Generated::Labels"
+        },
+        "diagnostics": {
+          "type": "string",
+          "const": "FP::Generated::Diagnostics"
+        },
+        "topology": {
+          "type": "string",
+          "const": "FP::Generated::Topology"
+        }
+      }
+    },
+    "floorplateSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "bounds",
+        "grossArea",
+        "holeArea",
+        "blockingFixedElementArea",
+        "usableArea"
+      ],
+      "properties": {
+        "bounds": {
+          "$ref": "#/$defs/bounds"
+        },
+        "grossArea": {
+          "type": "number",
+          "minimum": 0
+        },
+        "holeArea": {
+          "type": "number",
+          "minimum": 0
+        },
+        "blockingFixedElementArea": {
+          "type": "number",
+          "minimum": 0
+        },
+        "usableArea": {
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    },
+    "layoutVariant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "variantId",
+        "externalId",
+        "seed",
+        "status",
+        "units",
+        "rooms",
+        "corridors",
+        "walls",
+        "doorsOpenings",
+        "labels",
+        "metrics",
+        "validation",
+        "diagnostics",
+        "topology"
+      ],
+      "properties": {
+        "variantId": {
+          "type": "string"
+        },
+        "externalId": {
+          "$ref": "#/$defs/externalId"
+        },
+        "seed": {
+          "type": "integer"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "candidate",
+            "valid",
+            "failed"
+          ]
+        },
+        "units": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/unitLayout"
+          }
+        },
+        "rooms": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/roomLayout"
+          }
+        },
+        "corridors": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/corridorLayout"
+          }
+        },
+        "walls": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/wallLayout"
+          }
+        },
+        "doorsOpenings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/doorOpening"
+          }
+        },
+        "labels": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/labelLayout"
+          }
+        },
+        "metrics": {
+          "$ref": "#/$defs/variantMetrics"
+        },
+        "validation": {
+          "$ref": "#/$defs/validationReport"
+        },
+        "diagnostics": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/diagnostic"
+          }
+        },
+        "topology": {
+          "$ref": "#/$defs/topologyGraph"
+        }
+      }
+    },
+    "unitLayout": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "externalId",
+        "type",
+        "polygon",
+        "bounds",
+        "area",
+        "rooms",
+        "facadeLength",
+        "score",
+        "layer"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "externalId": {
+          "$ref": "#/$defs/externalId"
+        },
+        "type": {
+          "type": "string"
+        },
+        "polygon": {
+          "$ref": "#/$defs/polygon"
+        },
+        "bounds": {
+          "$ref": "#/$defs/bounds"
+        },
+        "area": {
+          "type": "number",
+          "minimum": 0
+        },
+        "rooms": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/roomLayout"
+          }
+        },
+        "facadeLength": {
+          "type": "number",
+          "minimum": 0
+        },
+        "score": {
+          "type": "number",
+          "minimum": 0
+        },
+        "layer": {
+          "type": "string",
+          "const": "FP::Generated::Units"
+        }
+      }
+    },
+    "roomLayout": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "externalId",
+        "unitId",
+        "roomType",
+        "polygon",
+        "bounds",
+        "area",
+        "dimensions",
+        "daylight",
+        "layer"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "externalId": {
+          "$ref": "#/$defs/externalId"
+        },
+        "unitId": {
+          "type": "string"
+        },
+        "roomType": {
+          "type": "string"
+        },
+        "polygon": {
+          "$ref": "#/$defs/polygon"
+        },
+        "bounds": {
+          "$ref": "#/$defs/bounds"
+        },
+        "area": {
+          "type": "number",
+          "minimum": 0
+        },
+        "dimensions": {
+          "$ref": "#/$defs/spaceDimensions"
+        },
+        "daylight": {
+          "type": "boolean"
+        },
+        "layer": {
+          "type": "string",
+          "const": "FP::Generated::Rooms"
+        }
+      }
+    },
+    "corridorLayout": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "externalId",
+        "polygon",
+        "bounds",
+        "centerline",
+        "width",
+        "connections",
+        "layer"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "externalId": {
+          "$ref": "#/$defs/externalId"
+        },
+        "polygon": {
+          "$ref": "#/$defs/polygon"
+        },
+        "bounds": {
+          "$ref": "#/$defs/bounds"
+        },
+        "centerline": {
+          "$ref": "#/$defs/line"
+        },
+        "width": {
+          "type": "number",
+          "minimum": 0
+        },
+        "connections": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "layer": {
+          "type": "string",
+          "const": "FP::Generated::Corridors"
+        }
+      }
+    },
+    "wallLayout": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "externalId",
+        "centerline",
+        "thickness",
+        "layerType",
+        "layer"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "externalId": {
+          "$ref": "#/$defs/externalId"
+        },
+        "centerline": {
+          "$ref": "#/$defs/line"
+        },
+        "thickness": {
+          "type": "number",
+          "minimum": 0
+        },
+        "layerType": {
+          "type": "string"
+        },
+        "layer": {
+          "type": "string",
+          "const": "FP::Generated::Walls"
+        }
+      }
+    },
+    "doorOpening": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "externalId",
+        "location",
+        "width",
+        "hostWall",
+        "connectsSpaces",
+        "layer"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "externalId": {
+          "$ref": "#/$defs/externalId"
+        },
+        "location": {
+          "$ref": "#/$defs/point"
+        },
+        "width": {
+          "type": "number",
+          "minimum": 0
+        },
+        "hostWall": {
+          "type": "string"
+        },
+        "connectsSpaces": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "layer": {
+          "type": "string",
+          "const": "FP::Generated::Doors"
+        }
+      }
+    },
+    "labelLayout": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "externalId",
+        "text",
+        "location",
+        "targetId",
+        "layer"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "externalId": {
+          "$ref": "#/$defs/externalId"
+        },
+        "text": {
+          "type": "string"
+        },
+        "location": {
+          "$ref": "#/$defs/point"
+        },
+        "targetId": {
+          "type": "string"
+        },
+        "layer": {
+          "type": "string",
+          "const": "FP::Generated::Labels"
+        }
+      }
+    },
+    "variantMetrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "efficiency",
+        "netGrossRatio",
+        "sellableArea",
+        "corridorArea",
+        "unitMixMatch",
+        "grossArea",
+        "score"
+      ],
+      "properties": {
+        "efficiency": {
+          "type": "number",
+          "minimum": 0
+        },
+        "netGrossRatio": {
+          "type": "number",
+          "minimum": 0
+        },
+        "sellableArea": {
+          "type": "number",
+          "minimum": 0
+        },
+        "corridorArea": {
+          "type": "number",
+          "minimum": 0
+        },
+        "unitMixMatch": {
+          "type": "number",
+          "minimum": 0
+        },
+        "grossArea": {
+          "type": "number",
+          "minimum": 0
+        },
+        "score": {
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    },
+    "validationReport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "passed",
+        "checks"
+      ],
+      "properties": {
+        "passed": {
+          "type": "boolean"
+        },
+        "checks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/validationCheck"
+          }
+        }
+      }
+    },
+    "validationCheck": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "passed",
+        "severity",
+        "reason",
+        "sourceId"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "passed": {
+          "type": "boolean"
+        },
+        "severity": {
+          "$ref": "#/$defs/severity"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "sourceId": {
+          "type": "string"
+        }
+      }
+    },
+    "diagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "severity",
+        "code",
+        "message",
+        "sourceId"
+      ],
+      "properties": {
+        "severity": {
+          "$ref": "#/$defs/severity"
+        },
+        "code": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "sourceId": {
+          "type": "string"
+        }
+      }
+    },
+    "topologyGraph": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "nodes",
+        "edges"
+      ],
+      "properties": {
+        "nodes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/spaceNode"
+          }
+        },
+        "edges": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/adjacencyEdge"
+          }
+        }
+      }
+    },
+    "spaceNode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "externalId",
+        "kind",
+        "referenceId",
+        "parentId"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "externalId": {
+          "$ref": "#/$defs/externalId"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "referenceId": {
+          "type": "string"
+        },
+        "parentId": {
+          "type": "string"
+        }
+      }
+    },
+    "adjacencyEdge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "externalId",
+        "from",
+        "to",
+        "kind",
+        "reason"
+      ],
+      "properties": {
+        "externalId": {
+          "$ref": "#/$defs/externalId"
+        },
+        "from": {
+          "type": "string"
+        },
+        "to": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        }
+      }
+    },
+    "polygon": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "points"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "points": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/point"
+          }
+        }
+      }
+    },
+    "line": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "start",
+        "end"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "start": {
+          "$ref": "#/$defs/point"
+        },
+        "end": {
+          "$ref": "#/$defs/point"
+        }
+      }
+    },
+    "point": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "x",
+        "y"
+      ],
+      "properties": {
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        }
+      }
+    },
+    "bounds": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "minX",
+        "minY",
+        "maxX",
+        "maxY",
+        "width",
+        "height",
+        "area"
+      ],
+      "properties": {
+        "minX": {
+          "type": "number"
+        },
+        "minY": {
+          "type": "number"
+        },
+        "maxX": {
+          "type": "number"
+        },
+        "maxY": {
+          "type": "number"
+        },
+        "width": {
+          "type": "number"
+        },
+        "height": {
+          "type": "number"
+        },
+        "area": {
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    },
+    "spaceDimensions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "width",
+        "depth"
+      ],
+      "properties": {
+        "width": {
+          "type": "number",
+          "minimum": 0
+        },
+        "depth": {
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    },
+    "severity": {
+      "type": "string",
+      "enum": [
+        "info",
+        "warning",
+        "error"
+      ]
+    },
+    "externalId": {
+      "type": "string",
+      "pattern": "^fp://"
+    }
+  }
+}

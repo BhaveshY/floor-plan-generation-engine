@@ -5,6 +5,7 @@ using System.Linq;
 using FloorPlanGeneration.Generation;
 using FloorPlanGeneration.Geometry;
 using FloorPlanGeneration.Schema;
+using FloorPlanGeneration.Topology;
 using FloorPlanGeneration.Validation;
 
 namespace FloorPlanGeneration
@@ -113,7 +114,7 @@ namespace FloorPlanGeneration
 
             foreach (LayoutVariant variant in candidates)
             {
-                NormalizeVariant(variant);
+                NormalizeVariant(variant, output.ProjectId);
                 ValidateVariant(variant, cleaned, generator.MixPlanner);
                 ScoreVariant(variant, cleaned, generator.MixPlanner);
                 AddDiagnosticsFromValidation(variant);
@@ -380,6 +381,9 @@ namespace FloorPlanGeneration
                 AddCheck(report, "unit_has_door", hasDoor, "error", "Unit must have a door/opening connection.", unit.Id);
             }
 
+            AddCheck(report, "stable_external_ids", HasStableExternalIds(variant), "error", "Generated variants and elements must expose unique stable external ids.", variant.VariantId);
+            AddCheck(report, "generated_layers", HasExpectedGeneratedLayers(variant), "error", "Generated elements must use the published generated layer names.", variant.VariantId);
+
             if (IsStrict(input))
             {
                 AddCheck(report, "strict_unit_mix", mixPlanner.StrictCountsSatisfied(variant.Units), "error", "Strict target unit counts were not met.", variant.VariantId);
@@ -433,7 +437,7 @@ namespace FloorPlanGeneration
             };
         }
 
-        private static void NormalizeVariant(LayoutVariant variant)
+        private static void NormalizeVariant(LayoutVariant variant, string projectId)
         {
             if (variant.Diagnostics == null)
             {
@@ -500,6 +504,79 @@ namespace FloorPlanGeneration
             {
                 label.Layer = string.IsNullOrWhiteSpace(label.Layer) ? LayerNames.GeneratedLabels : label.Layer;
             }
+
+            AssignExternalIds(variant, projectId);
+        }
+
+        private static void AssignExternalIds(LayoutVariant variant, string projectId)
+        {
+            string variantId = string.IsNullOrWhiteSpace(variant.VariantId) ? "variant" : variant.VariantId;
+            variant.ExternalId = BuildExternalId(projectId, "variants", variantId);
+
+            foreach (CorridorLayout corridor in variant.Corridors)
+            {
+                corridor.ExternalId = BuildVariantExternalId(projectId, variantId, "corridors", corridor.Id);
+            }
+
+            foreach (UnitLayout unit in variant.Units)
+            {
+                unit.ExternalId = BuildVariantExternalId(projectId, variantId, "units", unit.Id);
+            }
+
+            foreach (RoomLayout room in variant.Rooms)
+            {
+                room.ExternalId = BuildVariantExternalId(projectId, variantId, "rooms", room.Id);
+            }
+
+            foreach (WallLayout wall in variant.Walls)
+            {
+                wall.ExternalId = BuildVariantExternalId(projectId, variantId, "walls", wall.Id);
+            }
+
+            foreach (DoorOpening door in variant.DoorsOpenings)
+            {
+                door.ExternalId = BuildVariantExternalId(projectId, variantId, "doors", door.Id);
+            }
+
+            foreach (LabelLayout label in variant.Labels)
+            {
+                label.ExternalId = BuildVariantExternalId(projectId, variantId, "labels", label.Id);
+            }
+
+            if (variant.Topology == null)
+            {
+                return;
+            }
+
+            foreach (SpaceNode node in variant.Topology.Nodes ?? new List<SpaceNode>())
+            {
+                node.ExternalId = BuildVariantExternalId(projectId, variantId, "topology/nodes", node.Id);
+            }
+
+            int edgeIndex = 0;
+            foreach (AdjacencyEdge edge in variant.Topology.Edges ?? new List<AdjacencyEdge>())
+            {
+                edgeIndex++;
+                string localId = edgeIndex.ToString("000", CultureInfo.InvariantCulture) + "-" + edge.From + "-" + edge.Kind + "-" + edge.To;
+                edge.ExternalId = BuildVariantExternalId(projectId, variantId, "topology/edges", localId);
+            }
+        }
+
+        private static string BuildVariantExternalId(string projectId, string variantId, string category, string localId)
+        {
+            return BuildExternalId(projectId, "variants", variantId) + "/" + category + "/" + EscapeSegment(localId);
+        }
+
+        private static string BuildExternalId(string projectId, string category, string localId)
+        {
+            string resolvedProjectId = string.IsNullOrWhiteSpace(projectId) ? "project" : projectId;
+            string resolvedLocalId = string.IsNullOrWhiteSpace(localId) ? "item" : localId;
+            return "fp://" + EscapeSegment(resolvedProjectId) + "/" + category + "/" + EscapeSegment(resolvedLocalId);
+        }
+
+        private static string EscapeSegment(string value)
+        {
+            return Uri.EscapeDataString(value ?? string.Empty);
         }
 
         private static void AddDiagnosticsFromValidation(LayoutVariant variant)
@@ -516,6 +593,37 @@ namespace FloorPlanGeneration
                     variant.Diagnostics.Add(Diagnostic.Warning(code, check.Reason, check.SourceId));
                 }
             }
+        }
+
+        private static bool HasStableExternalIds(LayoutVariant variant)
+        {
+            List<string> externalIds = new List<string> { variant.ExternalId };
+            externalIds.AddRange(variant.Corridors.Select(c => c.ExternalId));
+            externalIds.AddRange(variant.Units.Select(u => u.ExternalId));
+            externalIds.AddRange(variant.Rooms.Select(r => r.ExternalId));
+            externalIds.AddRange(variant.Walls.Select(w => w.ExternalId));
+            externalIds.AddRange(variant.DoorsOpenings.Select(d => d.ExternalId));
+            externalIds.AddRange(variant.Labels.Select(l => l.ExternalId));
+            if (variant.Topology != null)
+            {
+                externalIds.AddRange((variant.Topology.Nodes ?? new List<SpaceNode>()).Select(n => n.ExternalId));
+                externalIds.AddRange((variant.Topology.Edges ?? new List<AdjacencyEdge>()).Select(e => e.ExternalId));
+            }
+
+            List<string> required = externalIds.Where(id => !string.IsNullOrWhiteSpace(id)).ToList();
+            return required.Count == externalIds.Count &&
+                required.All(id => id.StartsWith("fp://", StringComparison.Ordinal)) &&
+                required.Count == required.Distinct(StringComparer.OrdinalIgnoreCase).Count();
+        }
+
+        private static bool HasExpectedGeneratedLayers(LayoutVariant variant)
+        {
+            return variant.Units.All(u => string.Equals(u.Layer, LayerNames.GeneratedUnits, StringComparison.Ordinal)) &&
+                variant.Rooms.All(r => string.Equals(r.Layer, LayerNames.GeneratedRooms, StringComparison.Ordinal)) &&
+                variant.Corridors.All(c => string.Equals(c.Layer, LayerNames.GeneratedCorridors, StringComparison.Ordinal)) &&
+                variant.Walls.All(w => string.Equals(w.Layer, LayerNames.GeneratedWalls, StringComparison.Ordinal)) &&
+                variant.DoorsOpenings.All(d => string.Equals(d.Layer, LayerNames.GeneratedDoors, StringComparison.Ordinal)) &&
+                variant.Labels.All(l => string.Equals(l.Layer, LayerNames.GeneratedLabels, StringComparison.Ordinal));
         }
 
         private static void AddOutputValidationSummary(EngineOutput output)

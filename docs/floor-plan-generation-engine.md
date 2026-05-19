@@ -11,6 +11,7 @@ This document describes the MVP floor plan generation engine added under `FloorP
 - `FloorPlanGeneration.Topology` emits a simple graph of floorplate, fixed elements, corridor, unit, room, and facade relationships.
 - `FloorPlanGeneration.Cli` is a `net8.0` command-line adapter using `System.Text.Json`.
 - `FloorPlanGeneration.Tests` contains xUnit coverage for deterministic generation and failure paths.
+- `schemas/` contains published Draft 2020-12 JSON Schema artifacts for the input and output contracts.
 
 The public orchestration path is:
 
@@ -28,6 +29,12 @@ The public orchestration path is:
 ## Input Schema
 
 The CLI accepts camelCase JSON matching `EngineInput`.
+
+The published schema is `schemas/floor-plan-engine-input.schema.json`. The CLI can print the same artifact without reading input:
+
+```sh
+dotnet run --project FloorPlanGeneration.Cli -- --print-input-schema
+```
 
 Main sections:
 
@@ -54,7 +61,7 @@ Additional samples:
 - `samples/floor-plan-generation/moderately-irregular-core-input.json`: stepped orthogonal floorplate with one blocking core and core access point; expected to produce valid variants.
 - `samples/floor-plan-generation/infeasible-narrow-input.json`: deliberately too narrow for the MVP corridor and unit-band heuristic; expected to return failed JSON with no variants.
 
-The CLI uses strict `System.Text.Json` parsing. Unknown JSON properties are rejected with `cli.invalid_json` so misspelled contract fields do not silently fall back to defaults.
+The CLI uses strict `System.Text.Json` parsing. Unknown JSON properties are rejected with `cli.invalid_json` so misspelled contract fields do not silently fall back to defaults. Sample inputs are covered by schema tests.
 
 ## Output Schema
 
@@ -66,18 +73,26 @@ The CLI uses strict `System.Text.Json` parsing. Unknown JSON properties are reje
 - `variants`: ranked `LayoutVariant` results
 - `diagnostics`: top-level cleanup, generation, validation, or CLI diagnostics
 
+The published output schema is `schemas/floor-plan-engine-output.schema.json` and can be printed with:
+
+```sh
+dotnet run --project FloorPlanGeneration.Cli -- --print-output-schema
+```
+
 Each variant contains:
 
-- `variantId`, `seed`, `status`
-- `units`, each with type, polygon, bounds, layer, area, rooms, facade length, and score
-- `rooms`, duplicated at variant level for easier adapters, each with bounds and layer
-- `corridors`, with polygon, bounds, layer, centerline, width, and connected ids
-- `walls`, `doorsOpenings`, `labels`, each with predictable generated layer names
+- `variantId`, `externalId`, `seed`, `status`
+- `units`, each with stable `externalId`, type, polygon, bounds, layer, area, rooms, facade length, and score
+- `rooms`, duplicated at variant level for easier adapters, each with stable `externalId`, bounds, and layer
+- `corridors`, with stable `externalId`, polygon, bounds, layer, centerline, width, and connected ids
+- `walls`, `doorsOpenings`, `labels`, each with stable `externalId` and predictable generated layer names
 - `metrics`: gross area, sellable area, corridor area, net-gross ratio, efficiency, unit-mix match, score
 - `validation`: checks with severity, source id, and reason
-- `topology`: graph nodes and edges for containment, corridor access, and facade exposure
+- `topology`: graph nodes and edges for containment, corridor access, and facade exposure, also carrying stable external ids
 
 `metadata.layers` is the adapter-facing layer map. Current keys are `inputBoundary`, `inputHoles`, `inputFixed`, `inputAccess`, `inputFacade`, `units`, `rooms`, `corridors`, `walls`, `doors`, `labels`, `diagnostics`, and `topology`.
+
+External ids use the deterministic URI-like pattern `fp://{projectId}/variants/{variantId}/{category}/{elementId}`. They are intended for Rhino user strings, Grasshopper data tree keys, BIM mapping, and compact golden contract tests.
 
 ## CLI Usage
 
@@ -107,6 +122,12 @@ dotnet run --project FloorPlanGeneration.Cli -- --input samples/floor-plan-gener
 
 `--summary` writes a compact status line to stderr and leaves stdout clean for JSON when no `--output` path is supplied. `--fail-on-partial` returns a non-zero exit code for partial outputs, which is useful in automated checks.
 
+Schema tooling:
+
+- `--print-input-schema`: writes the current input schema JSON.
+- `--print-output-schema`: writes the current output schema JSON.
+- With `--output`, schema commands write to the supplied file and do not read stdin or `--input`.
+
 Exit codes:
 
 - `0`: engine status is not `failed`, including `validated`
@@ -127,6 +148,8 @@ Recommended MVP Grasshopper components:
 - `FP Bake Variant`: maps units, rooms, corridors, walls, doors, and labels to Rhino geometry and layers.
 - `FP Diagnostics`: displays top-level and selected-variant diagnostics grouped by severity and source id.
 - `FP Topology Graph`: exposes `TopologyGraph.Nodes` and `TopologyGraph.Edges` for adjacency analysis or graph visualization.
+
+See `docs/rhino-grasshopper-adapter-contract.md` for the adapter boundary, component responsibilities, layer policy, external id policy, and failure handling rules.
 
 Grasshopper geometry mapping:
 
@@ -171,6 +194,8 @@ The MVP validates:
 - Generated rooms reference existing units, stay inside their units, have positive area, and satisfy configured daylight requirements for bedroom/living room types.
 - Generated units have door/opening connections.
 - Corridor connection lists include unit ids, vertical access point ids, and fixed core/stair/elevator ids when the corridor touches the fixed element, is face-adjacent, or shares a provided vertical core access point.
+- Generated variants and elements expose non-empty `fp://` external ids that are unique within each variant.
+- Generated elements use the published generated layer names.
 - `generationSettings.strictness = "strict"` requires exact target unit counts when target counts are supplied.
 
 Invalid contract values, invalid outer-boundary geometry, and conservative infeasibility checks stop before candidate generation and return failed diagnostics with no fake variants. When generation does run but cannot produce valid layouts, generation failure codes from variants are summarized at the top level.
@@ -189,8 +214,8 @@ Invalid contract values, invalid outer-boundary geometry, and conservative infea
 
 Recommended next integration steps:
 
-1. Add stable GUIDs and external ids for units, rooms, walls, doors, and topology edges.
-2. Add wall thickness offsets and room finish boundaries rather than centerline-only walls.
+1. Add wall thickness offsets and room finish boundaries rather than centerline-only walls.
+2. Derive IFC-compatible GUIDs from stable `externalId` values in an adapter project.
 3. Map `UnitLayout` and `RoomLayout` to IFC spatial elements such as `IfcSpace` and zone/group objects.
 4. Map `WallLayout` and `DoorOpening` to `IfcWall`/`IfcWallStandardCase` and `IfcDoor`.
 5. Add storey/building/site metadata to `EngineInput.Project`.

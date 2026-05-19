@@ -10,4 +10,7 @@
   <ItemGroup>
     <ProjectReference Include="..\FloorPlanGeneration\FloorPlanGeneration.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <Content Include="..\schemas\*.schema.json" Link="schemas\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

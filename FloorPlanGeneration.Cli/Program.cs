@@ -11,7 +11,7 @@ namespace FloorPlanGeneration.Cli
 {
     public static class CliApplication
     {
-        private const string Usage = "Usage: FloorPlanGeneration.Cli [--input path] [--output path] [--seed n] [--variants n] [--validate-only] [--summary] [--fail-on-partial]";
+        private const string Usage = "Usage: FloorPlanGeneration.Cli [--input path] [--output path] [--seed n] [--variants n] [--validate-only] [--summary] [--fail-on-partial] [--print-input-schema|--print-output-schema]";
 
         public static int Run(string[] args, TextReader inputReader, TextWriter outputWriter, TextWriter errorWriter)
         {
@@ -26,6 +26,23 @@ namespace FloorPlanGeneration.Cli
             {
                 outputWriter.WriteLine(Usage);
                 return 0;
+            }
+
+            if (options.PrintInputSchema || options.PrintOutputSchema)
+            {
+                try
+                {
+                    string schema = ReadSchemaArtifact(options.PrintInputSchema
+                        ? "floor-plan-engine-input.schema.json"
+                        : "floor-plan-engine-output.schema.json");
+                    WriteOutput(options.OutputPath, schema, outputWriter);
+                    return 0;
+                }
+                catch (Exception ex)
+                {
+                    errorWriter.WriteLine("Schema artifact could not be read: " + ex.Message);
+                    return 2;
+                }
             }
 
             EngineOutput output;
@@ -92,6 +109,53 @@ namespace FloorPlanGeneration.Cli
             }
 
             return inputReader.ReadToEnd();
+        }
+
+        private static string ReadSchemaArtifact(string fileName)
+        {
+            foreach (string root in SchemaSearchRoots())
+            {
+                string candidate = Path.Combine(root, "schemas", fileName);
+                if (File.Exists(candidate))
+                {
+                    return File.ReadAllText(candidate);
+                }
+            }
+
+            throw new FileNotFoundException(fileName);
+        }
+
+        private static IEnumerable<string> SchemaSearchRoots()
+        {
+            HashSet<string> roots = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (string root in SearchRootChain(AppContext.BaseDirectory, roots))
+            {
+                yield return root;
+            }
+
+            foreach (string root in SearchRootChain(Directory.GetCurrentDirectory(), roots))
+            {
+                yield return root;
+            }
+        }
+
+        private static IEnumerable<string> SearchRootChain(string start, HashSet<string> roots)
+        {
+            if (string.IsNullOrWhiteSpace(start))
+            {
+                yield break;
+            }
+
+            DirectoryInfo directory = new DirectoryInfo(Path.GetFullPath(start));
+            while (directory != null)
+            {
+                if (roots.Add(directory.FullName))
+                {
+                    yield return directory.FullName;
+                }
+
+                directory = directory.Parent;
+            }
         }
 
         private static void WriteOutput(string outputPath, string json, TextWriter outputWriter)
@@ -224,10 +288,22 @@ namespace FloorPlanGeneration.Cli
                     continue;
                 }
 
+                if (arg == "--print-input-schema")
+                {
+                    options.PrintInputSchema = true;
+                    continue;
+                }
+
+                if (arg == "--print-output-schema")
+                {
+                    options.PrintOutputSchema = true;
+                    continue;
+                }
+
                 return false;
             }
 
-            return true;
+            return !(options.PrintInputSchema && options.PrintOutputSchema);
         }
 
         private sealed class CliOptions
@@ -240,6 +316,8 @@ namespace FloorPlanGeneration.Cli
             public bool Summary { get; set; }
             public bool FailOnPartial { get; set; }
             public bool ValidateOnly { get; set; }
+            public bool PrintInputSchema { get; set; }
+            public bool PrintOutputSchema { get; set; }
         }
     }
 
