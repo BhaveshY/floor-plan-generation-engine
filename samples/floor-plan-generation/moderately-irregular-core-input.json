@@ -1,0 +1,92 @@
+{
+  "project": {
+    "id": "moderately-irregular-core-sample",
+    "name": "Moderately Irregular Core Sample",
+    "units": "m",
+    "tolerance": 0.01,
+    "seed": 9901
+  },
+  "floorplate": {
+    "outer": {
+      "id": "moderately-irregular-floorplate-01",
+      "points": [
+        { "x": 0.0, "y": 0.0 },
+        { "x": 52.0, "y": 0.0 },
+        { "x": 52.0, "y": 16.0 },
+        { "x": 46.0, "y": 16.0 },
+        { "x": 46.0, "y": 28.0 },
+        { "x": 34.0, "y": 28.0 },
+        { "x": 34.0, "y": 34.0 },
+        { "x": 0.0, "y": 34.0 }
+      ]
+    },
+    "holes": []
+  },
+  "fixedElements": [
+    {
+      "id": "core-ir1",
+      "type": "core",
+      "blocksGeneration": true,
+      "polygon": {
+        "id": "core-ir1",
+        "points": [
+          { "x": 22.0, "y": 12.0 },
+          { "x": 28.0, "y": 12.0 },
+          { "x": 28.0, "y": 18.0 },
+          { "x": 22.0, "y": 18.0 }
+        ]
+      }
+    }
+  ],
+  "access": {
+    "entryPoints": [
+      { "x": 22.0, "y": 0.0 }
+    ],
+    "verticalCoreAccess": [
+      { "x": 22.0, "y": 18.0 }
+    ],
+    "corridorStartPoints": [],
+    "corridorEndPoints": [],
+    "corridorCenterlines": []
+  },
+  "facade": {
+    "segments": [],
+    "daylightCapableEdges": [],
+    "nonDaylightEdges": []
+  },
+  "program": {
+    "targetUnitTypes": [
+      { "type": "studio", "minArea": 30.0, "maxArea": 95.0, "targetRatio": 0.30, "weight": 1.0 },
+      { "type": "one_bed", "minArea": 55.0, "maxArea": 150.0, "targetRatio": 0.50, "weight": 1.0 },
+      { "type": "two_bed", "minArea": 80.0, "maxArea": 190.0, "targetRatio": 0.20, "weight": 0.8 }
+    ],
+    "roomTypes": [
+      { "type": "bedroom", "minArea": 10.0, "minWidth": 2.7, "minDepth": 2.7, "requiresDaylight": true },
+      { "type": "living", "minArea": 14.0, "minWidth": 3.0, "minDepth": 3.0, "requiresDaylight": true },
+      { "type": "bathroom", "minArea": 3.5, "minWidth": 1.6, "minDepth": 2.0, "isWet": true }
+    ]
+  },
+  "rules": {
+    "minCorridorWidth": 1.8,
+    "minRoomWidth": 2.4,
+    "minRoomDepth": 2.4,
+    "doorWidth": 0.9,
+    "wetRoomAdjacencyPreferred": true,
+    "requireDaylightForBedrooms": true,
+    "requireDaylightForLiving": true,
+    "minUnitArea": 25.0
+  },
+  "generationSettings": {
+    "variantCount": 4,
+    "timeLimitMilliseconds": 1000,
+    "strictness": "balanced",
+    "weightedVariation": true,
+    "scoringWeights": {
+      "efficiency": 0.30,
+      "netGrossRatio": 0.20,
+      "unitMixMatch": 0.25,
+      "unitQuality": 0.15,
+      "daylight": 0.10
+    }
+  }
+}

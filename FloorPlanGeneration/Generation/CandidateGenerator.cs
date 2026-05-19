@@ -716,7 +716,7 @@ namespace FloorPlanGeneration.Generation
                 if ((fixedElement.Type.IndexOf("core", StringComparison.OrdinalIgnoreCase) >= 0 ||
                      fixedElement.Type.IndexOf("stair", StringComparison.OrdinalIgnoreCase) >= 0 ||
                      fixedElement.Type.IndexOf("elevator", StringComparison.OrdinalIgnoreCase) >= 0) &&
-                    GeometryPredicates.TouchesOrOverlaps(corridorPolygon, fixedElement.Polygon, _tolerance))
+                    FixedElementConnectsToCorridor(corridorPolygon, fixedElement))
                 {
                     connections.Add(fixedElement.Id);
                 }
@@ -744,7 +744,7 @@ namespace FloorPlanGeneration.Generation
             {
                 graph.AddNode(fixedElement.Id, fixedElement.Type, fixedElement.Id, "floorplate");
                 graph.AddEdge(fixedElement.Id, "floorplate", "belongs_to", "fixed_element");
-                if (GeometryPredicates.TouchesOrOverlaps(corridorPolygon, fixedElement.Polygon, _tolerance))
+                if (FixedElementConnectsToCorridor(corridorPolygon, fixedElement))
                 {
                     graph.AddEdge(fixedElement.Id, variant.Corridors[0].Id, "connects_to_corridor", "touches corridor boundary");
                 }
@@ -784,6 +784,40 @@ namespace FloorPlanGeneration.Generation
             }
 
             return graph;
+        }
+
+        private bool FixedElementConnectsToCorridor(Polygon2 corridorPolygon, CleanedFixedElement fixedElement)
+        {
+            if (GeometryPredicates.TouchesOrOverlaps(corridorPolygon, fixedElement.Polygon, _tolerance))
+            {
+                return true;
+            }
+
+            Bounds2 corridorBounds = corridorPolygon.Bounds();
+            Bounds2 fixedBounds = fixedElement.Polygon.Bounds();
+            bool xOverlap = Math.Min(corridorBounds.MaxX, fixedBounds.MaxX) - Math.Max(corridorBounds.MinX, fixedBounds.MinX) > _tolerance;
+            bool yOverlap = Math.Min(corridorBounds.MaxY, fixedBounds.MaxY) - Math.Max(corridorBounds.MinY, fixedBounds.MinY) > _tolerance;
+            bool horizontalFaceAdjacent = yOverlap &&
+                (Math.Abs(corridorBounds.MaxX - fixedBounds.MinX) <= _tolerance ||
+                 Math.Abs(fixedBounds.MaxX - corridorBounds.MinX) <= _tolerance);
+            bool verticalFaceAdjacent = xOverlap &&
+                (Math.Abs(corridorBounds.MaxY - fixedBounds.MinY) <= _tolerance ||
+                 Math.Abs(fixedBounds.MaxY - corridorBounds.MinY) <= _tolerance);
+            if (horizontalFaceAdjacent || verticalFaceAdjacent)
+            {
+                return true;
+            }
+
+            foreach (Point2 accessPoint in _input.Source.Access.VerticalCoreAccess)
+            {
+                if (GeometryPredicates.ContainsPoint(corridorPolygon, accessPoint, _tolerance, true) &&
+                    GeometryPredicates.ContainsPoint(fixedElement.Polygon, accessPoint, _tolerance, true))
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private static Polygon2 CorridorPolygon(CorridorStrategy corridor)

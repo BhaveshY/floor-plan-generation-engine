@@ -3,34 +3,35 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using FloorPlanGeneration;
 using FloorPlanGeneration.Schema;
 
 namespace FloorPlanGeneration.Cli
 {
-    internal static class Program
+    public static class CliApplication
     {
-        private const string Usage = "Usage: FloorPlanGeneration.Cli [--input path] [--output path] [--seed n] [--variants n] [--summary] [--fail-on-partial]";
+        private const string Usage = "Usage: FloorPlanGeneration.Cli [--input path] [--output path] [--seed n] [--variants n] [--validate-only] [--summary] [--fail-on-partial]";
 
-        private static int Main(string[] args)
+        public static int Run(string[] args, TextReader inputReader, TextWriter outputWriter, TextWriter errorWriter)
         {
             CliOptions options;
             if (!TryParseArgs(args, out options))
             {
-                Console.Error.WriteLine(Usage);
+                errorWriter.WriteLine(Usage);
                 return 64;
             }
 
             if (options.Help)
             {
-                Console.Out.WriteLine(Usage);
+                outputWriter.WriteLine(Usage);
                 return 0;
             }
 
             EngineOutput output;
             try
             {
-                string json = ReadInput(options.InputPath);
+                string json = ReadInput(options.InputPath, inputReader);
                 if (string.IsNullOrWhiteSpace(json))
                 {
                     output = FailedOutput("cli.empty_input", "No JSON input was provided.");
@@ -39,7 +40,8 @@ namespace FloorPlanGeneration.Cli
                 {
                     EngineInput input = JsonSerializer.Deserialize<EngineInput>(json, JsonOptions());
                     ApplyOverrides(input, options);
-                    output = new FloorPlanEngine().Generate(input);
+                    FloorPlanEngine engine = new FloorPlanEngine();
+                    output = options.ValidateOnly ? engine.Validate(input) : engine.Generate(input);
                 }
             }
             catch (JsonException ex)
@@ -51,10 +53,10 @@ namespace FloorPlanGeneration.Cli
                 output = FailedOutput("cli.exception", "CLI execution failed: " + ex.Message);
             }
 
-            WriteOutput(options.OutputPath, JsonSerializer.Serialize(output, JsonOptions()));
+            WriteOutput(options.OutputPath, JsonSerializer.Serialize(output, JsonOptions()), outputWriter);
             if (options.Summary)
             {
-                WriteSummary(output, options.OutputPath);
+                WriteSummary(output, options.OutputPath, errorWriter);
             }
 
             if (string.Equals(output.Status, "failed", StringComparison.OrdinalIgnoreCase))
@@ -77,25 +79,26 @@ namespace FloorPlanGeneration.Cli
                 PropertyNameCaseInsensitive = true,
                 PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
                 DictionaryKeyPolicy = JsonNamingPolicy.CamelCase,
+                UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
                 WriteIndented = true
             };
         }
 
-        private static string ReadInput(string inputPath)
+        private static string ReadInput(string inputPath, TextReader inputReader)
         {
             if (!string.IsNullOrWhiteSpace(inputPath))
             {
                 return File.ReadAllText(inputPath);
             }
 
-            return Console.In.ReadToEnd();
+            return inputReader.ReadToEnd();
         }
 
-        private static void WriteOutput(string outputPath, string json)
+        private static void WriteOutput(string outputPath, string json, TextWriter outputWriter)
         {
             if (string.IsNullOrWhiteSpace(outputPath))
             {
-                Console.Out.WriteLine(json);
+                outputWriter.WriteLine(json);
                 return;
             }
 
@@ -128,7 +131,7 @@ namespace FloorPlanGeneration.Cli
             }
         }
 
-        private static void WriteSummary(EngineOutput output, string outputPath)
+        private static void WriteSummary(EngineOutput output, string outputPath, TextWriter errorWriter)
         {
             int variantCount = output.Variants != null ? output.Variants.Count : 0;
             int validCount = output.Variants != null ? output.Variants.Count(v => v.Validation != null && v.Validation.Passed) : 0;
@@ -136,7 +139,7 @@ namespace FloorPlanGeneration.Cli
             double bestScore = output.Variants != null && output.Variants.Count > 0 ? output.Variants.Max(v => v.Metrics != null ? v.Metrics.Score : 0.0) : 0.0;
             string target = string.IsNullOrWhiteSpace(outputPath) ? "stdout" : outputPath;
 
-            Console.Error.WriteLine(
+            errorWriter.WriteLine(
                 "status={0} variants={1} valid={2} bestScore={3:0.####} diagnostics={4} output={5}",
                 output.Status,
                 variantCount,
@@ -209,6 +212,12 @@ namespace FloorPlanGeneration.Cli
                     continue;
                 }
 
+                if (arg == "--validate-only" || arg == "--validate")
+                {
+                    options.ValidateOnly = true;
+                    continue;
+                }
+
                 if (arg == "--fail-on-partial")
                 {
                     options.FailOnPartial = true;
@@ -230,6 +239,15 @@ namespace FloorPlanGeneration.Cli
             public int? VariantCountOverride { get; set; }
             public bool Summary { get; set; }
             public bool FailOnPartial { get; set; }
+            public bool ValidateOnly { get; set; }
+        }
+    }
+
+    internal static class Program
+    {
+        private static int Main(string[] args)
+        {
+            return CliApplication.Run(args, Console.In, Console.Out, Console.Error);
         }
     }
 }

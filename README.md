@@ -10,7 +10,8 @@ The engine accepts architectural boundaries and fixed constraints as JSON, then 
 - `FloorPlanGeneration.Cli/` — JSON-in / JSON-out command-line wrapper.
 - `FloorPlanGeneration.Tests/` — xUnit tests for valid generation and failure diagnostics.
 - `docs/floor-plan-generation-engine.md` — detailed architecture, schemas, Rhino layer naming, and MVP limitations.
-- `samples/floor-plan-generation/*.json` — rectangular, L-shaped, and infeasible sample inputs.
+- `docs/roadmap.md` — concise remaining gaps and next integration steps.
+- `samples/floor-plan-generation/*.json` — rectangular, L-shaped, moderately irregular, and infeasible sample inputs.
 
 ## Quick start
 
@@ -24,6 +25,15 @@ dotnet run --project FloorPlanGeneration.Cli -- \
   --summary
 ```
 
+Validate a contract, cleanup, and feasibility dry run without generating variants:
+
+```bash
+dotnet run --project FloorPlanGeneration.Cli -- \
+  --input samples/floor-plan-generation/rectangular-core-input.json \
+  --validate-only \
+  --summary
+```
+
 Useful CLI overrides:
 
 ```bash
@@ -32,6 +42,15 @@ dotnet run --project FloorPlanGeneration.Cli -- \
   --output /tmp/l-shaped-output.json \
   --seed 5601 \
   --variants 5 \
+  --summary
+```
+
+The moderately irregular sample exercises a stepped floorplate with one fixed core:
+
+```bash
+dotnet run --project FloorPlanGeneration.Cli -- \
+  --input samples/floor-plan-generation/moderately-irregular-core-input.json \
+  --output /tmp/moderately-irregular-output.json \
   --summary
 ```
 
@@ -49,8 +68,9 @@ dotnet run --project FloorPlanGeneration.Cli -- \
 - Deterministic generation with seed-based variation.
 - Honest validation failures with machine-readable diagnostics.
 - Rhino/Grasshopper coupling only through future adapters.
-- Predictable future Rhino layer naming such as `FP::Input::Boundary`, `FP::Input::Fixed`, `FP::Generated::Units`, `FP::Generated::Corridors`, and `FP::Generated::Diagnostics`.
+- Strict CLI JSON parsing: unknown JSON properties fail fast instead of being silently ignored.
+- Adapter-facing output metadata for schema version, seed, effective generation settings, floorplate bounds/areas, and predictable layer names such as `FP::Input::Boundary`, `FP::Input::Fixed`, `FP::Generated::Units`, `FP::Generated::Corridors`, and `FP::Generated::Diagnostics`.
 
 ## MVP scope
 
-This MVP targets rectangular, L-shaped, and moderately irregular floorplates with one fixed core. Candidate placement is obstacle-aware for holes and blocking fixed elements, but still heuristic and template-based. It is not a finished architectural design system; it is a production-oriented engine skeleton with explicit validation and extension points.
+This MVP targets rectangular, L-shaped, and moderately irregular orthogonal floorplates with one fixed core. Candidate placement is obstacle-aware for holes and blocking fixed elements, but still heuristic and template-based. It is not a finished architectural design system; it is a production-oriented engine skeleton with explicit validation and extension points. See `docs/roadmap.md` for the remaining product gaps.

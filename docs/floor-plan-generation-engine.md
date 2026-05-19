@@ -15,14 +15,15 @@ This document describes the MVP floor plan generation engine added under `FloorP
 The public orchestration path is:
 
 1. Normalize missing optional input sections and defaults.
-2. Clean the floorplate, holes, and fixed element polygons.
-3. Stop on invalid geometry diagnostics such as self-intersection.
-4. Run conservative feasibility checks for usable area and corridor-plus-unit-band depth.
-5. Generate deterministic corridor/unit/room candidates from the cleaned input.
-6. Split corridor and unit placement intervals around holes and blocking fixed elements.
-7. Normalize generated output ordering and repair duplicate corridor connection labels.
-8. Validate geometry containment, overlap, corridor width, doors, daylight requirements, and strict unit-mix constraints.
-9. Score each variant and rank valid variants before invalid variants.
+2. Validate the input contract before generation: required outer boundary, finite numbers, positive rule values, supported strictness, unit target ranges, variant-count bounds, and scoring weights.
+3. Clean the floorplate, holes, and fixed element polygons.
+4. Stop on invalid geometry diagnostics such as self-intersection.
+5. Run conservative feasibility checks for usable area and corridor-plus-unit-band depth.
+6. Generate deterministic corridor/unit/room candidates from the cleaned input.
+7. Split corridor and unit placement intervals around holes and blocking fixed elements.
+8. Normalize generated output ordering, bounds, layers, and duplicate corridor connection labels.
+9. Validate geometry containment, overlap, corridor width, doors, fixed-core access, daylight requirements, and strict unit-mix constraints.
+10. Score each variant and rank valid variants before invalid variants.
 
 ## Input Schema
 
@@ -50,27 +51,33 @@ samples/floor-plan-generation/rectangular-core-input.json
 Additional samples:
 
 - `samples/floor-plan-generation/l-shaped-core-input.json`: L-shaped floorplate with a blocking core; expected to produce valid variants.
+- `samples/floor-plan-generation/moderately-irregular-core-input.json`: stepped orthogonal floorplate with one blocking core and core access point; expected to produce valid variants.
 - `samples/floor-plan-generation/infeasible-narrow-input.json`: deliberately too narrow for the MVP corridor and unit-band heuristic; expected to return failed JSON with no variants.
+
+The CLI uses strict `System.Text.Json` parsing. Unknown JSON properties are rejected with `cli.invalid_json` so misspelled contract fields do not silently fall back to defaults.
 
 ## Output Schema
 
 `EngineOutput` contains:
 
 - `projectId`
-- `status`: `succeeded`, `partial`, or `failed`
+- `status`: `succeeded`, `partial`, `failed`, or `validated` for `--validate-only`
+- `metadata`: schema version, engine version, project units/tolerance, deterministic seed, effective generation settings, predictable layer names, and floorplate bounds/area summaries
 - `variants`: ranked `LayoutVariant` results
 - `diagnostics`: top-level cleanup, generation, validation, or CLI diagnostics
 
 Each variant contains:
 
 - `variantId`, `seed`, `status`
-- `units`, each with type, polygon, area, rooms, facade length, and score
-- `rooms`, duplicated at variant level for easier adapters
-- `corridors`, with polygon, centerline, width, and connected ids
-- `walls`, `doorsOpenings`, `labels`
+- `units`, each with type, polygon, bounds, layer, area, rooms, facade length, and score
+- `rooms`, duplicated at variant level for easier adapters, each with bounds and layer
+- `corridors`, with polygon, bounds, layer, centerline, width, and connected ids
+- `walls`, `doorsOpenings`, `labels`, each with predictable generated layer names
 - `metrics`: gross area, sellable area, corridor area, net-gross ratio, efficiency, unit-mix match, score
 - `validation`: checks with severity, source id, and reason
 - `topology`: graph nodes and edges for containment, corridor access, and facade exposure
+
+`metadata.layers` is the adapter-facing layer map. Current keys are `inputBoundary`, `inputHoles`, `inputFixed`, `inputAccess`, `inputFacade`, `units`, `rooms`, `corridors`, `walls`, `doors`, `labels`, `diagnostics`, and `topology`.
 
 ## CLI Usage
 
@@ -86,6 +93,12 @@ Read from stdin and write to stdout:
 dotnet run --project FloorPlanGeneration.Cli -- < samples/floor-plan-generation/rectangular-core-input.json
 ```
 
+Validate only, without candidate generation:
+
+```sh
+dotnet run --project FloorPlanGeneration.Cli -- --input samples/floor-plan-generation/rectangular-core-input.json --validate-only --summary
+```
+
 Override the input seed or variant count without editing JSON:
 
 ```sh
@@ -96,7 +109,7 @@ dotnet run --project FloorPlanGeneration.Cli -- --input samples/floor-plan-gener
 
 Exit codes:
 
-- `0`: engine status is not `failed`
+- `0`: engine status is not `failed`, including `validated`
 - `2`: engine returned failed JSON output
 - `3`: engine returned partial JSON output and `--fail-on-partial` was supplied
 - `64`: CLI argument error
@@ -105,7 +118,10 @@ Exit codes:
 
 Recommended MVP Grasshopper components:
 
-- `FP Engine Input`: builds `EngineInput` from floorplate curve, hole curves, core curves, facade curves, program tables, rule sliders, and seed.
+- `FP Boundary`: converts the outer floorplate curve and hole curves into `floorplate.outer` and `floorplate.holes`.
+- `FP Fixed Elements`: converts core, stair, elevator, shaft, and other fixed curves into `fixedElements`.
+- `FP Access`: maps entry points, vertical core access points, and optional corridor guide lines into `access`.
+- `FP Program Rules`: builds `program`, `rules`, and `generationSettings` from value lists, sliders, and tables.
 - `FP Generate`: calls `FloorPlanEngine.Generate(input)` and returns output JSON plus typed variant objects.
 - `FP Variant Picker`: sorts or selects a `LayoutVariant` by rank, score, or id.
 - `FP Bake Variant`: maps units, rooms, corridors, walls, doors, and labels to Rhino geometry and layers.
@@ -154,9 +170,10 @@ The MVP validates:
 - Generated units stay inside the floorplate, do not overlap holes/fixed elements/corridors/other units, and meet minimum unit area.
 - Generated rooms reference existing units, stay inside their units, have positive area, and satisfy configured daylight requirements for bedroom/living room types.
 - Generated units have door/opening connections.
+- Corridor connection lists include unit ids, vertical access point ids, and fixed core/stair/elevator ids when the corridor touches the fixed element, is face-adjacent, or shares a provided vertical core access point.
 - `generationSettings.strictness = "strict"` requires exact target unit counts when target counts are supplied.
 
-Invalid outer-boundary geometry and conservative infeasibility checks stop before candidate generation and return failed diagnostics with no fake variants. When generation does run but cannot produce valid layouts, generation failure codes from variants are summarized at the top level.
+Invalid contract values, invalid outer-boundary geometry, and conservative infeasibility checks stop before candidate generation and return failed diagnostics with no fake variants. When generation does run but cannot produce valid layouts, generation failure codes from variants are summarized at the top level.
 
 ## MVP Limits
 

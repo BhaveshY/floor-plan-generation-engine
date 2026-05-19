@@ -5,6 +5,7 @@ using System.Linq;
 using FloorPlanGeneration.Generation;
 using FloorPlanGeneration.Geometry;
 using FloorPlanGeneration.Schema;
+using FloorPlanGeneration.Validation;
 
 namespace FloorPlanGeneration
 {
@@ -38,6 +39,26 @@ namespace FloorPlanGeneration
             return Generate(input);
         }
 
+        public EngineOutput Validate(EngineInput input)
+        {
+            try
+            {
+                return ValidateCore(input);
+            }
+            catch (Exception ex)
+            {
+                return new EngineOutput
+                {
+                    ProjectId = ResolveProjectId(input),
+                    Status = "failed",
+                    Diagnostics = new List<Diagnostic>
+                    {
+                        Diagnostic.Error("engine.exception", "Floor plan validation failed unexpectedly: " + ex.Message)
+                    }
+                };
+            }
+        }
+
         private EngineOutput GenerateCore(EngineInput input)
         {
             EngineOutput output = new EngineOutput
@@ -52,6 +73,14 @@ namespace FloorPlanGeneration
                 return output;
             }
 
+            output.Diagnostics.AddRange(InputContractValidator.Validate(input));
+            if (HasErrors(output.Diagnostics))
+            {
+                output.Status = "failed";
+                output.Metadata = BuildMetadata(input, null);
+                return output;
+            }
+
             List<Diagnostic> defaultsDiagnostics = new List<Diagnostic>();
             EnsureDefaults(input, defaultsDiagnostics);
             output.ProjectId = ResolveProjectId(input);
@@ -59,6 +88,7 @@ namespace FloorPlanGeneration
 
             CleanedInput cleaned = CleanInput(input);
             output.Diagnostics.AddRange(cleaned.Diagnostics);
+            output.Metadata = BuildMetadata(input, cleaned);
             if (HasErrors(output.Diagnostics))
             {
                 output.Status = "failed";
@@ -117,6 +147,51 @@ namespace FloorPlanGeneration
                 AddVariantGenerationDiagnosticSummary(output, includeWarnings: string.Equals(output.Status, "failed", StringComparison.OrdinalIgnoreCase));
             }
 
+            return output;
+        }
+
+        private EngineOutput ValidateCore(EngineInput input)
+        {
+            EngineOutput output = new EngineOutput
+            {
+                ProjectId = ResolveProjectId(input),
+                Status = "failed"
+            };
+
+            if (input == null)
+            {
+                output.Diagnostics.Add(Diagnostic.Error("input.null", "Engine input cannot be null."));
+                return output;
+            }
+
+            output.Diagnostics.AddRange(InputContractValidator.Validate(input));
+            if (HasErrors(output.Diagnostics))
+            {
+                output.Metadata = BuildMetadata(input, null);
+                return output;
+            }
+
+            List<Diagnostic> defaultsDiagnostics = new List<Diagnostic>();
+            EnsureDefaults(input, defaultsDiagnostics);
+            output.ProjectId = ResolveProjectId(input);
+            output.Diagnostics.AddRange(defaultsDiagnostics);
+
+            CleanedInput cleaned = CleanInput(input);
+            output.Diagnostics.AddRange(cleaned.Diagnostics);
+            output.Metadata = BuildMetadata(input, cleaned);
+            if (HasErrors(output.Diagnostics))
+            {
+                return output;
+            }
+
+            output.Diagnostics.AddRange(AnalyzeFeasibility(cleaned));
+            if (HasErrors(output.Diagnostics))
+            {
+                return output;
+            }
+
+            output.Status = "validated";
+            output.Diagnostics.Add(Diagnostic.Info("input.validated", "Input contract, geometry cleanup, and MVP feasibility checks passed.", output.ProjectId));
             return output;
         }
 
@@ -379,6 +454,8 @@ namespace FloorPlanGeneration
 
             foreach (CorridorLayout corridor in variant.Corridors)
             {
+                corridor.Layer = string.IsNullOrWhiteSpace(corridor.Layer) ? LayerNames.GeneratedCorridors : corridor.Layer;
+                corridor.Bounds = ToPolygon(corridor.Polygon).Bounds();
                 if (corridor.Connections == null)
                 {
                     corridor.Connections = new List<string>();
@@ -395,6 +472,33 @@ namespace FloorPlanGeneration
                 {
                     variant.Diagnostics.Add(Diagnostic.Info("repair.corridor_connections_deduplicated", "Removed duplicate or empty corridor connections.", corridor.Id));
                 }
+            }
+
+            foreach (UnitLayout unit in variant.Units)
+            {
+                unit.Layer = string.IsNullOrWhiteSpace(unit.Layer) ? LayerNames.GeneratedUnits : unit.Layer;
+                unit.Bounds = ToPolygon(unit.Polygon).Bounds();
+            }
+
+            foreach (RoomLayout room in variant.Rooms)
+            {
+                room.Layer = string.IsNullOrWhiteSpace(room.Layer) ? LayerNames.GeneratedRooms : room.Layer;
+                room.Bounds = ToPolygon(room.Polygon).Bounds();
+            }
+
+            foreach (WallLayout wall in variant.Walls)
+            {
+                wall.Layer = string.IsNullOrWhiteSpace(wall.Layer) ? LayerNames.GeneratedWalls : wall.Layer;
+            }
+
+            foreach (DoorOpening door in variant.DoorsOpenings)
+            {
+                door.Layer = string.IsNullOrWhiteSpace(door.Layer) ? LayerNames.GeneratedDoors : door.Layer;
+            }
+
+            foreach (LabelLayout label in variant.Labels)
+            {
+                label.Layer = string.IsNullOrWhiteSpace(label.Layer) ? LayerNames.GeneratedLabels : label.Layer;
             }
         }
 
@@ -580,6 +684,53 @@ namespace FloorPlanGeneration
         private static double GrossArea(CleanedInput input)
         {
             return Math.Max(0.0, input.Floorplate.Area() - input.Holes.Sum(h => h.Area()));
+        }
+
+        private static EngineMetadata BuildMetadata(EngineInput input, CleanedInput cleaned)
+        {
+            EngineMetadata metadata = new EngineMetadata();
+            if (input == null)
+            {
+                return metadata;
+            }
+
+            if (input.Project != null)
+            {
+                metadata.ProjectUnits = string.IsNullOrWhiteSpace(input.Project.Units) ? "m" : input.Project.Units;
+                metadata.Tolerance = input.Project.Tolerance;
+                metadata.Seed = input.Project.Seed;
+            }
+
+            if (input.GenerationSettings != null)
+            {
+                metadata.GenerationSettings = new GenerationSettingsSummary
+                {
+                    VariantCount = input.GenerationSettings.VariantCount,
+                    TimeLimitMilliseconds = input.GenerationSettings.TimeLimitMilliseconds,
+                    Strictness = string.IsNullOrWhiteSpace(input.GenerationSettings.Strictness) ? "balanced" : input.GenerationSettings.Strictness,
+                    WeightedVariation = input.GenerationSettings.WeightedVariation,
+                    ScoringWeights = input.GenerationSettings.ScoringWeights != null
+                        ? new Dictionary<string, double>(input.GenerationSettings.ScoringWeights, StringComparer.OrdinalIgnoreCase)
+                        : new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase)
+                };
+            }
+
+            if (cleaned != null && cleaned.Floorplate != null && cleaned.Floorplate.Count > 0)
+            {
+                double grossArea = GrossArea(cleaned);
+                double holeArea = cleaned.Holes.Sum(h => h.Area());
+                double blockingArea = cleaned.FixedElements.Where(f => f.BlocksGeneration).Sum(f => f.Polygon.Area());
+                metadata.Floorplate = new FloorplateSummary
+                {
+                    Bounds = cleaned.Floorplate.Bounds(),
+                    GrossArea = Round(grossArea),
+                    HoleArea = Round(holeArea),
+                    BlockingFixedElementArea = Round(blockingArea),
+                    UsableArea = Round(Math.Max(0.0, grossArea - blockingArea))
+                };
+            }
+
+            return metadata;
         }
 
         private static double GetWeight(CleanedInput input, string key, double fallback)

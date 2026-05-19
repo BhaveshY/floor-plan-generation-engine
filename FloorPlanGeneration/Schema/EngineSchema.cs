@@ -251,14 +251,113 @@ namespace FloorPlanGeneration.Schema
         {
             ProjectId = string.Empty;
             Status = "not_started";
+            Metadata = new EngineMetadata();
             Variants = new List<LayoutVariant>();
             Diagnostics = new List<Diagnostic>();
         }
 
         public string ProjectId { get; set; }
         public string Status { get; set; }
+        public EngineMetadata Metadata { get; set; }
         public List<LayoutVariant> Variants { get; set; }
         public List<Diagnostic> Diagnostics { get; set; }
+    }
+
+    public sealed class EngineMetadata
+    {
+        public EngineMetadata()
+        {
+            SchemaVersion = "1.0";
+            EngineVersion = "0.1.0";
+            ProjectUnits = "m";
+            Tolerance = 0.01;
+            Seed = 1;
+            GenerationSettings = new GenerationSettingsSummary();
+            Layers = LayerNames.DefaultMap();
+            Floorplate = new FloorplateSummary();
+        }
+
+        public string SchemaVersion { get; set; }
+        public string EngineVersion { get; set; }
+        public string ProjectUnits { get; set; }
+        public double Tolerance { get; set; }
+        public int Seed { get; set; }
+        public GenerationSettingsSummary GenerationSettings { get; set; }
+        public Dictionary<string, string> Layers { get; set; }
+        public FloorplateSummary Floorplate { get; set; }
+    }
+
+    public sealed class GenerationSettingsSummary
+    {
+        public GenerationSettingsSummary()
+        {
+            VariantCount = 1;
+            TimeLimitMilliseconds = 1000;
+            Strictness = "balanced";
+            WeightedVariation = true;
+            ScoringWeights = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        public int VariantCount { get; set; }
+        public int TimeLimitMilliseconds { get; set; }
+        public string Strictness { get; set; }
+        public bool WeightedVariation { get; set; }
+        public Dictionary<string, double> ScoringWeights { get; set; }
+    }
+
+    public sealed class FloorplateSummary
+    {
+        public FloorplateSummary()
+        {
+            Bounds = new Bounds2();
+            GrossArea = 0.0;
+            HoleArea = 0.0;
+            BlockingFixedElementArea = 0.0;
+            UsableArea = 0.0;
+        }
+
+        public Bounds2 Bounds { get; set; }
+        public double GrossArea { get; set; }
+        public double HoleArea { get; set; }
+        public double BlockingFixedElementArea { get; set; }
+        public double UsableArea { get; set; }
+    }
+
+    public static class LayerNames
+    {
+        public const string InputBoundary = "FP::Input::Boundary";
+        public const string InputHoles = "FP::Input::Holes";
+        public const string InputFixed = "FP::Input::Fixed";
+        public const string InputAccess = "FP::Input::Access";
+        public const string InputFacade = "FP::Input::Facade";
+        public const string GeneratedUnits = "FP::Generated::Units";
+        public const string GeneratedRooms = "FP::Generated::Rooms";
+        public const string GeneratedCorridors = "FP::Generated::Corridors";
+        public const string GeneratedWalls = "FP::Generated::Walls";
+        public const string GeneratedDoors = "FP::Generated::Doors";
+        public const string GeneratedLabels = "FP::Generated::Labels";
+        public const string GeneratedDiagnostics = "FP::Generated::Diagnostics";
+        public const string GeneratedTopology = "FP::Generated::Topology";
+
+        public static Dictionary<string, string> DefaultMap()
+        {
+            return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                { "inputBoundary", InputBoundary },
+                { "inputHoles", InputHoles },
+                { "inputFixed", InputFixed },
+                { "inputAccess", InputAccess },
+                { "inputFacade", InputFacade },
+                { "units", GeneratedUnits },
+                { "rooms", GeneratedRooms },
+                { "corridors", GeneratedCorridors },
+                { "walls", GeneratedWalls },
+                { "doors", GeneratedDoors },
+                { "labels", GeneratedLabels },
+                { "diagnostics", GeneratedDiagnostics },
+                { "topology", GeneratedTopology }
+            };
+        }
     }
 
     public sealed class LayoutVariant
@@ -302,19 +401,23 @@ namespace FloorPlanGeneration.Schema
             Id = string.Empty;
             Type = "studio";
             Polygon = new PolygonInput();
+            Bounds = new Bounds2();
             Area = 0.0;
             Rooms = new List<RoomLayout>();
             FacadeLength = 0.0;
             Score = 0.0;
+            Layer = LayerNames.GeneratedUnits;
         }
 
         public string Id { get; set; }
         public string Type { get; set; }
         public PolygonInput Polygon { get; set; }
+        public Bounds2 Bounds { get; set; }
         public double Area { get; set; }
         public List<RoomLayout> Rooms { get; set; }
         public double FacadeLength { get; set; }
         public double Score { get; set; }
+        public string Layer { get; set; }
     }
 
     public sealed class RoomLayout
@@ -325,18 +428,22 @@ namespace FloorPlanGeneration.Schema
             UnitId = string.Empty;
             RoomType = "room";
             Polygon = new PolygonInput();
+            Bounds = new Bounds2();
             Area = 0.0;
             Dimensions = new SpaceDimensions();
             Daylight = false;
+            Layer = LayerNames.GeneratedRooms;
         }
 
         public string Id { get; set; }
         public string UnitId { get; set; }
         public string RoomType { get; set; }
         public PolygonInput Polygon { get; set; }
+        public Bounds2 Bounds { get; set; }
         public double Area { get; set; }
         public SpaceDimensions Dimensions { get; set; }
         public bool Daylight { get; set; }
+        public string Layer { get; set; }
     }
 
     public sealed class SpaceDimensions
@@ -351,16 +458,20 @@ namespace FloorPlanGeneration.Schema
         {
             Id = string.Empty;
             Polygon = new PolygonInput();
+            Bounds = new Bounds2();
             Centerline = new LineInput();
             Width = 0.0;
             Connections = new List<string>();
+            Layer = LayerNames.GeneratedCorridors;
         }
 
         public string Id { get; set; }
         public PolygonInput Polygon { get; set; }
+        public Bounds2 Bounds { get; set; }
         public LineInput Centerline { get; set; }
         public double Width { get; set; }
         public List<string> Connections { get; set; }
+        public string Layer { get; set; }
     }
 
     public sealed class WallLayout
@@ -371,12 +482,14 @@ namespace FloorPlanGeneration.Schema
             Centerline = new LineInput();
             Thickness = 0.15;
             LayerType = "partition";
+            Layer = LayerNames.GeneratedWalls;
         }
 
         public string Id { get; set; }
         public LineInput Centerline { get; set; }
         public double Thickness { get; set; }
         public string LayerType { get; set; }
+        public string Layer { get; set; }
     }
 
     public sealed class DoorOpening
@@ -388,6 +501,7 @@ namespace FloorPlanGeneration.Schema
             Width = 0.9;
             HostWall = string.Empty;
             ConnectsSpaces = new List<string>();
+            Layer = LayerNames.GeneratedDoors;
         }
 
         public string Id { get; set; }
@@ -395,6 +509,7 @@ namespace FloorPlanGeneration.Schema
         public double Width { get; set; }
         public string HostWall { get; set; }
         public List<string> ConnectsSpaces { get; set; }
+        public string Layer { get; set; }
     }
 
     public sealed class LabelLayout
@@ -405,7 +520,7 @@ namespace FloorPlanGeneration.Schema
             Text = string.Empty;
             Location = new Point2();
             TargetId = string.Empty;
-            Layer = "FP::Generated::Labels";
+            Layer = LayerNames.GeneratedLabels;
         }
 
         public string Id { get; set; }
