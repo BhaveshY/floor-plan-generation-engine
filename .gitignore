@@ -13,4 +13,6 @@ TestResults/
 *.suo
 *.nupkg
 .dotnet/
+.tools/
+artifacts/
 outputs/

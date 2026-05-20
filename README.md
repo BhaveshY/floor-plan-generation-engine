@@ -20,6 +20,14 @@ Windows double-click:
 scripts\run-sample.bat
 ```
 
+Vectorworks MCP setup:
+
+```powershell
+.\scripts\install-vectorworks-mcp.ps1
+```
+
+Or double-click `scripts\install-vectorworks-mcp.bat`.
+
 macOS/Linux:
 
 ```bash
@@ -44,10 +52,12 @@ dotnet run --project FloorPlanGeneration.Cli -- --list-samples
 
 - `FloorPlanGeneration/` - deterministic C# engine, geometry validation, topology graph, candidate generation, ranking, diagnostics.
 - `FloorPlanGeneration.Cli/` - JSON-in / JSON-out command-line wrapper.
+- `FloorPlanGeneration.VectorworksMcp/` - stdio MCP server exposing Vectorworks-ready generation, validation, sample, schema, and health tools.
 - `FloorPlanGeneration.Tests/` - xUnit tests for valid generation and failure diagnostics.
 - `schemas/*.schema.json` - published JSON Schema artifacts for the input and output contracts.
 - `docs/floor-plan-generation-engine.md` - detailed architecture, schemas, Rhino layer naming, and MVP limitations.
 - `docs/rhino-grasshopper-adapter-contract.md` - dependency-free adapter contract for Rhino and Grasshopper projects.
+- `docs/vectorworks-mcp-setup.md` - MCP install, client config, smoke test, and Vectorworks adapter notes.
 - `docs/roadmap.md` - concise remaining gaps and next integration steps.
 - `samples/floor-plan-generation/*.json` - rectangular, L-shaped, moderately irregular, and infeasible sample inputs.
 
@@ -129,12 +139,27 @@ dotnet tool install FloorPlanGeneration.Cli \
 .tools/floorplan-gen --sample rectangular-core --output outputs/rectangular-core-output.json --summary
 ```
 
+The Vectorworks MCP server can be packed and installed the same way, but the installer handles the common setup:
+
+```powershell
+.\scripts\install-vectorworks-mcp.ps1
+```
+
+It writes `outputs/vectorworks-mcp-client-config.json` and can also update known client configs:
+
+```powershell
+.\scripts\install-vectorworks-mcp.ps1 -Client ClaudeDesktop
+.\scripts\install-vectorworks-mcp.ps1 -Client Cursor
+```
+
+See `docs/vectorworks-mcp-setup.md` for manual config, smoke tests, and adapter import notes.
+
 ## Design Principles
 
 - Headless JSON I/O core.
 - Deterministic generation with seed-based variation.
 - Honest validation failures with machine-readable diagnostics.
-- Rhino/Grasshopper coupling only through future adapters.
+- Rhino/Grasshopper/Vectorworks coupling only through adapters and MCP wrappers.
 - Strict CLI JSON parsing: unknown JSON properties fail fast instead of being silently ignored.
 - Published schema version `1.1` with strict input schema, output schema, and compact golden contract fixtures.
 - Adapter-facing output metadata for schema version, seed, effective generation settings, floorplate bounds/areas, stable `externalId` values, and predictable layer names such as `FP::Input::Boundary`, `FP::Input::Fixed`, `FP::Generated::Units`, `FP::Generated::Corridors`, and `FP::Generated::Diagnostics`.

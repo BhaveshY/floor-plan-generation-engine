@@ -6,4 +6,5 @@
 - Added strict input parsing, validation dry-run mode, and machine-readable diagnostics.
 - Added published input/output JSON Schema artifacts with schema version `1.1`.
 - Added stable adapter-facing `externalId` values and Rhino/Grasshopper layer names.
+- Added Vectorworks-focused MCP stdio server with install scripts, client config generation, health checks, and tool-call tests.
 - Added representative samples and golden contract tests for rectangular, L-shaped, moderately irregular, and infeasible floorplates.

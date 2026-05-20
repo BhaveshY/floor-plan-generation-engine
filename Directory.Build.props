@@ -7,7 +7,7 @@
     <RepositoryType>git</RepositoryType>
     <PackageProjectUrl>https://github.com/BhaveshY/floor-plan-generation-engine</PackageProjectUrl>
     <PackageReadmeFile>README.md</PackageReadmeFile>
-    <PackageTags>floor-plan;architecture;json;rhino;grasshopper</PackageTags>
+    <PackageTags>floor-plan;architecture;json;rhino;grasshopper;vectorworks;mcp</PackageTags>
     <ContinuousIntegrationBuild Condition="'$(GITHUB_ACTIONS)' == 'true'">true</ContinuousIntegrationBuild>
   </PropertyGroup>
 

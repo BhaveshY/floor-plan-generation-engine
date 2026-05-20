@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <AssemblyName>FloorPlanGeneration.VectorworksMcp</AssemblyName>
+    <RootNamespace>FloorPlanGeneration.VectorworksMcp</RootNamespace>
+    <PackageId>FloorPlanGeneration.VectorworksMcp</PackageId>
+    <Description>Model Context Protocol stdio server exposing Vectorworks-ready floor plan generation tools.</Description>
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>floorplan-vectorworks-mcp</ToolCommandName>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\FloorPlanGeneration\FloorPlanGeneration.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="..\schemas\*.schema.json" Link="schemas\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\samples\floor-plan-generation\*.json" Link="samples\floor-plan-generation\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>
