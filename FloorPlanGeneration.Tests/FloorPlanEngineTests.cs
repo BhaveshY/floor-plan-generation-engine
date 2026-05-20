@@ -3,11 +3,15 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Net.Http;
+using System.Net.Http.Json;
 using System.Text.Json;
+using System.Threading.Tasks;
 using FloorPlanGeneration;
 using FloorPlanGeneration.Cli;
 using FloorPlanGeneration.Geometry;
 using FloorPlanGeneration.Schema;
+using Microsoft.AspNetCore.Mvc.Testing;
 using Xunit;
 
 namespace FloorPlanGeneration.Tests
@@ -364,6 +368,44 @@ namespace FloorPlanGeneration.Tests
                 new StringWriter(CultureInfo.InvariantCulture));
 
             Assert.Equal(64, exitCode);
+        }
+
+        [Fact]
+        public async Task WebApiManifest_DescribesLocalGenerateContract()
+        {
+            using (WebApplicationFactory<global::Program> factory = new WebApplicationFactory<global::Program>())
+            using (HttpClient client = factory.CreateClient())
+            using (JsonDocument manifest = JsonDocument.Parse(await client.GetStringAsync("/api/manifest")))
+            {
+                Assert.Equal("floor-plan-engine-web-api", manifest.RootElement.GetProperty("name").GetString());
+                Assert.Contains(
+                    manifest.RootElement.GetProperty("endpoints").EnumerateArray(),
+                    endpoint => endpoint.GetProperty("path").GetString() == "/api/generate");
+                Assert.Equal(20, manifest.RootElement.GetProperty("limits").GetProperty("variantsMax").GetInt32());
+            }
+        }
+
+        [Fact]
+        public async Task WebApiGenerateSample_ReturnsSuccessfulEngineOutput()
+        {
+            using (WebApplicationFactory<global::Program> factory = new WebApplicationFactory<global::Program>())
+            using (HttpClient client = factory.CreateClient())
+            {
+                HttpResponseMessage response = await client.PostAsJsonAsync("/api/generate", new
+                {
+                    sampleName = "rectangular-core",
+                    variants = 1
+                });
+                response.EnsureSuccessStatusCode();
+
+                using (JsonDocument body = JsonDocument.Parse(await response.Content.ReadAsStringAsync()))
+                {
+                    Assert.Equal("succeeded", body.RootElement.GetProperty("status").GetString());
+                    Assert.Equal(1, body.RootElement.GetProperty("variantCount").GetInt32());
+                    Assert.Equal(1, body.RootElement.GetProperty("validVariantCount").GetInt32());
+                    Assert.Equal("succeeded", body.RootElement.GetProperty("output").GetProperty("status").GetString());
+                }
+            }
         }
 
         [Fact]

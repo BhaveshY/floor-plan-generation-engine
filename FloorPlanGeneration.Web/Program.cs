@@ -354,3 +354,7 @@ public sealed class GenerationRequest
     public int? Variants { get; set; }
     public bool ValidateOnly { get; set; }
 }
+
+public partial class Program
+{
+}
