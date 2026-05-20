@@ -31,6 +31,7 @@ const els = {
   variantList: document.getElementById("variantList"),
   diagnosticList: document.getElementById("diagnosticList"),
   outputJson: document.getElementById("outputJson"),
+  exportSummary: document.getElementById("exportSummary"),
   copyOutputBtn: document.getElementById("copyOutputBtn"),
   downloadOutputBtn: document.getElementById("downloadOutputBtn")
 };
@@ -224,6 +225,7 @@ async function runEngine(validateOnly) {
     state.selectedVariantId = response.bestVariantId || firstVariantId(response.output);
     setStatus(`${response.status} - ${response.validVariantCount}/${response.variantCount} valid`);
     renderAll();
+    activateTab(response.output && response.output.variants && response.output.variants.length > 0 ? "variants" : "diagnostics");
   } catch (error) {
     renderError("request_failed", error.message);
     setStatus("Request failed");
@@ -239,6 +241,7 @@ function renderAll() {
   renderMetrics(output);
   renderVariants(output);
   renderDiagnostics(output);
+  renderExportSummary(output);
   els.outputJson.textContent = output ? JSON.stringify(output, null, 2) : "";
   els.copyOutputBtn.disabled = !output;
   els.downloadOutputBtn.disabled = !output;
@@ -306,7 +309,6 @@ function renderPreview(output) {
         class: "label",
         x: label.location.x,
         y: -label.location.y,
-        transform: "scale(1,-1)",
         "text-anchor": "middle"
       });
       text.textContent = labelText(label.text);
@@ -349,6 +351,29 @@ function renderVariants(output) {
     });
     els.variantList.appendChild(item);
   });
+}
+
+function renderExportSummary(output) {
+  if (!output) {
+    els.exportSummary.innerHTML = `
+      <div><span>Status</span><strong>-</strong></div>
+      <div><span>Schema</span><strong>-</strong></div>
+      <div><span>Hypergraph</span><strong>-</strong></div>
+    `;
+    return;
+  }
+
+  const variant = selectedVariant(output);
+  const hypergraph = variant && variant.topology ? variant.topology.hypergraph : null;
+  const hypergraphText = hypergraph
+    ? `${hypergraph.nodes ? hypergraph.nodes.length : 0} nodes, ${hypergraph.hyperedges ? hypergraph.hyperedges.length : 0} edges, ${hypergraph.incidence ? hypergraph.incidence.length : 0} incidence`
+    : "-";
+
+  els.exportSummary.innerHTML = `
+    <div><span>Status</span><strong>${escapeHtml(output.status || "-")}</strong></div>
+    <div><span>Schema</span><strong>${escapeHtml(output.metadata ? output.metadata.schemaVersion : "-")}</strong></div>
+    <div><span>Hypergraph</span><strong>${escapeHtml(hypergraphText)}</strong></div>
+  `;
 }
 
 function renderDiagnostics(output) {

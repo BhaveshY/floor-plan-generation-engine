@@ -168,7 +168,7 @@ input {
 
 .workspace {
   display: grid;
-  grid-template-columns: minmax(330px, 0.9fr) minmax(430px, 1.25fr) minmax(300px, 0.85fr);
+  grid-template-columns: minmax(520px, 1.45fr) minmax(330px, 0.85fr);
   gap: 14px;
   padding: 14px;
   min-height: 0;
@@ -214,11 +214,6 @@ input {
   overflow: hidden;
   clip: rect(0 0 0 0);
   white-space: nowrap;
-}
-
-.editor-panel {
-  display: grid;
-  grid-template-rows: auto 1fr;
 }
 
 textarea {
@@ -410,13 +405,90 @@ textarea.dragging {
   background: #fff1d8;
 }
 
+.advanced-panel {
+  grid-column: 1 / -1;
+}
+
+.editor-panel {
+  display: grid;
+  grid-template-rows: auto auto;
+}
+
+.input-details {
+  border-top: 0;
+}
+
+.input-details textarea {
+  width: 100%;
+  min-height: 420px;
+  display: block;
+  border-top: 1px solid var(--line);
+}
+
+.export-pane {
+  padding: 12px;
+  display: grid;
+  gap: 12px;
+}
+
+.export-summary {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+
+.export-summary div {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px;
+  background: #fbfbf8;
+}
+
+.export-summary span {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.export-summary strong {
+  display: block;
+  margin-top: 5px;
+  font-size: 14px;
+  line-height: 1.25;
+}
+
 .output-actions {
-  padding: 12px 12px 0;
+  padding: 0;
+}
+
+.json-details {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+  background: #fff;
+}
+
+.json-details summary {
+  min-height: 42px;
+  padding: 11px 12px;
+  cursor: pointer;
+  color: var(--ink);
+  font-weight: 800;
+  background: #fbfbf8;
+  border-bottom: 1px solid transparent;
+}
+
+.json-details[open] summary {
+  border-bottom-color: var(--line);
 }
 
 pre {
   margin: 0;
   padding: 12px;
+  max-height: 520px;
+  overflow: auto;
   white-space: pre-wrap;
   word-break: break-word;
   font-family: "Cascadia Mono", "SFMono-Regular", Consolas, monospace;
@@ -490,6 +562,14 @@ pre {
     gap: 8px;
   }
 
+  .panel-head {
+    height: auto;
+    min-height: 48px;
+    align-items: stretch;
+    flex-direction: column;
+    padding: 10px 12px;
+  }
+
   .actions,
   .panel-actions {
     width: 100%;
@@ -510,5 +590,9 @@ pre {
 
   .metrics-row {
     grid-template-columns: repeat(2, 1fr);
+  }
+
+  .label {
+    display: none;
   }
 }
