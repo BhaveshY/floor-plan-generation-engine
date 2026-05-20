@@ -168,7 +168,10 @@ input {
 
 .workspace {
   display: grid;
-  grid-template-columns: minmax(520px, 1.45fr) minmax(330px, 0.85fr);
+  grid-template-columns: minmax(0, 1fr) 340px;
+  grid-template-areas:
+    "plan variants"
+    "issues export";
   gap: 14px;
   padding: 14px;
   min-height: 0;
@@ -184,13 +187,19 @@ input {
 }
 
 .panel-head {
-  height: 48px;
+  min-height: 52px;
   border-bottom: 1px solid var(--line);
-  padding: 0 12px;
+  padding: 10px 12px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+}
+
+.panel-head p {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .panel-actions {
@@ -235,13 +244,14 @@ textarea.dragging {
 }
 
 .preview-panel {
+  grid-area: plan;
   display: grid;
-  grid-template-rows: auto minmax(320px, 1fr) auto;
+  grid-template-rows: auto minmax(420px, 1fr) auto;
 }
 
 .preview-frame {
   position: relative;
-  min-height: 320px;
+  min-height: 420px;
   background: #f7f9f8;
   overflow: hidden;
 }
@@ -250,7 +260,7 @@ textarea.dragging {
   display: block;
   width: 100%;
   height: 100%;
-  min-height: 320px;
+  min-height: 420px;
 }
 
 .empty-preview {
@@ -291,43 +301,18 @@ textarea.dragging {
   font-size: 18px;
 }
 
-.inspector-panel {
+.variants-panel {
+  grid-area: variants;
   display: grid;
   grid-template-rows: auto 1fr;
 }
 
-.tabs {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  border-bottom: 1px solid var(--line);
+.issues-panel {
+  grid-area: issues;
 }
 
-.tab {
-  border: 0;
-  border-right: 1px solid var(--line);
-  border-radius: 0;
-  background: #fbfbf8;
-  font-weight: 700;
-}
-
-.tab:last-child {
-  border-right: 0;
-}
-
-.tab.active {
-  background: #fff;
-  color: var(--teal-strong);
-  box-shadow: inset 0 -3px 0 var(--teal);
-}
-
-.tab-panel {
-  display: none;
-  min-height: 0;
-  overflow: auto;
-}
-
-.tab-panel.active {
-  display: block;
+.export-panel {
+  grid-area: export;
 }
 
 .variant-list,
@@ -335,6 +320,12 @@ textarea.dragging {
   display: grid;
   gap: 8px;
   padding: 12px;
+}
+
+.variant-list {
+  align-content: start;
+  max-height: 520px;
+  overflow: auto;
 }
 
 .variant-item,
@@ -405,24 +396,20 @@ textarea.dragging {
   background: #fff1d8;
 }
 
-.advanced-panel {
-  grid-column: 1 / -1;
-}
-
-.editor-panel {
-  display: grid;
-  grid-template-rows: auto auto;
-}
-
 .input-details {
-  border-top: 0;
+  border-top: 1px solid var(--line);
 }
 
 .input-details textarea {
   width: 100%;
-  min-height: 420px;
+  min-height: 360px;
   display: block;
   border-top: 1px solid var(--line);
+}
+
+.input-actions {
+  padding: 12px;
+  border-bottom: 1px solid var(--line);
 }
 
 .export-pane {
@@ -543,7 +530,11 @@ pre {
 @media (max-width: 1160px) {
   .workspace {
     grid-template-columns: 1fr;
-    grid-auto-rows: minmax(360px, auto);
+    grid-template-areas:
+      "plan"
+      "variants"
+      "issues"
+      "export";
   }
 
   .topbar {
@@ -553,6 +544,14 @@ pre {
 
   .actions {
     justify-content: flex-start;
+  }
+
+  .variant-list {
+    max-height: none;
+  }
+
+  .label {
+    display: none;
   }
 }
 
@@ -592,7 +591,12 @@ pre {
     grid-template-columns: repeat(2, 1fr);
   }
 
-  .label {
-    display: none;
+  .preview-panel {
+    grid-template-rows: auto minmax(280px, auto) auto;
+  }
+
+  .preview-frame,
+  #planSvg {
+    min-height: 280px;
   }
 }

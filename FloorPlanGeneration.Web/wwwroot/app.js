@@ -13,6 +13,7 @@ const els = {
   seedInput: document.getElementById("seedInput"),
   inputEditor: document.getElementById("inputEditor"),
   runStatus: document.getElementById("runStatus"),
+  planSubtitle: document.getElementById("planSubtitle"),
   loadSampleBtn: document.getElementById("loadSampleBtn"),
   validateBtn: document.getElementById("validateBtn"),
   generateBtn: document.getElementById("generateBtn"),
@@ -225,7 +226,6 @@ async function runEngine(validateOnly) {
     state.selectedVariantId = response.bestVariantId || firstVariantId(response.output);
     setStatus(`${response.status} - ${response.validVariantCount}/${response.variantCount} valid`);
     renderAll();
-    activateTab(response.output && response.output.variants && response.output.variants.length > 0 ? "variants" : "diagnostics");
   } catch (error) {
     renderError("request_failed", error.message);
     setStatus("Request failed");
@@ -242,10 +242,23 @@ function renderAll() {
   renderVariants(output);
   renderDiagnostics(output);
   renderExportSummary(output);
+  renderPlanSubtitle(output);
   els.outputJson.textContent = output ? JSON.stringify(output, null, 2) : "";
   els.copyOutputBtn.disabled = !output;
   els.downloadOutputBtn.disabled = !output;
   els.saveSvgBtn.disabled = !output || !selectedVariant(output);
+}
+
+function renderPlanSubtitle(output) {
+  const variant = selectedVariant(output);
+  if (!variant || !variant.metrics) {
+    els.planSubtitle.textContent = "Generated layout";
+    return;
+  }
+
+  const unitCount = variant.units ? variant.units.length : 0;
+  const roomCount = variant.rooms ? variant.rooms.length : 0;
+  els.planSubtitle.textContent = `${variant.variantId} - ${unitCount} units - ${roomCount} rooms`;
 }
 
 function renderVariantSelect(output) {
@@ -556,12 +569,6 @@ function downloadText(fileName, text, mimeType = "application/json") {
   link.click();
   link.remove();
   URL.revokeObjectURL(link.href);
-}
-
-function activateTab(name) {
-  document.querySelectorAll(".tab").forEach((tab) => tab.classList.toggle("active", tab.dataset.tab === name));
-  document.querySelectorAll(".tab-panel").forEach((panel) => panel.classList.remove("active"));
-  document.getElementById(`${name}Tab`).classList.add("active");
 }
 
 function setBusy(busy, label) {

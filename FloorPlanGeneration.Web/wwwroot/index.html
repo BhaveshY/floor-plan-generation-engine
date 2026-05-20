@@ -38,7 +38,10 @@
     <section class="workspace">
       <section class="panel preview-panel">
         <div class="panel-head">
-          <h2>Plan</h2>
+          <div>
+            <h2>Plan</h2>
+            <p id="planSubtitle">Generated layout</p>
+          </div>
           <div class="panel-actions preview-actions">
             <select id="variantSelect"></select>
             <button id="saveSvgBtn" type="button">Save SVG</button>
@@ -56,50 +59,45 @@
         </div>
       </section>
 
-      <section class="panel inspector-panel">
-        <div class="tabs" role="tablist">
-          <button class="tab active" data-tab="variants" type="button">Results</button>
-          <button class="tab" data-tab="diagnostics" type="button">Issues</button>
-          <button class="tab" data-tab="output" type="button">Export</button>
+      <section class="panel variants-panel">
+        <div class="panel-head">
+          <h2>Variants</h2>
         </div>
-
-        <div id="variantsTab" class="tab-panel active">
-          <div id="variantList" class="variant-list"></div>
-        </div>
-
-        <div id="diagnosticsTab" class="tab-panel">
-          <div id="diagnosticList" class="diagnostic-list"></div>
-        </div>
-
-        <div id="outputTab" class="tab-panel">
-          <div class="export-pane">
-            <div class="export-summary" id="exportSummary"></div>
-            <div class="panel-actions output-actions">
-              <button id="downloadOutputBtn" type="button">Save Output</button>
-              <button id="copyOutputBtn" type="button">Copy JSON</button>
-            </div>
-            <details class="json-details">
-              <summary>Output JSON</summary>
-              <pre id="outputJson"></pre>
-            </details>
-          </div>
-        </div>
+        <div id="variantList" class="variant-list"></div>
       </section>
 
-      <section class="panel editor-panel advanced-panel">
+      <section class="panel issues-panel">
         <div class="panel-head">
-          <h2>Advanced</h2>
-          <div class="panel-actions">
-            <button id="openInputBtn" type="button">Open Input</button>
-            <button id="formatBtn" type="button">Format</button>
-            <button id="downloadInputBtn" type="button">Save Input</button>
-            <input id="inputFile" class="visually-hidden" type="file" accept="application/json,.json">
-          </div>
+          <h2>Issues</h2>
         </div>
-        <details class="json-details input-details">
-          <summary>Input JSON</summary>
-          <textarea id="inputEditor" spellcheck="false"></textarea>
-        </details>
+        <div id="diagnosticList" class="diagnostic-list"></div>
+      </section>
+
+      <section class="panel export-panel">
+        <div class="panel-head">
+          <h2>Export</h2>
+        </div>
+        <div class="export-pane">
+          <div class="export-summary" id="exportSummary"></div>
+          <div class="panel-actions output-actions">
+            <button id="downloadOutputBtn" type="button">Save Output</button>
+            <button id="copyOutputBtn" type="button">Copy JSON</button>
+          </div>
+          <details class="json-details">
+            <summary>Output JSON</summary>
+            <pre id="outputJson"></pre>
+          </details>
+          <details class="json-details input-details">
+            <summary>Input JSON</summary>
+            <div class="panel-actions input-actions">
+              <button id="openInputBtn" type="button">Open Input</button>
+              <button id="formatBtn" type="button">Format</button>
+              <button id="downloadInputBtn" type="button">Save Input</button>
+              <input id="inputFile" class="visually-hidden" type="file" accept="application/json,.json">
+            </div>
+            <textarea id="inputEditor" spellcheck="false"></textarea>
+          </details>
+        </div>
       </section>
     </section>
   </main>
