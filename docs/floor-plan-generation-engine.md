@@ -10,6 +10,7 @@ This document describes the MVP floor plan generation engine added under `FloorP
 - `FloorPlanGeneration.Generation` contains deterministic seeded candidate generation, unit-mix selection, corridor strategy derivation, room templates, wall/opening/label output, and topology output.
 - `FloorPlanGeneration.Topology` emits a simple graph of floorplate, fixed elements, corridor, unit, room, and facade relationships.
 - `FloorPlanGeneration.Cli` is a `net8.0` command-line adapter using `System.Text.Json`.
+- `FloorPlanGeneration.Web` is a local `net8.0` ASP.NET Core workbench with sample loading, JSON editing, validation, generation, SVG preview, diagnostics, and output export.
 - `FloorPlanGeneration.Tests` contains xUnit coverage for deterministic generation and failure paths.
 - `schemas/` contains published Draft 2020-12 JSON Schema artifacts for the input and output contracts.
 
@@ -25,6 +26,32 @@ The public orchestration path is:
 8. Normalize generated output ordering, bounds, layers, and duplicate corridor connection labels.
 9. Validate geometry containment, overlap, corridor width, doors, fixed-core access, daylight requirements, and strict unit-mix constraints.
 10. Score each variant and rank valid variants before invalid variants.
+
+## Local Web App
+
+The web app is meant for non-technical users and quick review sessions. It runs locally, uses the same engine library as the CLI, and does not require any external modeling tool.
+
+Windows users can double-click `scripts/run-web.bat`. PowerShell users can run:
+
+```sh
+./scripts/run-web.ps1
+```
+
+macOS/Linux users can run:
+
+```sh
+./scripts/run-web.sh
+```
+
+The helper scripts start `FloorPlanGeneration.Web` at `http://localhost:5127`. If a global .NET 8 SDK is not available, the Windows and shell helpers install a local SDK copy into `.dotnet/` for this repo.
+
+The app exposes a small local API:
+
+- `GET /api/health`: returns engine status and bundled sample names.
+- `GET /api/samples`: lists available starter inputs.
+- `GET /api/samples/{name}`: returns an `EngineInput` sample JSON file.
+- `GET /api/schemas/input` and `GET /api/schemas/output`: return the packaged schema artifacts.
+- `POST /api/generate`: accepts `{ input, seed, variants, validateOnly }` and returns a response wrapper containing the full `EngineOutput`.
 
 ## Input Schema
 
@@ -123,6 +150,21 @@ dotnet run --project FloorPlanGeneration.Cli -- --input samples/floor-plan-gener
 `--summary` writes a compact status line to stderr and leaves stdout clean for JSON when no `--output` path is supplied. `--fail-on-partial` returns a non-zero exit code for partial outputs, which is useful in automated checks.
 
 `generationSettings.timeLimitMilliseconds` is a soft generation budget. The engine finishes the current variant, returns completed variants, and emits `generation.time_limit_reached` when the budget is reached before all requested variants are generated.
+
+## AI Agent CLI Contract
+
+Claude Code, Codex, and other automation tools should call the CLI directly and parse JSON rather than scraping human documentation.
+
+```sh
+dotnet run --project FloorPlanGeneration.Cli -- --ai-manifest
+```
+
+The manifest describes supported commands, sample names, schema URLs, stdout/stderr behavior, and exit codes. Important automation conventions:
+
+- Generation, validation, schema, sample, and manifest commands write machine-readable data to stdout unless `--output` is supplied.
+- `--summary` writes compact status to stderr so stdout stays parseable.
+- When neither `--input` nor `--sample` is supplied, the CLI reads `EngineInput` JSON from stdin.
+- Usage errors return `64`, failed engine output returns `2`, and partial output with `--fail-on-partial` returns `3`.
 
 Schema tooling:
 

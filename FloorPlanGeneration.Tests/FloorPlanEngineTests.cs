@@ -330,6 +330,31 @@ namespace FloorPlanGeneration.Tests
         }
 
         [Fact]
+        public void CliAiManifest_ReturnsStructuredAutomationContractWithoutReadingInput()
+        {
+            StringWriter stdout = new StringWriter(CultureInfo.InvariantCulture);
+
+            int exitCode = CliApplication.Run(
+                new[] { "--ai-manifest" },
+                new ThrowingTextReader(),
+                stdout,
+                new StringWriter(CultureInfo.InvariantCulture));
+
+            Assert.Equal(0, exitCode);
+            using JsonDocument manifest = JsonDocument.Parse(stdout.ToString());
+            Assert.Equal("floorplan-gen", manifest.RootElement.GetProperty("name").GetString());
+            Assert.Contains(
+                manifest.RootElement.GetProperty("samples").EnumerateArray(),
+                sample => sample.GetProperty("name").GetString() == "rectangular-core");
+            Assert.Equal(
+                "https://bhaveshy.github.io/floor-plan-generation-engine/schemas/1.1/floor-plan-engine-input.schema.json",
+                manifest.RootElement.GetProperty("schemas").GetProperty("input").GetString());
+            Assert.Contains(
+                manifest.RootElement.GetProperty("automationNotes").EnumerateArray(),
+                note => note.GetString().Contains("--validate-only", StringComparison.Ordinal));
+        }
+
+        [Fact]
         public void CliSample_GeneratesOutputWithoutManualInputPath()
         {
             StringWriter stdout = new StringWriter(CultureInfo.InvariantCulture);

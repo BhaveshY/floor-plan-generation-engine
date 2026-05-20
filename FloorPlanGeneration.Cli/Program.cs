@@ -11,7 +11,7 @@ namespace FloorPlanGeneration.Cli
 {
     public static class CliApplication
     {
-        private const string Usage = "Usage: FloorPlanGeneration.Cli [--input path|--sample name] [--output path] [--seed n] [--variants n] [--validate-only] [--summary] [--fail-on-partial] [--list-samples|--write-sample name] [--print-input-schema|--print-output-schema]";
+        private const string Usage = "Usage: FloorPlanGeneration.Cli [--input path|--sample name] [--output path] [--seed n] [--variants n] [--validate-only] [--summary] [--fail-on-partial] [--list-samples|--write-sample name] [--print-input-schema|--print-output-schema|--ai-manifest]";
 
         private static readonly Dictionary<string, string> Samples = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
@@ -43,6 +43,12 @@ namespace FloorPlanGeneration.Cli
                     outputWriter.WriteLine(sample);
                 }
 
+                return 0;
+            }
+
+            if (options.AiManifest)
+            {
+                outputWriter.WriteLine(JsonSerializer.Serialize(BuildAiManifest(), JsonOptions()));
                 return 0;
             }
 
@@ -339,6 +345,12 @@ namespace FloorPlanGeneration.Cli
                     continue;
                 }
 
+                if (arg == "--ai-manifest" || arg == "--describe")
+                {
+                    options.AiManifest = true;
+                    continue;
+                }
+
                 if (arg == "--output")
                 {
                     if (++i >= args.Length) return false;
@@ -402,7 +414,99 @@ namespace FloorPlanGeneration.Cli
                 return false;
             }
 
-            return !(options.PrintInputSchema && options.PrintOutputSchema);
+            int metadataCommands =
+                (options.PrintInputSchema ? 1 : 0) +
+                (options.PrintOutputSchema ? 1 : 0) +
+                (options.AiManifest ? 1 : 0);
+            return metadataCommands <= 1;
+        }
+
+        private static object BuildAiManifest()
+        {
+            return new
+            {
+                name = "floorplan-gen",
+                version = "0.1.0",
+                contract = "JSON-in/JSON-out floor plan generation CLI for AI agents and scripts.",
+                stdout = "Engine output JSON is written to stdout unless --output is supplied. --summary writes only to stderr.",
+                stdin = "When neither --input nor --sample is supplied, EngineInput JSON is read from stdin.",
+                commands = new object[]
+                {
+                    new
+                    {
+                        name = "generate",
+                        args = "--input <path>|--sample <name> [--output <path>] [--seed <int>] [--variants <1-20>] [--summary]",
+                        result = "EngineOutput JSON with status succeeded, partial, or failed."
+                    },
+                    new
+                    {
+                        name = "validate",
+                        args = "--input <path>|--sample <name> --validate-only [--summary]",
+                        result = "EngineOutput JSON with status validated or failed and no generated variants."
+                    },
+                    new
+                    {
+                        name = "write-sample",
+                        args = "--write-sample <name> [--output <path>]",
+                        result = "Starter EngineInput JSON."
+                    },
+                    new
+                    {
+                        name = "schemas",
+                        args = "--print-input-schema or --print-output-schema",
+                        result = "Published JSON Schema artifact."
+                    }
+                },
+                samples = Samples.Keys.OrderBy(k => k, StringComparer.OrdinalIgnoreCase).Select(name => new
+                {
+                    name,
+                    fileName = Samples[name],
+                    description = SampleDescription(name)
+                }).ToList(),
+                schemas = new
+                {
+                    input = "https://bhaveshy.github.io/floor-plan-generation-engine/schemas/1.1/floor-plan-engine-input.schema.json",
+                    output = "https://bhaveshy.github.io/floor-plan-generation-engine/schemas/1.1/floor-plan-engine-output.schema.json"
+                },
+                exitCodes = new[]
+                {
+                    new { code = 0, meaning = "Success, including validated outputs." },
+                    new { code = 2, meaning = "Engine or CLI returned failed JSON output." },
+                    new { code = 3, meaning = "Partial output with --fail-on-partial." },
+                    new { code = 64, meaning = "CLI usage error." }
+                },
+                automationNotes = new[]
+                {
+                    "Prefer --sample for smoke tests and --input for user files.",
+                    "Use --validate-only before generation when editing JSON programmatically.",
+                    "Use --summary for logs; parse JSON from stdout or the --output file.",
+                    "Do not scrape human README text when --ai-manifest and schema commands are available."
+                },
+                examples = new[]
+                {
+                    "floorplan-gen --sample rectangular-core --variants 2",
+                    "floorplan-gen --input input.json --output output.json --summary",
+                    "floorplan-gen --input input.json --validate-only --summary",
+                    "floorplan-gen --write-sample rectangular-core --output starter.json"
+                }
+            };
+        }
+
+        private static string SampleDescription(string sampleName)
+        {
+            switch (sampleName)
+            {
+                case "rectangular-core":
+                    return "Simple rectangular floorplate with one core.";
+                case "l-shaped-core":
+                    return "L-shaped orthogonal floorplate with one blocking core.";
+                case "moderately-irregular-core":
+                    return "Stepped orthogonal floorplate with one blocking core.";
+                case "infeasible-narrow":
+                    return "Intentionally infeasible sample for diagnostics and failure handling.";
+                default:
+                    return "Bundled floor plan engine sample.";
+            }
         }
 
         private sealed class CliOptions
@@ -418,6 +522,7 @@ namespace FloorPlanGeneration.Cli
             public bool FailOnPartial { get; set; }
             public bool ValidateOnly { get; set; }
             public bool ListSamples { get; set; }
+            public bool AiManifest { get; set; }
             public bool PrintInputSchema { get; set; }
             public bool PrintOutputSchema { get; set; }
         }

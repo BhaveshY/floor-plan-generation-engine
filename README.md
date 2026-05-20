@@ -6,7 +6,29 @@ The engine accepts architectural boundaries and fixed constraints as JSON, then 
 
 ## Easiest Start
 
-If you just want to try the engine and get an output file, run one of these commands from the repo folder.
+If you want the visual app, run one of these commands from the repo folder.
+
+Windows double-click:
+
+```text
+scripts\run-web.bat
+```
+
+Windows PowerShell:
+
+```powershell
+.\scripts\run-web.ps1
+```
+
+macOS/Linux:
+
+```bash
+./scripts/run-web.sh
+```
+
+The app opens at `http://localhost:5127` with sample loading, JSON editing, validation, generation, variant review, diagnostics, SVG preview, and output export.
+
+If you just want to get an output JSON file without opening the web app, run one of these commands.
 
 Windows PowerShell:
 
@@ -44,6 +66,7 @@ dotnet run --project FloorPlanGeneration.Cli -- --list-samples
 
 - `FloorPlanGeneration/` - deterministic C# engine, geometry validation, topology graph, candidate generation, ranking, diagnostics.
 - `FloorPlanGeneration.Cli/` - JSON-in / JSON-out command-line wrapper.
+- `FloorPlanGeneration.Web/` - local web app for editing inputs, generating variants, previewing layouts, and inspecting diagnostics.
 - `FloorPlanGeneration.Tests/` - xUnit tests for valid generation and failure diagnostics.
 - `schemas/*.schema.json` - published JSON Schema artifacts for the input and output contracts.
 - `docs/floor-plan-generation-engine.md` - detailed architecture, schemas, Rhino layer naming, and MVP limitations.
@@ -52,6 +75,16 @@ dotnet run --project FloorPlanGeneration.Cli -- --list-samples
 - `samples/floor-plan-generation/*.json` - rectangular, L-shaped, moderately irregular, and infeasible sample inputs.
 
 ## Quick Start
+
+Run the web app:
+
+```bash
+dotnet run --project FloorPlanGeneration.Web --urls http://localhost:5127
+```
+
+Then open `http://localhost:5127`.
+
+Run the CLI:
 
 ```bash
 dotnet build FloorPlanGeneration.sln
@@ -117,9 +150,11 @@ dotnet run --project FloorPlanGeneration.Cli -- \
 
 ## Packaged Tool
 
-After `dotnet pack`, the CLI can be installed as a local .NET tool:
+After packing the CLI, it can be installed as a local .NET tool:
 
 ```bash
+dotnet pack FloorPlanGeneration.Cli/FloorPlanGeneration.Cli.csproj --configuration Release
+
 dotnet tool install FloorPlanGeneration.Cli \
   --tool-path .tools \
   --add-source FloorPlanGeneration.Cli/bin/Release \
@@ -128,6 +163,21 @@ dotnet tool install FloorPlanGeneration.Cli \
 .tools/floorplan-gen --list-samples
 .tools/floorplan-gen --sample rectangular-core --output outputs/rectangular-core-output.json --summary
 ```
+
+## AI Agent Contract
+
+Claude Code, Codex, and other automation tools should use the structured CLI manifest instead of scraping this README:
+
+```bash
+dotnet run --project FloorPlanGeneration.Cli -- --ai-manifest
+```
+
+The CLI is designed to be agent-friendly:
+
+- stdout is JSON for generation, validation, schema, sample, and manifest commands.
+- `--summary` writes compact run status to stderr.
+- stdin accepts EngineInput JSON when neither `--input` nor `--sample` is supplied.
+- exit code `0` means success, `2` means failed engine/CLI JSON output, `3` means partial output with `--fail-on-partial`, and `64` means usage error.
 
 ## Design Principles
 

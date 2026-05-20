@@ -11,6 +11,8 @@ Completed product contract work:
 - Layer and external-id validation checks on generated variants.
 - Door host-wall and connected-space validation checks on generated variants.
 - GitHub Pages workflow for stable and versioned schema publication paths.
+- Local web workbench with sample loading, JSON editing, validation, generation, SVG preview, diagnostics, and JSON export.
+- AI-friendly CLI manifest via `--ai-manifest` / `--describe` for Codex, Claude Code, and other automation tools.
 - Compact golden contract fixture coverage for rectangular, L-shaped, moderately irregular, and infeasible samples.
 - Rhino/Grasshopper adapter contract documentation without adding RhinoCommon to the core.
 
@@ -21,3 +23,4 @@ Highest-value remaining work:
 3. Add explicit Rhino/Grasshopper adapter projects for `FP Boundary`, `FP Fixed Elements`, `FP Generate`, `FP Diagnostics`, `FP Variant Picker`, and `FP Bake Variant`.
 4. Add IFC/BIM adapter output and IFC-compatible GUID derivation from stable `externalId` values while keeping RhinoCommon and IFC dependencies out of the core engine.
 5. Broaden golden contract fixtures as new geometry strategies and validation profiles become externally stable.
+6. Add signed desktop installers or published binaries around the web app once the UX stabilizes.

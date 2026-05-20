@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Floor Plan Generation Engine</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <div class="brand">
+        <div class="mark">FP</div>
+        <div>
+          <h1>Floor Plan Engine</h1>
+          <p id="runStatus">Ready</p>
+        </div>
+      </div>
+      <div class="actions">
+        <label>
+          <span>Sample</span>
+          <select id="sampleSelect"></select>
+        </label>
+        <label>
+          <span>Variants</span>
+          <input id="variantInput" type="number" min="1" max="20" value="4">
+        </label>
+        <label>
+          <span>Seed</span>
+          <input id="seedInput" type="number" placeholder="input seed">
+        </label>
+        <button id="loadSampleBtn" type="button">Load</button>
+        <button id="validateBtn" type="button">Validate</button>
+        <button id="generateBtn" class="primary" type="button">Generate</button>
+      </div>
+    </header>
+
+    <section class="workspace">
+      <section class="panel editor-panel">
+        <div class="panel-head">
+          <h2>Input JSON</h2>
+          <div class="panel-actions">
+            <button id="formatBtn" type="button">Format</button>
+            <button id="downloadInputBtn" type="button">Save Input</button>
+          </div>
+        </div>
+        <textarea id="inputEditor" spellcheck="false"></textarea>
+      </section>
+
+      <section class="panel preview-panel">
+        <div class="panel-head">
+          <h2>Plan Preview</h2>
+          <select id="variantSelect"></select>
+        </div>
+        <div class="preview-frame">
+          <svg id="planSvg" role="img" aria-label="Generated floor plan preview"></svg>
+          <div id="emptyPreview" class="empty-preview">No plan generated</div>
+        </div>
+        <div class="metrics-row">
+          <div><span>Status</span><strong id="metricStatus">-</strong></div>
+          <div><span>Valid</span><strong id="metricValid">-</strong></div>
+          <div><span>Score</span><strong id="metricScore">-</strong></div>
+          <div><span>Net/Gross</span><strong id="metricNetGross">-</strong></div>
+        </div>
+      </section>
+
+      <section class="panel inspector-panel">
+        <div class="tabs" role="tablist">
+          <button class="tab active" data-tab="variants" type="button">Variants</button>
+          <button class="tab" data-tab="diagnostics" type="button">Diagnostics</button>
+          <button class="tab" data-tab="output" type="button">Output</button>
+        </div>
+
+        <div id="variantsTab" class="tab-panel active">
+          <div id="variantList" class="variant-list"></div>
+        </div>
+
+        <div id="diagnosticsTab" class="tab-panel">
+          <div id="diagnosticList" class="diagnostic-list"></div>
+        </div>
+
+        <div id="outputTab" class="tab-panel">
+          <div class="panel-actions output-actions">
+            <button id="copyOutputBtn" type="button">Copy</button>
+            <button id="downloadOutputBtn" type="button">Save Output</button>
+          </div>
+          <pre id="outputJson"></pre>
+        </div>
+      </section>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

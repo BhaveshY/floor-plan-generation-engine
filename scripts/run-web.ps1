@@ -1,6 +1,5 @@
 param(
-    [string]$Sample = "rectangular-core",
-    [string]$Output = ""
+    [int]$Port = 5127
 )
 
 $ErrorActionPreference = "Stop"
@@ -41,18 +40,8 @@ function Get-Dotnet {
     return $localDotnet
 }
 
-if ([string]::IsNullOrWhiteSpace($Output)) {
-    $outputDir = Join-Path $repoRoot "outputs"
-    New-Item -ItemType Directory -Force -Path $outputDir | Out-Null
-    $Output = Join-Path $outputDir "$Sample-output.json"
-}
-
 $dotnetPath = Get-Dotnet
-Write-Host "Running sample '$Sample'..."
-& $dotnetPath run --project (Join-Path $repoRoot "FloorPlanGeneration.Cli") -- --sample $Sample --output $Output --summary
-
-if ($LASTEXITCODE -ne 0) {
-    exit $LASTEXITCODE
-}
-
-Write-Host "Done. Output written to $Output"
+$url = "http://localhost:$Port"
+Write-Host "Starting Floor Plan Engine Web at $url"
+Start-Process $url
+& $dotnetPath run --project (Join-Path $repoRoot "FloorPlanGeneration.Web") --urls $url

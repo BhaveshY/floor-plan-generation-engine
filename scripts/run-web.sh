@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SAMPLE="${1:-rectangular-core}"
+PORT="${1:-5127}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-OUTPUT="${2:-$REPO_ROOT/outputs/$SAMPLE-output.json}"
 LOCAL_DOTNET="$REPO_ROOT/.dotnet/dotnet"
 
 get_dotnet() {
@@ -25,9 +24,7 @@ get_dotnet() {
   printf '%s\n' "$LOCAL_DOTNET"
 }
 
-mkdir -p "$(dirname "$OUTPUT")"
 DOTNET_PATH="$(get_dotnet)"
-
-echo "Running sample '$SAMPLE'..."
-"$DOTNET_PATH" run --project "$REPO_ROOT/FloorPlanGeneration.Cli" -- --sample "$SAMPLE" --output "$OUTPUT" --summary
-echo "Done. Output written to $OUTPUT"
+URL="http://localhost:$PORT"
+echo "Starting Floor Plan Engine Web at $URL"
+"$DOTNET_PATH" run --project "$REPO_ROOT/FloorPlanGeneration.Web" --urls "$URL"

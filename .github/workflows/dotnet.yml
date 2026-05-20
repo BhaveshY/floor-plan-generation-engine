@@ -27,5 +27,8 @@ jobs:
       - name: Test
         run: dotnet test FloorPlanGeneration.sln --configuration Release --no-build --nologo --verbosity minimal
 
-      - name: Pack
-        run: dotnet pack FloorPlanGeneration.sln --configuration Release --no-build --nologo --verbosity minimal
+      - name: Pack library
+        run: dotnet pack FloorPlanGeneration/FloorPlanGeneration.csproj --configuration Release --no-build --nologo --verbosity minimal
+
+      - name: Pack CLI tool
+        run: dotnet pack FloorPlanGeneration.Cli/FloorPlanGeneration.Cli.csproj --configuration Release --no-build --nologo --verbosity minimal
