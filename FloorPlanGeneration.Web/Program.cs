@@ -36,6 +36,58 @@ app.MapGet("/api/health", () => Results.Json(new
     samples = samples.Keys.OrderBy(k => k, StringComparer.OrdinalIgnoreCase)
 }));
 
+app.MapGet("/api/manifest", () => Results.Json(new
+{
+    name = "floor-plan-engine-web-api",
+    version = "0.1.0",
+    contract = "Local JSON API for validating and generating floor plan variants.",
+    endpoints = new object[]
+    {
+        new
+        {
+            method = "GET",
+            path = "/api/health",
+            result = "Engine status, schema version, and bundled sample names."
+        },
+        new
+        {
+            method = "GET",
+            path = "/api/samples",
+            result = "Bundled sample names, file names, and descriptions."
+        },
+        new
+        {
+            method = "GET",
+            path = "/api/samples/{name}",
+            result = "EngineInput JSON for a bundled sample."
+        },
+        new
+        {
+            method = "GET",
+            path = "/api/schemas/input or /api/schemas/output",
+            result = "Packaged JSON Schema artifact."
+        },
+        new
+        {
+            method = "POST",
+            path = "/api/generate",
+            body = "{ input, sampleName, seed, variants, validateOnly }",
+            result = "Response summary plus full EngineOutput JSON."
+        }
+    },
+    limits = new
+    {
+        variantsMin = 1,
+        variantsMax = 20
+    },
+    automationNotes = new[]
+    {
+        "Provide either input or sampleName, not both.",
+        "Set validateOnly to true for fast contract and feasibility checks.",
+        "The output property contains the complete EngineOutput contract."
+    }
+}));
+
 app.MapGet("/api/samples", () =>
 {
     var result = samples.Keys

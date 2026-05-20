@@ -40,8 +40,10 @@
         <div class="panel-head">
           <h2>Input JSON</h2>
           <div class="panel-actions">
+            <button id="openInputBtn" type="button">Open Input</button>
             <button id="formatBtn" type="button">Format</button>
             <button id="downloadInputBtn" type="button">Save Input</button>
+            <input id="inputFile" class="visually-hidden" type="file" accept="application/json,.json">
           </div>
         </div>
         <textarea id="inputEditor" spellcheck="false"></textarea>
@@ -50,7 +52,10 @@
       <section class="panel preview-panel">
         <div class="panel-head">
           <h2>Plan Preview</h2>
-          <select id="variantSelect"></select>
+          <div class="panel-actions preview-actions">
+            <select id="variantSelect"></select>
+            <button id="saveSvgBtn" type="button">Save SVG</button>
+          </div>
         </div>
         <div class="preview-frame">
           <svg id="planSvg" role="img" aria-label="Generated floor plan preview"></svg>

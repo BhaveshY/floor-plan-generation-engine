@@ -371,7 +371,7 @@ namespace FloorPlanGeneration.Cli
                 {
                     if (++i >= args.Length) return false;
                     int variantCount;
-                    if (!int.TryParse(args[i], out variantCount) || variantCount <= 0) return false;
+                    if (!int.TryParse(args[i], out variantCount) || variantCount <= 0 || variantCount > 20) return false;
                     options.VariantCountOverride = variantCount;
                     continue;
                 }

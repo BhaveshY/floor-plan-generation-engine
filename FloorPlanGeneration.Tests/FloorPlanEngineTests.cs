@@ -355,6 +355,18 @@ namespace FloorPlanGeneration.Tests
         }
 
         [Fact]
+        public void CliRejectsVariantOverrideOutsideAutomationContract()
+        {
+            int exitCode = CliApplication.Run(
+                new[] { "--sample", "rectangular-core", "--variants", "21" },
+                new ThrowingTextReader(),
+                new StringWriter(CultureInfo.InvariantCulture),
+                new StringWriter(CultureInfo.InvariantCulture));
+
+            Assert.Equal(64, exitCode);
+        }
+
+        [Fact]
         public void CliSample_GeneratesOutputWithoutManualInputPath()
         {
             StringWriter stdout = new StringWriter(CultureInfo.InvariantCulture);

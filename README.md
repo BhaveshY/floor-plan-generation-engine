@@ -26,7 +26,7 @@ macOS/Linux:
 ./scripts/run-web.sh
 ```
 
-The app opens at `http://localhost:5127` with sample loading, JSON editing, validation, generation, variant review, diagnostics, SVG preview, and output export.
+The app opens at `http://localhost:5127` with sample loading, JSON file import, autosaved drafts, JSON editing, validation, generation, variant review, diagnostics, SVG preview, SVG export, and output export.
 
 If you just want to get an output JSON file without opening the web app, run one of these commands.
 
@@ -83,6 +83,16 @@ dotnet run --project FloorPlanGeneration.Web --urls http://localhost:5127
 ```
 
 Then open `http://localhost:5127`.
+
+Useful local web API endpoints:
+
+```bash
+curl http://localhost:5127/api/manifest
+curl http://localhost:5127/api/samples
+curl -X POST http://localhost:5127/api/generate \
+  -H "Content-Type: application/json" \
+  -d "{\"sampleName\":\"rectangular-core\",\"variants\":1}"
+```
 
 Run the CLI:
 
@@ -177,6 +187,7 @@ The CLI is designed to be agent-friendly:
 - stdout is JSON for generation, validation, schema, sample, and manifest commands.
 - `--summary` writes compact run status to stderr.
 - stdin accepts EngineInput JSON when neither `--input` nor `--sample` is supplied.
+- `--variants` accepts values from `1` through `20`.
 - exit code `0` means success, `2` means failed engine/CLI JSON output, `3` means partial output with `--fail-on-partial`, and `64` means usage error.
 
 ## Design Principles

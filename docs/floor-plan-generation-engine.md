@@ -45,9 +45,20 @@ macOS/Linux users can run:
 
 The helper scripts start `FloorPlanGeneration.Web` at `http://localhost:5127`. If a global .NET 8 SDK is not available, the Windows and shell helpers install a local SDK copy into `.dotnet/` for this repo.
 
+The browser workbench supports:
+
+- Opening a local `EngineInput` JSON file.
+- Loading bundled samples.
+- Autosaving the current draft in the browser.
+- Validating without generation.
+- Generating variants and selecting between ranked variants.
+- Exporting the visible plan preview as SVG.
+- Saving the full `EngineOutput` JSON.
+
 The app exposes a small local API:
 
 - `GET /api/health`: returns engine status and bundled sample names.
+- `GET /api/manifest`: returns the local API contract for scripts and agents.
 - `GET /api/samples`: lists available starter inputs.
 - `GET /api/samples/{name}`: returns an `EngineInput` sample JSON file.
 - `GET /api/schemas/input` and `GET /api/schemas/output`: return the packaged schema artifacts.

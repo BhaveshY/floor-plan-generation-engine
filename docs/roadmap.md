@@ -11,7 +11,7 @@ Completed product contract work:
 - Layer and external-id validation checks on generated variants.
 - Door host-wall and connected-space validation checks on generated variants.
 - GitHub Pages workflow for stable and versioned schema publication paths.
-- Local web workbench with sample loading, JSON editing, validation, generation, SVG preview, diagnostics, and JSON export.
+- Local web workbench with sample loading, JSON file import, autosaved drafts, JSON editing, validation, generation, SVG preview/export, diagnostics, and JSON export.
 - AI-friendly CLI manifest via `--ai-manifest` / `--describe` for Codex, Claude Code, and other automation tools.
 - Compact golden contract fixture coverage for rectangular, L-shaped, moderately irregular, and infeasible samples.
 - Rhino/Grasshopper adapter contract documentation without adding RhinoCommon to the core.
