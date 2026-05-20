@@ -14,5 +14,4 @@ TestResults/
 *.nupkg
 .dotnet/
 .tools/
-artifacts/
 outputs/
