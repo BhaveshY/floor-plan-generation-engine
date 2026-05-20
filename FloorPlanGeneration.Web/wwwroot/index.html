@@ -7,7 +7,7 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <main class="shell">
+  <main class="app-shell">
     <header class="topbar">
       <div class="brand">
         <div class="mark">FP</div>
@@ -16,31 +16,164 @@
           <p id="runStatus">Ready</p>
         </div>
       </div>
-      <div class="actions">
-        <label>
-          <span>Sample</span>
+      <div class="top-actions">
+        <label class="field field-compact">
+          <span>Template</span>
           <select id="sampleSelect"></select>
         </label>
-        <label>
-          <span>Variants</span>
-          <input id="variantInput" type="number" min="1" max="20" value="4">
-        </label>
-        <label>
-          <span>Seed</span>
-          <input id="seedInput" type="number" placeholder="input seed">
-        </label>
-        <button id="loadSampleBtn" type="button">Load</button>
-        <button id="validateBtn" type="button">Validate</button>
+        <button id="loadSampleBtn" type="button">Load Template</button>
+        <button id="validateBtn" type="button">Check</button>
         <button id="generateBtn" class="primary" type="button">Generate</button>
       </div>
     </header>
 
     <section class="workspace">
-      <section class="panel preview-panel">
+      <aside class="panel setup-panel">
         <div class="panel-head">
           <div>
-            <h2>Plan</h2>
-            <p id="planSubtitle">Generated layout</p>
+            <h2>Setup</h2>
+            <p id="setupSubtitle">Residential floorplate</p>
+          </div>
+        </div>
+
+        <form id="setupForm" class="setup-form">
+          <fieldset>
+            <legend>Project</legend>
+            <label class="field">
+              <span>Name</span>
+              <input id="projectName" type="text" autocomplete="off">
+            </label>
+            <div class="field-grid">
+              <label class="field">
+                <span>Variants</span>
+                <input id="variantInput" type="number" min="1" max="20" step="1">
+              </label>
+              <label class="field">
+                <span>Seed</span>
+                <input id="seedInput" type="number" step="1">
+              </label>
+            </div>
+          </fieldset>
+
+          <fieldset>
+            <legend>Floorplate</legend>
+            <div class="field-grid">
+              <label class="field">
+                <span>Width m</span>
+                <input id="floorWidth" type="number" min="8" step="0.5">
+              </label>
+              <label class="field">
+                <span>Depth m</span>
+                <input id="floorDepth" type="number" min="8" step="0.5">
+              </label>
+            </div>
+          </fieldset>
+
+          <fieldset>
+            <legend>Core</legend>
+            <div class="field-grid">
+              <label class="field">
+                <span>X m</span>
+                <input id="coreX" type="number" step="0.5">
+              </label>
+              <label class="field">
+                <span>Y m</span>
+                <input id="coreY" type="number" step="0.5">
+              </label>
+              <label class="field">
+                <span>Width m</span>
+                <input id="coreWidth" type="number" min="1" step="0.5">
+              </label>
+              <label class="field">
+                <span>Depth m</span>
+                <input id="coreDepth" type="number" min="1" step="0.5">
+              </label>
+            </div>
+          </fieldset>
+
+          <fieldset>
+            <legend>Rules</legend>
+            <div class="field-grid">
+              <label class="field">
+                <span>Corridor m</span>
+                <input id="minCorridorWidth" type="number" min="1" step="0.1">
+              </label>
+              <label class="field">
+                <span>Min Unit m2</span>
+                <input id="minUnitArea" type="number" min="10" step="1">
+              </label>
+              <label class="field">
+                <span>Room Width m</span>
+                <input id="minRoomWidth" type="number" min="1.5" step="0.1">
+              </label>
+              <label class="field">
+                <span>Strictness</span>
+                <select id="strictnessInput">
+                  <option value="relaxed">relaxed</option>
+                  <option value="balanced">balanced</option>
+                  <option value="strict">strict</option>
+                </select>
+              </label>
+            </div>
+            <label class="toggle-row">
+              <input id="daylightBedrooms" type="checkbox">
+              <span>Bedrooms need daylight</span>
+            </label>
+            <label class="toggle-row">
+              <input id="daylightLiving" type="checkbox">
+              <span>Living rooms need daylight</span>
+            </label>
+          </fieldset>
+
+          <fieldset>
+            <legend>Unit Mix</legend>
+            <div class="mix-table" id="unitMixRows">
+              <div class="mix-head">
+                <span>Type</span>
+                <span>Mix %</span>
+                <span>Min</span>
+                <span>Max</span>
+              </div>
+              <div class="mix-row" data-unit-type="studio">
+                <strong>Studio</strong>
+                <input data-field="targetRatio" type="number" min="0" max="100" step="1">
+                <input data-field="minArea" type="number" min="10" step="1">
+                <input data-field="maxArea" type="number" min="10" step="1">
+              </div>
+              <div class="mix-row" data-unit-type="one_bed">
+                <strong>One Bed</strong>
+                <input data-field="targetRatio" type="number" min="0" max="100" step="1">
+                <input data-field="minArea" type="number" min="10" step="1">
+                <input data-field="maxArea" type="number" min="10" step="1">
+              </div>
+              <div class="mix-row" data-unit-type="two_bed">
+                <strong>Two Bed</strong>
+                <input data-field="targetRatio" type="number" min="0" max="100" step="1">
+                <input data-field="minArea" type="number" min="10" step="1">
+                <input data-field="maxArea" type="number" min="10" step="1">
+              </div>
+            </div>
+          </fieldset>
+        </form>
+
+        <details class="advanced-details input-details">
+          <summary>Advanced Input JSON</summary>
+          <div class="detail-actions">
+            <button id="openInputBtn" type="button">Open JSON</button>
+            <button id="applyJsonBtn" type="button">Apply JSON</button>
+            <button id="formatBtn" type="button">Format</button>
+            <button id="downloadInputBtn" type="button">Save Input</button>
+            <input id="inputFile" class="visually-hidden" type="file" accept="application/json,.json">
+          </div>
+          <textarea id="inputEditor" spellcheck="false"></textarea>
+        </details>
+      </aside>
+
+      <section class="panel plan-panel">
+        <div class="panel-head">
+          <div>
+            <h2>Plan Review</h2>
+            <p id="planSubtitle">Input outline</p>
           </div>
           <div class="panel-actions preview-actions">
             <select id="variantSelect"></select>
@@ -49,54 +182,78 @@
         </div>
         <div class="preview-frame">
           <svg id="planSvg" role="img" aria-label="Generated floor plan preview"></svg>
-          <div id="emptyPreview" class="empty-preview">No plan generated</div>
+          <div id="emptyPreview" class="empty-preview">No plan available</div>
         </div>
-        <div class="metrics-row">
-          <div><span>Status</span><strong id="metricStatus">-</strong></div>
-          <div><span>Valid</span><strong id="metricValid">-</strong></div>
-          <div><span>Score</span><strong id="metricScore">-</strong></div>
-          <div><span>Net/Gross</span><strong id="metricNetGross">-</strong></div>
-        </div>
+        <div id="legendRow" class="legend-row"></div>
+        <div id="metricsRow" class="metrics-row"></div>
       </section>
 
-      <section class="panel variants-panel">
+      <aside class="panel review-panel">
         <div class="panel-head">
-          <h2>Variants</h2>
+          <div>
+            <h2>Results</h2>
+            <p id="resultSubtitle">No run yet</p>
+          </div>
         </div>
-        <div id="variantList" class="variant-list"></div>
-      </section>
 
-      <section class="panel issues-panel">
-        <div class="panel-head">
-          <h2>Issues</h2>
-        </div>
-        <div id="diagnosticList" class="diagnostic-list"></div>
-      </section>
+        <section class="review-section">
+          <div class="section-title">
+            <h3>Variants</h3>
+            <span id="variantCountLabel">0</span>
+          </div>
+          <div id="variantList" class="variant-list"></div>
+        </section>
 
-      <section class="panel export-panel">
-        <div class="panel-head">
-          <h2>Export</h2>
-        </div>
-        <div class="export-pane">
-          <div class="export-summary" id="exportSummary"></div>
-          <div class="panel-actions output-actions">
+        <section class="review-section">
+          <div class="section-title">
+            <h3>Issues</h3>
+            <span id="issueCountLabel">0</span>
+          </div>
+          <div id="diagnosticList" class="diagnostic-list"></div>
+        </section>
+
+        <section class="review-section">
+          <div class="section-title">
+            <h3>Export</h3>
+          </div>
+          <div id="exportSummary" class="export-summary"></div>
+          <div class="export-actions">
             <button id="downloadOutputBtn" type="button">Save Output</button>
             <button id="copyOutputBtn" type="button">Copy JSON</button>
           </div>
-          <details class="json-details">
+          <details class="advanced-details">
+            <summary>AI and API Contract</summary>
+            <pre id="cliCommand"></pre>
+          </details>
+          <details class="advanced-details">
             <summary>Output JSON</summary>
             <pre id="outputJson"></pre>
           </details>
-          <details class="json-details input-details">
-            <summary>Input JSON</summary>
-            <div class="panel-actions input-actions">
-              <button id="openInputBtn" type="button">Open Input</button>
-              <button id="formatBtn" type="button">Format</button>
-              <button id="downloadInputBtn" type="button">Save Input</button>
-              <input id="inputFile" class="visually-hidden" type="file" accept="application/json,.json">
+        </section>
+      </aside>
+
+      <section class="panel schedule-panel">
+        <div class="panel-head">
+          <div>
+            <h2>Schedule</h2>
+            <p id="scheduleSubtitle">Generated units and checks</p>
+          </div>
+        </div>
+        <div class="schedule-grid">
+          <div class="schedule-block">
+            <div class="section-title">
+              <h3>Units</h3>
+              <span id="unitCountLabel">0</span>
             </div>
-            <textarea id="inputEditor" spellcheck="false"></textarea>
-          </details>
+            <div id="unitSchedule" class="table-wrap"></div>
+          </div>
+          <div class="schedule-block">
+            <div class="section-title">
+              <h3>Checks</h3>
+              <span id="checkCountLabel">0</span>
+            </div>
+            <div id="validationList" class="check-list"></div>
+          </div>
         </div>
       </section>
     </section>
