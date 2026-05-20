@@ -267,7 +267,7 @@ namespace FloorPlanGeneration.Schema
     {
         public EngineMetadata()
         {
-            SchemaVersion = "1.1";
+            SchemaVersion = "1.2";
             EngineVersion = "0.1.0";
             ProjectUnits = "m";
             Tolerance = 0.01;

@@ -11,6 +11,7 @@ using FloorPlanGeneration;
 using FloorPlanGeneration.Cli;
 using FloorPlanGeneration.Geometry;
 using FloorPlanGeneration.Schema;
+using FloorPlanGeneration.Topology;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Xunit;
 
@@ -25,7 +26,7 @@ namespace FloorPlanGeneration.Tests
 
             Assert.Equal("succeeded", output.Status);
             Assert.NotNull(output.Metadata);
-            Assert.Equal("1.1", output.Metadata.SchemaVersion);
+            Assert.Equal("1.2", output.Metadata.SchemaVersion);
             Assert.Equal(1234, output.Metadata.Seed);
             Assert.Equal(4, output.Metadata.GenerationSettings.VariantCount);
             Assert.Equal("balanced", output.Metadata.GenerationSettings.Strictness);
@@ -104,12 +105,71 @@ namespace FloorPlanGeneration.Tests
                     Assert.StartsWith(variantPrefix + "/labels/", label.ExternalId, StringComparison.Ordinal);
                     Assert.Equal(LayerNames.GeneratedLabels, label.Layer);
                 });
+                Assert.All(variant.Topology.Hypergraph.Nodes, node =>
+                    Assert.StartsWith(variantPrefix + "/topology/hypergraph/nodes/", node.ExternalId, StringComparison.Ordinal));
+                Assert.All(variant.Topology.Hypergraph.Hyperedges, edge =>
+                    Assert.StartsWith(variantPrefix + "/topology/hypergraph/hyperedges/", edge.ExternalId, StringComparison.Ordinal));
+                Assert.All(variant.Topology.Hypergraph.Incidence, incidence =>
+                    Assert.StartsWith(variantPrefix + "/topology/hypergraph/incidence/", incidence.ExternalId, StringComparison.Ordinal));
             });
 
             EngineOutput repeated = new FloorPlanEngine().Generate(RectangularInput(seed: 20260519, variantCount: 3));
             Assert.Equal(
                 output.Variants.SelectMany(v => v.Units.Select(u => u.ExternalId)),
                 repeated.Variants.SelectMany(v => v.Units.Select(u => u.ExternalId)));
+        }
+
+        [Fact]
+        public void GeneratedTopologyIncludesPortableHypergraphContract()
+        {
+            EngineOutput output = new FloorPlanEngine().Generate(RectangularInput(seed: 20260519, variantCount: 1));
+            LayoutVariant variant = Assert.Single(output.Variants);
+            FloorPlanHypergraph hypergraph = variant.Topology.Hypergraph;
+
+            Assert.NotNull(hypergraph);
+            Assert.Equal("hypergraph-floorplan-1.0", hypergraph.SchemaVersion);
+            Assert.Equal("root", hypergraph.Root.Name);
+            Assert.False(hypergraph.Root.Final);
+            Assert.Contains(hypergraph.Root.Children, child => child.Name == "circulation");
+            Assert.Contains(hypergraph.Root.Children, child => child.Name == "units");
+            Assert.Contains(variant.Validation.Checks, check => check.Name == "hypergraph_contract" && check.Passed);
+            Assert.Empty(HypergraphBuilder.Validate(hypergraph));
+
+            Assert.All(variant.Topology.Nodes, topologyNode =>
+                Assert.Contains(hypergraph.Nodes, node => node.Id == topologyNode.Id));
+            Assert.All(variant.Walls, wall =>
+                Assert.Contains(hypergraph.Nodes, node => node.Id == wall.Id && node.Kind.StartsWith("wall:", StringComparison.Ordinal)));
+            Assert.All(variant.DoorsOpenings, door =>
+                Assert.Contains(hypergraph.Hyperedges, edge =>
+                    edge.Kind == "door" &&
+                    edge.Attributes.TryGetValue("doorId", out string doorId) &&
+                    doorId == door.Id));
+
+            Assert.Contains(hypergraph.Hyperedges, edge => edge.Kind == "subdivision" && edge.Members.Count > 2);
+            Assert.Contains(hypergraph.Hyperedges, edge => edge.Kind == "adjacency");
+            Assert.Contains(hypergraph.Hyperedges, edge => edge.Kind == "containment");
+            Assert.Contains(hypergraph.Hyperedges, edge => edge.Kind == "facade");
+            Assert.Equal(hypergraph.Hyperedges.Sum(edge => edge.Members.Count), hypergraph.Incidence.Count);
+
+            Assert.Equal(hypergraph.Nodes.Count, hypergraph.Matrices.NodeOrder.Count);
+            Assert.Equal(hypergraph.Hyperedges.Count, hypergraph.Matrices.HyperedgeOrder.Count);
+            Assert.Equal(hypergraph.Nodes.Count, hypergraph.Matrices.SubdivisionConnectivity.Count);
+            Assert.Equal(hypergraph.Nodes.Count, hypergraph.Matrices.AdjacencyConnectivity.Count);
+            Assert.Equal(hypergraph.Nodes.Count, hypergraph.Matrices.Area.Count);
+            Assert.Equal(hypergraph.Nodes.Count, hypergraph.Matrices.Angle.Count);
+            Assert.Equal(hypergraph.Nodes.Count, hypergraph.Matrices.Incidence.Count);
+            Assert.All(hypergraph.Matrices.Incidence, row => Assert.Equal(hypergraph.Hyperedges.Count, row.Count));
+
+            HypergraphDataNode connectedRoom = HypergraphBuilder.FlattenDataNodes(hypergraph.Root)
+                .First(node => node.Final && node.Connected.Count > 0 && node.MergeId != "corridor");
+            Assert.True(connectedRoom.TreeNodeMesh.Area > 0.0);
+            Assert.NotEqual(0.0, connectedRoom.TreeNodeMesh.Centroid.Mag);
+
+            string rootJson = JsonSerializer.Serialize(hypergraph.Root, JsonOptions());
+            Assert.Contains("\"mergeid\"", rootJson, StringComparison.Ordinal);
+            Assert.Contains("\"treeNodeMesh\"", rootJson, StringComparison.Ordinal);
+            Assert.Contains("\"Area\"", rootJson, StringComparison.Ordinal);
+            Assert.DoesNotContain("\"mergeId\"", rootJson, StringComparison.Ordinal);
         }
 
         [Fact]
@@ -351,7 +411,7 @@ namespace FloorPlanGeneration.Tests
                 manifest.RootElement.GetProperty("samples").EnumerateArray(),
                 sample => sample.GetProperty("name").GetString() == "rectangular-core");
             Assert.Equal(
-                "https://bhaveshy.github.io/floor-plan-generation-engine/schemas/1.1/floor-plan-engine-input.schema.json",
+                "https://bhaveshy.github.io/floor-plan-generation-engine/schemas/1.2/floor-plan-engine-input.schema.json",
                 manifest.RootElement.GetProperty("schemas").GetProperty("input").GetString());
             Assert.Contains(
                 manifest.RootElement.GetProperty("automationNotes").EnumerateArray(),

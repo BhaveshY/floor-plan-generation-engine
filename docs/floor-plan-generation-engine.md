@@ -1,14 +1,14 @@
 # Floor Plan Generation Engine
 
-This document describes the MVP floor plan generation engine added under `FloorPlanGeneration*`. The engine is independent from the existing RGeoLib, notebook, sample, and Python API code; it is a small .NET library plus CLI that can later be wrapped by Grasshopper/Rhino components.
+This document describes the floor plan generation engine added under `FloorPlanGeneration*`. The core is a dependency-light .NET library with CLI and local web adapters. It can be wrapped by Grasshopper/Rhino components without putting RhinoCommon into the engine itself.
 
 ## Architecture
 
 - `FloorPlanGeneration` targets `netstandard2.0` and contains the public `FloorPlanEngine`.
 - `FloorPlanGeneration.Schema` defines JSON-serializable DTOs: `EngineInput`, `EngineOutput`, `LayoutVariant`, units, rooms, corridors, walls, openings, labels, diagnostics, metrics, and validation checks.
 - `FloorPlanGeneration.Geometry` contains lightweight 2D primitives, polygon cleanup, predicate checks, and facade exposure helpers.
-- `FloorPlanGeneration.Generation` contains deterministic seeded candidate generation, unit-mix selection, corridor strategy derivation, room templates, wall/opening/label output, and topology output.
-- `FloorPlanGeneration.Topology` emits a simple graph of floorplate, fixed elements, corridor, unit, room, and facade relationships.
+- `FloorPlanGeneration.Generation` contains deterministic seeded candidate generation, unit-mix selection, corridor strategy derivation, room templates, wall/opening/label output, topology output, and hypergraph assembly.
+- `FloorPlanGeneration.Topology` emits both a simple graph and a portable hypergraph contract covering floorplate, fixed elements, corridors, units, rooms, walls, doors, facade relationships, incidence, and matrices.
 - `FloorPlanGeneration.Cli` is a `net8.0` command-line adapter using `System.Text.Json`.
 - `FloorPlanGeneration.Web` is a local `net8.0` ASP.NET Core workbench with sample loading, JSON editing, validation, generation, SVG preview, diagnostics, and output export.
 - `FloorPlanGeneration.Tests` contains xUnit coverage for deterministic generation and failure paths.
@@ -24,8 +24,9 @@ The public orchestration path is:
 6. Generate deterministic corridor/unit/room candidates from the cleaned input.
 7. Split corridor and unit placement intervals around holes and blocking fixed elements.
 8. Normalize generated output ordering, bounds, layers, and duplicate corridor connection labels.
-9. Validate geometry containment, overlap, corridor width, doors, fixed-core access, daylight requirements, and strict unit-mix constraints.
-10. Score each variant and rank valid variants before invalid variants.
+9. Build the portable hypergraph: recursive `DataNode` tree, explicit nodes, hyperedges, incidence records, and subdivision/adjacency/area/angle/incidence matrices.
+10. Validate geometry containment, overlap, corridor width, doors, fixed-core access, daylight requirements, hypergraph contract integrity, and strict unit-mix constraints.
+11. Score each variant and rank valid variants before invalid variants.
 
 ## Local Web App
 
@@ -126,11 +127,19 @@ Each variant contains:
 - `walls`, `doorsOpenings`, `labels`, each with stable `externalId` and predictable generated layer names
 - `metrics`: gross area, sellable area, corridor area, net-gross ratio, efficiency, unit-mix match, score
 - `validation`: checks with severity, source id, and reason
-- `topology`: graph nodes and edges for containment, corridor access, and facade exposure, also carrying stable external ids
+- `topology`: graph nodes and edges for containment, corridor access, and facade exposure, plus `topology.hypergraph`
+
+`topology.hypergraph` is the portable contract for Rhino, Grasshopper, CLI automation, Codex, Claude Code, and graph-processing scripts. It contains:
+
+- `root`: recursive hypergraph `DataNode` JSON using the same key names as the source hypergraph library: `name`, `area`, `angle`, `mergeid`, `final`, `children`, `connected`, and `treeNodeMesh` with `Area` and `Centroid`.
+- `nodes`: flattened floor-plan nodes for DataNodes, floorplate, outside facade, walls, and doors.
+- `hyperedges`: multi-member relationships for subdivision, DataNode adjacency, containment, circulation access, facades, constraints, and doors.
+- `incidence`: one row per node/hyperedge membership, with stable external ids and member roles.
+- `matrices`: deterministic `nodeOrder`, `hyperedgeOrder`, `subdivisionConnectivity`, `adjacencyConnectivity`, `area`, `angle`, and `incidence` matrices.
 
 `metadata.layers` is the adapter-facing layer map. Current keys are `inputBoundary`, `inputHoles`, `inputFixed`, `inputAccess`, `inputFacade`, `units`, `rooms`, `corridors`, `walls`, `doors`, `labels`, `diagnostics`, and `topology`.
 
-External ids use the deterministic URI-like pattern `fp://{projectId}/variants/{variantId}/{category}/{elementId}`. They are intended for Rhino user strings, Grasshopper data tree keys, BIM mapping, and compact golden contract tests.
+External ids use the deterministic URI-like pattern `fp://{projectId}/variants/{variantId}/{category}/{elementId}`. They are intended for Rhino user strings, Grasshopper data tree keys, hypergraph incidence keys, BIM mapping, and compact golden contract tests.
 
 ## CLI Usage
 
@@ -176,6 +185,7 @@ The manifest describes supported commands, sample names, schema URLs, stdout/std
 - `--summary` writes compact status to stderr so stdout stays parseable.
 - When neither `--input` nor `--sample` is supplied, the CLI reads `EngineInput` JSON from stdin.
 - Usage errors return `64`, failed engine output returns `2`, and partial output with `--fail-on-partial` returns `3`.
+- `topology.hypergraph` is machine-readable and does not require a Rhino process, so agents can inspect containment, adjacency, door, facade, and matrix relationships directly from JSON.
 
 Schema tooling:
 
@@ -203,6 +213,7 @@ Recommended MVP Grasshopper components:
 - `FP Bake Variant`: maps units, rooms, corridors, walls, doors, and labels to Rhino geometry and layers.
 - `FP Diagnostics`: displays top-level and selected-variant diagnostics grouped by severity and source id.
 - `FP Topology Graph`: exposes `TopologyGraph.Nodes` and `TopologyGraph.Edges` for adjacency analysis or graph visualization.
+- `FP Hypergraph`: exposes `topology.hypergraph.root`, `nodes`, `hyperedges`, `incidence`, and `matrices` for graph visualization, recursive subdivision analysis, or downstream optimization.
 
 See `docs/rhino-grasshopper-adapter-contract.md` for the adapter boundary, component responsibilities, layer policy, external id policy, and failure handling rules.
 
@@ -251,6 +262,7 @@ The MVP validates:
 - Corridor connection lists include unit ids, vertical access point ids, and fixed core/stair/elevator ids when the corridor touches the fixed element, is face-adjacent, or shares a provided vertical core access point.
 - Generated variants and elements expose non-empty `fp://` external ids that are unique within each variant.
 - Generated elements use the published generated layer names.
+- Each generated variant exposes a valid hypergraph contract with no dangling node, hyperedge, incidence, or matrix references.
 - `generationSettings.strictness = "strict"` requires exact target unit counts when target counts are supplied.
 
 Invalid contract values, invalid outer-boundary geometry, and conservative infeasibility checks stop before candidate generation and return failed diagnostics with no fake variants. When generation does run but cannot produce valid layouts, generation failure codes from variants are summarized at the top level.

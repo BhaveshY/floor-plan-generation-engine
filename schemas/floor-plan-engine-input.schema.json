@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://bhaveshy.github.io/floor-plan-generation-engine/schemas/1.1/floor-plan-engine-input.schema.json",
+  "$id": "https://bhaveshy.github.io/floor-plan-generation-engine/schemas/1.2/floor-plan-engine-input.schema.json",
   "title": "Floor Plan Generation Engine Input",
-  "description": "Version 1.1 JSON contract for the headless floor plan generation engine input.",
+  "description": "Version 1.2 JSON contract for the headless floor plan generation engine input.",
   "type": "object",
   "additionalProperties": false,
   "required": [

@@ -465,8 +465,8 @@ namespace FloorPlanGeneration.Cli
                 }).ToList(),
                 schemas = new
                 {
-                    input = "https://bhaveshy.github.io/floor-plan-generation-engine/schemas/1.1/floor-plan-engine-input.schema.json",
-                    output = "https://bhaveshy.github.io/floor-plan-generation-engine/schemas/1.1/floor-plan-engine-output.schema.json"
+                    input = "https://bhaveshy.github.io/floor-plan-generation-engine/schemas/1.2/floor-plan-engine-input.schema.json",
+                    output = "https://bhaveshy.github.io/floor-plan-generation-engine/schemas/1.2/floor-plan-engine-output.schema.json"
                 },
                 exitCodes = new[]
                 {

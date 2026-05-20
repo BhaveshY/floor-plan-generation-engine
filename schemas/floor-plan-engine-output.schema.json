@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://bhaveshy.github.io/floor-plan-generation-engine/schemas/1.1/floor-plan-engine-output.schema.json",
+  "$id": "https://bhaveshy.github.io/floor-plan-generation-engine/schemas/1.2/floor-plan-engine-output.schema.json",
   "title": "Floor Plan Generation Engine Output",
-  "description": "Version 1.1 JSON contract for ranked floor plan generation results, validation diagnostics, layer names, and stable external ids.",
+  "description": "Version 1.2 JSON contract for ranked floor plan generation results, validation diagnostics, layer names, stable external ids, and portable hypergraph output.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -59,7 +59,7 @@
       "properties": {
         "schemaVersion": {
           "type": "string",
-          "const": "1.1"
+          "const": "1.2"
         },
         "engineVersion": {
           "type": "string"
@@ -692,7 +692,8 @@
       "additionalProperties": false,
       "required": [
         "nodes",
-        "edges"
+        "edges",
+        "hypergraph"
       ],
       "properties": {
         "nodes": {
@@ -706,6 +707,9 @@
           "items": {
             "$ref": "#/$defs/adjacencyEdge"
           }
+        },
+        "hypergraph": {
+          "$ref": "#/$defs/floorPlanHypergraph"
         }
       }
     },
@@ -762,6 +766,355 @@
         },
         "reason": {
           "type": "string"
+        }
+      }
+    },
+    "floorPlanHypergraph": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "source",
+        "root",
+        "nodes",
+        "hyperedges",
+        "incidence",
+        "matrices"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "type": "string",
+          "const": "hypergraph-floorplan-1.0"
+        },
+        "source": {
+          "type": "string"
+        },
+        "root": {
+          "$ref": "#/$defs/hypergraphDataNode"
+        },
+        "nodes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/hypergraphNode"
+          }
+        },
+        "hyperedges": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/hyperedge"
+          }
+        },
+        "incidence": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/hypergraphIncidence"
+          }
+        },
+        "matrices": {
+          "$ref": "#/$defs/hypergraphMatrices"
+        }
+      }
+    },
+    "hypergraphDataNode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "area",
+        "angle",
+        "mergeid",
+        "final",
+        "children",
+        "connected",
+        "treeNodeMesh"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "area": {
+          "type": "number",
+          "minimum": 0
+        },
+        "angle": {
+          "type": "number"
+        },
+        "mergeid": {
+          "type": "string"
+        },
+        "final": {
+          "type": "boolean"
+        },
+        "children": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/hypergraphDataNode"
+          }
+        },
+        "connected": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "treeNodeMesh": {
+          "$ref": "#/$defs/hypergraphTreeNodeMesh"
+        }
+      }
+    },
+    "hypergraphTreeNodeMesh": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "Area",
+        "Centroid"
+      ],
+      "properties": {
+        "Area": {
+          "type": "number",
+          "minimum": 0
+        },
+        "Centroid": {
+          "$ref": "#/$defs/hypergraphCentroid"
+        }
+      }
+    },
+    "hypergraphCentroid": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "X",
+        "Y",
+        "Z",
+        "Mag"
+      ],
+      "properties": {
+        "X": {
+          "type": "number"
+        },
+        "Y": {
+          "type": "number"
+        },
+        "Z": {
+          "type": "number"
+        },
+        "Mag": {
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    },
+    "hypergraphNode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "externalId",
+        "kind",
+        "referenceId",
+        "parentId",
+        "mergeId",
+        "final",
+        "level",
+        "area",
+        "angle",
+        "centroid",
+        "children",
+        "connected",
+        "attributes"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "externalId": {
+          "$ref": "#/$defs/externalId"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "referenceId": {
+          "type": "string"
+        },
+        "parentId": {
+          "type": "string"
+        },
+        "mergeId": {
+          "type": "string"
+        },
+        "final": {
+          "type": "boolean"
+        },
+        "level": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "area": {
+          "type": "number",
+          "minimum": 0
+        },
+        "angle": {
+          "type": "number"
+        },
+        "centroid": {
+          "$ref": "#/$defs/point"
+        },
+        "children": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "connected": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "attributes": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "hyperedge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "externalId",
+        "kind",
+        "members",
+        "weight",
+        "attributes"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "externalId": {
+          "$ref": "#/$defs/externalId"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "members": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/hyperedgeMember"
+          }
+        },
+        "weight": {
+          "type": "number",
+          "minimum": 0
+        },
+        "attributes": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "hyperedgeMember": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "nodeId",
+        "role"
+      ],
+      "properties": {
+        "nodeId": {
+          "type": "string"
+        },
+        "role": {
+          "type": "string"
+        }
+      }
+    },
+    "hypergraphIncidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "externalId",
+        "nodeId",
+        "hyperedgeId",
+        "role",
+        "weight"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "externalId": {
+          "$ref": "#/$defs/externalId"
+        },
+        "nodeId": {
+          "type": "string"
+        },
+        "hyperedgeId": {
+          "type": "string"
+        },
+        "role": {
+          "type": "string"
+        },
+        "weight": {
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    },
+    "hypergraphMatrices": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "nodeOrder",
+        "hyperedgeOrder",
+        "subdivisionConnectivity",
+        "adjacencyConnectivity",
+        "area",
+        "angle",
+        "incidence"
+      ],
+      "properties": {
+        "nodeOrder": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "hyperedgeOrder": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "subdivisionConnectivity": {
+          "$ref": "#/$defs/numberMatrix"
+        },
+        "adjacencyConnectivity": {
+          "$ref": "#/$defs/numberMatrix"
+        },
+        "area": {
+          "$ref": "#/$defs/numberMatrix"
+        },
+        "angle": {
+          "$ref": "#/$defs/numberMatrix"
+        },
+        "incidence": {
+          "$ref": "#/$defs/numberMatrix"
+        }
+      }
+    },
+    "numberMatrix": {
+      "type": "array",
+      "items": {
+        "type": "array",
+        "items": {
+          "type": "number"
         }
       }
     },

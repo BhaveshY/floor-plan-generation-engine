@@ -3,16 +3,16 @@
 Published JSON Schema artifacts:
 
 - `floor-plan-engine-input.schema.json`: accepted `EngineInput` contract.
-- `floor-plan-engine-output.schema.json`: emitted `EngineOutput` contract.
+- `floor-plan-engine-output.schema.json`: emitted `EngineOutput` contract, including each variant's simple topology graph and portable hypergraph (`DataNode` tree, nodes, hyperedges, incidence, and matrices).
 
-The current contract version is `1.1`. The stable file names above point at the current supported contract; each schema also carries a versioned `$id` under `/schemas/1.1/`, and engine output reports the same version in `metadata.schemaVersion`.
+The current contract version is `1.2`. The stable file names above point at the current supported contract; each schema also carries a versioned `$id` under `/schemas/1.2/`, and engine output reports the same version in `metadata.schemaVersion`.
 
 The `Publish Schemas` GitHub Actions workflow publishes both stable and versioned paths to GitHub Pages:
 
 - `/schemas/floor-plan-engine-input.schema.json`
 - `/schemas/floor-plan-engine-output.schema.json`
-- `/schemas/1.1/floor-plan-engine-input.schema.json`
-- `/schemas/1.1/floor-plan-engine-output.schema.json`
+- `/schemas/1.2/floor-plan-engine-input.schema.json`
+- `/schemas/1.2/floor-plan-engine-output.schema.json`
 
 If this is the first Pages deployment for the repository, configure Pages to use GitHub Actions as the source, then run the workflow once.
 

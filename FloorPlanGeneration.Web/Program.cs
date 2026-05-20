@@ -32,7 +32,7 @@ app.MapGet("/api/health", () => Results.Json(new
 {
     ok = true,
     engine = "FloorPlanGeneration",
-    schemaVersion = "1.1",
+    schemaVersion = "1.2",
     samples = samples.Keys.OrderBy(k => k, StringComparer.OrdinalIgnoreCase)
 }));
 
@@ -237,7 +237,7 @@ static object BuildResponse(EngineOutput output, bool validateOnly)
         status = output.Status,
         mode = validateOnly ? "validate" : "generate",
         projectId = output.ProjectId,
-        schemaVersion = output.Metadata != null ? output.Metadata.SchemaVersion : "1.1",
+        schemaVersion = output.Metadata != null ? output.Metadata.SchemaVersion : "1.2",
         variantCount = output.Variants != null ? output.Variants.Count : 0,
         validVariantCount = output.Variants != null ? output.Variants.Count(v => v.Validation != null && v.Validation.Passed) : 0,
         diagnosticCount = output.Diagnostics != null ? output.Diagnostics.Count : 0,

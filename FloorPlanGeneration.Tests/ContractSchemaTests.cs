@@ -58,7 +58,7 @@ namespace FloorPlanGeneration.Tests
 
             Assert.Equal(0, exitCode);
             using JsonDocument printed = JsonDocument.Parse(stdout.ToString());
-            Assert.Equal("https://bhaveshy.github.io/floor-plan-generation-engine/schemas/1.1/floor-plan-engine-input.schema.json", printed.RootElement.GetProperty("$id").GetString());
+            Assert.Equal("https://bhaveshy.github.io/floor-plan-generation-engine/schemas/1.2/floor-plan-engine-input.schema.json", printed.RootElement.GetProperty("$id").GetString());
         }
 
         [Fact]
@@ -74,7 +74,7 @@ namespace FloorPlanGeneration.Tests
 
             Assert.Equal(0, exitCode);
             using JsonDocument printed = JsonDocument.Parse(stdout.ToString());
-            Assert.Equal("https://bhaveshy.github.io/floor-plan-generation-engine/schemas/1.1/floor-plan-engine-output.schema.json", printed.RootElement.GetProperty("$id").GetString());
+            Assert.Equal("https://bhaveshy.github.io/floor-plan-generation-engine/schemas/1.2/floor-plan-engine-output.schema.json", printed.RootElement.GetProperty("$id").GetString());
         }
 
         [Fact]

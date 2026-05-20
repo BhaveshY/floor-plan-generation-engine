@@ -15,6 +15,7 @@ Recommended components:
 - `FP Program Rules`: unit mix, room rules, rule set, scoring weights, strictness, seed, and variant count.
 - `FP Generate`: validates against the input schema, calls `FloorPlanEngine.Generate` or the CLI, and returns output JSON plus typed adapter objects.
 - `FP Validate`: calls `FloorPlanEngine.Validate` or CLI `--validate-only`.
+- `FP Hypergraph`: reads `topology.hypergraph` from a selected variant and exposes the recursive `DataNode` tree, flattened nodes, hyperedges, incidence, and matrices.
 
 ## Contract Outputs
 
@@ -22,10 +23,11 @@ Adapter components should read JSON matching `schemas/floor-plan-engine-output.s
 
 Required adapter-facing fields:
 
-- `metadata.schemaVersion`: currently `1.1`.
+- `metadata.schemaVersion`: currently `1.2`.
 - `metadata.layers`: canonical layer map for input and generated geometry.
 - `variantId` and `externalId`: stable variant identifiers.
 - `externalId` on units, rooms, corridors, walls, doors, labels, topology nodes, and topology edges.
+- `topology.hypergraph`: portable graph contract containing a `DataNode`-compatible recursive tree (`root`), flattened graph `nodes`, multi-member `hyperedges`, `incidence`, and matrix payloads.
 - `validation.checks` and `diagnostics`: machine-readable status for UI panels and bake guards.
 
 External ids use this deterministic pattern:
@@ -34,7 +36,7 @@ External ids use this deterministic pattern:
 fp://{projectId}/variants/{variantId}/{category}/{elementId}
 ```
 
-Variant ids and external ids are seed-stable for the same input contract and engine version. Adapters can store them in Rhino user strings, Grasshopper data trees, IFC property sets, or downstream BIM records.
+Variant ids and external ids are seed-stable for the same input contract and engine version. Adapters can store them in Rhino user strings, Grasshopper data trees, hypergraph visualization keys, IFC property sets, or downstream BIM records.
 
 ## Baking Layers
 

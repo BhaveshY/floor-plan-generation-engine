@@ -1,8 +1,8 @@
 # Floor Plan Generation Engine
 
-Rhino-first, headless floor plan generation MVP for multi-family residential floorplates.
+Rhino-ready, headless floor plan generation app for multi-family residential floorplates.
 
-The engine accepts architectural boundaries and fixed constraints as JSON, then returns ranked 2D floor plan variants with validation status and diagnostics. RhinoCommon/Grasshopper integration is intentionally kept as an adapter layer; the core engine is JSON I/O only.
+The engine accepts architectural boundaries and fixed constraints as JSON, then returns ranked 2D floor plan variants with validation status, diagnostics, topology, and a portable hypergraph contract compatible with the `BhaveshY/hypergraph` `DataNode` shape. RhinoCommon/Grasshopper integration is intentionally kept as an adapter layer; the core engine is JSON I/O only.
 
 ## Easiest Start
 
@@ -64,7 +64,7 @@ dotnet run --project FloorPlanGeneration.Cli -- --list-samples
 
 ## What is included
 
-- `FloorPlanGeneration/` - deterministic C# engine, geometry validation, topology graph, candidate generation, ranking, diagnostics.
+- `FloorPlanGeneration/` - deterministic C# engine, geometry validation, topology graph, portable hypergraph output, candidate generation, ranking, diagnostics.
 - `FloorPlanGeneration.Cli/` - JSON-in / JSON-out command-line wrapper.
 - `FloorPlanGeneration.Web/` - local web app for editing inputs, generating variants, previewing layouts, and inspecting diagnostics.
 - `FloorPlanGeneration.Tests/` - xUnit tests for valid generation and failure diagnostics.
@@ -189,6 +189,7 @@ The CLI is designed to be agent-friendly:
 - stdin accepts EngineInput JSON when neither `--input` nor `--sample` is supplied.
 - `--variants` accepts values from `1` through `20`.
 - exit code `0` means success, `2` means failed engine/CLI JSON output, `3` means partial output with `--fail-on-partial`, and `64` means usage error.
+- every generated variant includes `topology.hypergraph` with a recursive `DataNode` tree, explicit nodes, hyperedges, incidence records, and subdivision/adjacency/area/angle/incidence matrices.
 
 ## Design Principles
 
@@ -197,7 +198,8 @@ The CLI is designed to be agent-friendly:
 - Honest validation failures with machine-readable diagnostics.
 - Rhino/Grasshopper coupling only through future adapters.
 - Strict CLI JSON parsing: unknown JSON properties fail fast instead of being silently ignored.
-- Published schema version `1.1` with strict input schema, output schema, and compact golden contract fixtures.
+- Published schema version `1.2` with strict input schema, output schema, and compact golden contract fixtures.
+- Portable hypergraph output: recursive `DataNode` JSON (`name`, `area`, `angle`, `mergeid`, `final`, `children`, `connected`, `treeNodeMesh`) plus explicit hyperedges and matrices.
 - Adapter-facing output metadata for schema version, seed, effective generation settings, floorplate bounds/areas, stable `externalId` values, and predictable layer names such as `FP::Input::Boundary`, `FP::Input::Fixed`, `FP::Generated::Units`, `FP::Generated::Corridors`, and `FP::Generated::Diagnostics`.
 
 ## MVP Scope

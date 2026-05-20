@@ -36,9 +36,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p public/schemas/1.1
+          mkdir -p public/schemas/1.2
           cp schemas/*.schema.json public/schemas/
-          cp schemas/*.schema.json public/schemas/1.1/
+          cp schemas/*.schema.json public/schemas/1.2/
           cp schemas/README.md public/schemas/README.md
           touch public/.nojekyll
 

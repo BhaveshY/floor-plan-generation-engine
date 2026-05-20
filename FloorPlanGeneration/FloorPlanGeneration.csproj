@@ -8,4 +8,7 @@
     <PackageId>FloorPlanGeneration</PackageId>
     <Description>Headless JSON-in/JSON-out floor plan generation engine for multi-family residential floorplates.</Description>
   </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="System.Text.Json" Version="8.0.5" />
+  </ItemGroup>
 </Project>

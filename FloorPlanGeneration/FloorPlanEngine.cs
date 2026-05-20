@@ -405,6 +405,7 @@ namespace FloorPlanGeneration
 
             AddCheck(report, "stable_external_ids", HasStableExternalIds(variant), "error", "Generated variants and elements must expose unique stable external ids.", variant.VariantId);
             AddCheck(report, "generated_layers", HasExpectedGeneratedLayers(variant), "error", "Generated elements must use the published generated layer names.", variant.VariantId);
+            AddCheck(report, "hypergraph_contract", HasValidHypergraph(variant), "error", "Variant topology must expose a valid hypergraph contract.", variant.VariantId);
 
             if (IsStrict(input))
             {
@@ -582,6 +583,26 @@ namespace FloorPlanGeneration
                 string localId = edgeIndex.ToString("000", CultureInfo.InvariantCulture) + "-" + edge.From + "-" + edge.Kind + "-" + edge.To;
                 edge.ExternalId = BuildVariantExternalId(projectId, variantId, "topology/edges", localId);
             }
+
+            if (variant.Topology.Hypergraph == null)
+            {
+                return;
+            }
+
+            foreach (HypergraphNode node in variant.Topology.Hypergraph.Nodes ?? new List<HypergraphNode>())
+            {
+                node.ExternalId = BuildVariantExternalId(projectId, variantId, "topology/hypergraph/nodes", node.Id);
+            }
+
+            foreach (Hyperedge edge in variant.Topology.Hypergraph.Hyperedges ?? new List<Hyperedge>())
+            {
+                edge.ExternalId = BuildVariantExternalId(projectId, variantId, "topology/hypergraph/hyperedges", edge.Id);
+            }
+
+            foreach (HypergraphIncidence incidence in variant.Topology.Hypergraph.Incidence ?? new List<HypergraphIncidence>())
+            {
+                incidence.ExternalId = BuildVariantExternalId(projectId, variantId, "topology/hypergraph/incidence", incidence.Id);
+            }
         }
 
         private static string BuildVariantExternalId(string projectId, string variantId, string category, string localId)
@@ -630,12 +651,25 @@ namespace FloorPlanGeneration
             {
                 externalIds.AddRange((variant.Topology.Nodes ?? new List<SpaceNode>()).Select(n => n.ExternalId));
                 externalIds.AddRange((variant.Topology.Edges ?? new List<AdjacencyEdge>()).Select(e => e.ExternalId));
+                if (variant.Topology.Hypergraph != null)
+                {
+                    externalIds.AddRange((variant.Topology.Hypergraph.Nodes ?? new List<HypergraphNode>()).Select(n => n.ExternalId));
+                    externalIds.AddRange((variant.Topology.Hypergraph.Hyperedges ?? new List<Hyperedge>()).Select(e => e.ExternalId));
+                    externalIds.AddRange((variant.Topology.Hypergraph.Incidence ?? new List<HypergraphIncidence>()).Select(i => i.ExternalId));
+                }
             }
 
             List<string> required = externalIds.Where(id => !string.IsNullOrWhiteSpace(id)).ToList();
             return required.Count == externalIds.Count &&
                 required.All(id => id.StartsWith("fp://", StringComparison.Ordinal)) &&
                 required.Count == required.Distinct(StringComparer.OrdinalIgnoreCase).Count();
+        }
+
+        private static bool HasValidHypergraph(LayoutVariant variant)
+        {
+            return variant.Topology != null &&
+                variant.Topology.Hypergraph != null &&
+                HypergraphBuilder.Validate(variant.Topology.Hypergraph).Count == 0;
         }
 
         private static bool HasExpectedGeneratedLayers(LayoutVariant variant)
