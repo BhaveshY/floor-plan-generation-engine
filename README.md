@@ -14,6 +14,12 @@ Windows PowerShell:
 .\scripts\run-sample.ps1
 ```
 
+Windows double-click:
+
+```text
+scripts\run-sample.bat
+```
+
 macOS/Linux:
 
 ```bash
