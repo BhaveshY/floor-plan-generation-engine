@@ -1,0 +1,50 @@
+name: Publish Schemas
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "schemas/**"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v6
+
+      - name: Stage schema artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p public/schemas/1.1
+          cp schemas/*.schema.json public/schemas/
+          cp schemas/*.schema.json public/schemas/1.1/
+          cp schemas/README.md public/schemas/README.md
+          touch public/.nojekyll
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: public
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5

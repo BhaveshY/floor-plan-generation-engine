@@ -6,11 +6,16 @@
     <Nullable>disable</Nullable>
     <AssemblyName>FloorPlanGeneration.Cli</AssemblyName>
     <RootNamespace>FloorPlanGeneration.Cli</RootNamespace>
+    <PackageId>FloorPlanGeneration.Cli</PackageId>
+    <Description>Command-line JSON adapter for the Floor Plan Generation engine.</Description>
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>floorplan-gen</ToolCommandName>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\FloorPlanGeneration\FloorPlanGeneration.csproj" />
   </ItemGroup>
   <ItemGroup>
     <Content Include="..\schemas\*.schema.json" Link="schemas\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\samples\floor-plan-generation\*.json" Link="samples\floor-plan-generation\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

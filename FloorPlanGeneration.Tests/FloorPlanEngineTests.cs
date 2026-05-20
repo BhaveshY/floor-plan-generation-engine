@@ -109,6 +109,54 @@ namespace FloorPlanGeneration.Tests
         }
 
         [Fact]
+        public void DoorOpeningsReferenceHostWallsAtTheirActualLocations()
+        {
+            EngineOutput output = new FloorPlanEngine().Generate(RectangularInput(seed: 20260519, variantCount: 3));
+
+            Assert.Equal("succeeded", output.Status);
+            Assert.All(output.Variants, variant =>
+            {
+                Assert.Contains(variant.Validation.Checks, c => c.Name == "door_host_wall_exists" && c.Passed);
+                Assert.Contains(variant.Validation.Checks, c => c.Name == "door_connects_known_spaces" && c.Passed);
+                Dictionary<string, WallLayout> walls = variant.Walls.ToDictionary(w => w.Id, StringComparer.OrdinalIgnoreCase);
+
+                Assert.All(variant.DoorsOpenings, door =>
+                {
+                    Assert.True(walls.ContainsKey(door.HostWall), "Missing host wall " + door.HostWall + " for " + door.Id);
+                    WallLayout host = walls[door.HostWall];
+                    Assert.True(
+                        GeometryPredicates.OnSegment(host.Centerline.Start, host.Centerline.End, door.Location, 0.01),
+                        door.Id + " location is not on " + door.HostWall);
+                });
+            });
+        }
+
+        [Fact]
+        public void RoomPartitionWallsDoNotDuplicateUnitExteriorEdges()
+        {
+            EngineOutput output = new FloorPlanEngine().Generate(RectangularInput(seed: 1441, variantCount: 2));
+
+            Assert.Equal("succeeded", output.Status);
+            Assert.All(output.Variants, variant =>
+            {
+                List<LineSegment2> unitExteriorEdges = variant.Units
+                    .SelectMany(u => ToPolygon(u.Polygon).Edges())
+                    .ToList();
+                List<WallLayout> partitions = variant.Walls
+                    .Where(w => string.Equals(w.LayerType, "room_partition", StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+                List<string> partitionKeys = partitions.Select(w => SegmentKey(w.Centerline)).ToList();
+
+                Assert.Equal(partitionKeys.Count, partitionKeys.Distinct(StringComparer.Ordinal).Count());
+                Assert.All(partitions, wall =>
+                {
+                    LineSegment2 segment = new LineSegment2(wall.Centerline.Start, wall.Centerline.End);
+                    Assert.DoesNotContain(unitExteriorEdges, edge => GeometryPredicates.SharedSegmentLength(segment, edge, 0.01) > 0.01);
+                });
+            });
+        }
+
+        [Fact]
         public void SameSeed_ProducesSameVariantIdsScoresAndLayoutCounts()
         {
             EngineOutput left = new FloorPlanEngine().Generate(RectangularInput(seed: 8128, variantCount: 5));
@@ -266,6 +314,57 @@ namespace FloorPlanGeneration.Tests
         }
 
         [Fact]
+        public void CliListSamples_PrintsFriendlySampleNamesWithoutReadingInput()
+        {
+            StringWriter stdout = new StringWriter(CultureInfo.InvariantCulture);
+
+            int exitCode = CliApplication.Run(
+                new[] { "--list-samples" },
+                new ThrowingTextReader(),
+                stdout,
+                new StringWriter(CultureInfo.InvariantCulture));
+
+            Assert.Equal(0, exitCode);
+            Assert.Contains("rectangular-core", stdout.ToString());
+            Assert.Contains("moderately-irregular-core", stdout.ToString());
+        }
+
+        [Fact]
+        public void CliSample_GeneratesOutputWithoutManualInputPath()
+        {
+            StringWriter stdout = new StringWriter(CultureInfo.InvariantCulture);
+
+            int exitCode = CliApplication.Run(
+                new[] { "--sample", "rectangular-core", "--variants", "1" },
+                new ThrowingTextReader(),
+                stdout,
+                new StringWriter(CultureInfo.InvariantCulture));
+
+            Assert.Equal(0, exitCode);
+            EngineOutput output = JsonSerializer.Deserialize<EngineOutput>(stdout.ToString(), JsonOptions());
+            Assert.Equal("succeeded", output.Status);
+            Assert.Equal("rectangular-core-sample", output.ProjectId);
+            Assert.Single(output.Variants);
+        }
+
+        [Fact]
+        public void CliWriteSample_WritesStarterJsonWithoutRunningGeneration()
+        {
+            StringWriter stdout = new StringWriter(CultureInfo.InvariantCulture);
+
+            int exitCode = CliApplication.Run(
+                new[] { "--write-sample", "l-shaped-core" },
+                new ThrowingTextReader(),
+                stdout,
+                new StringWriter(CultureInfo.InvariantCulture));
+
+            Assert.Equal(0, exitCode);
+            EngineInput input = JsonSerializer.Deserialize<EngineInput>(stdout.ToString(), JsonOptions());
+            Assert.Equal("l-shaped-core-sample", input.Project.Id);
+            Assert.NotEmpty(input.Floorplate.Outer.Points);
+        }
+
+        [Fact]
         public void ModeratelyIrregularSampleJson_GeneratesValidOutput()
         {
             string outputPath = Path.Combine(Path.GetTempPath(), "floor-plan-irregular-" + System.Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture) + ".json");
@@ -361,6 +460,43 @@ namespace FloorPlanGeneration.Tests
                 v.Rooms.Count.ToString(CultureInfo.InvariantCulture),
                 v.Corridors.Count.ToString(CultureInfo.InvariantCulture),
                 v.Validation.Passed.ToString()));
+        }
+
+        private static Polygon2 ToPolygon(PolygonInput input)
+        {
+            List<Point2> points = input.Points.Select(p => p.Clone()).ToList();
+            if (points.Count > 1 && points[0].EqualsWithin(points[points.Count - 1], 1e-9))
+            {
+                points.RemoveAt(points.Count - 1);
+            }
+
+            return new Polygon2(input.Id, points);
+        }
+
+        private static string SegmentKey(LineInput line)
+        {
+            return SegmentKey(new LineSegment2(line.Start, line.End));
+        }
+
+        private static string SegmentKey(LineSegment2 segment)
+        {
+            string first = PointKey(segment.Start);
+            string second = PointKey(segment.End);
+            return string.CompareOrdinal(first, second) <= 0 ? first + "|" + second : second + "|" + first;
+        }
+
+        private static string PointKey(Point2 point)
+        {
+            return Math.Round(point.X, 6).ToString("0.######", CultureInfo.InvariantCulture) + "," +
+                Math.Round(point.Y, 6).ToString("0.######", CultureInfo.InvariantCulture);
+        }
+
+        private sealed class ThrowingTextReader : TextReader
+        {
+            public override string ReadToEnd()
+            {
+                throw new InvalidOperationException("This command should not read stdin.");
+            }
         }
 
         private static EngineInput RectangularInput(int seed, int variantCount)

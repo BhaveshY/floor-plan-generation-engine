@@ -11,7 +11,15 @@ namespace FloorPlanGeneration.Cli
 {
     public static class CliApplication
     {
-        private const string Usage = "Usage: FloorPlanGeneration.Cli [--input path] [--output path] [--seed n] [--variants n] [--validate-only] [--summary] [--fail-on-partial] [--print-input-schema|--print-output-schema]";
+        private const string Usage = "Usage: FloorPlanGeneration.Cli [--input path|--sample name] [--output path] [--seed n] [--variants n] [--validate-only] [--summary] [--fail-on-partial] [--list-samples|--write-sample name] [--print-input-schema|--print-output-schema]";
+
+        private static readonly Dictionary<string, string> Samples = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            { "rectangular-core", "rectangular-core-input.json" },
+            { "l-shaped-core", "l-shaped-core-input.json" },
+            { "moderately-irregular-core", "moderately-irregular-core-input.json" },
+            { "infeasible-narrow", "infeasible-narrow-input.json" }
+        };
 
         public static int Run(string[] args, TextReader inputReader, TextWriter outputWriter, TextWriter errorWriter)
         {
@@ -25,6 +33,29 @@ namespace FloorPlanGeneration.Cli
             if (options.Help)
             {
                 outputWriter.WriteLine(Usage);
+                return 0;
+            }
+
+            if (options.ListSamples)
+            {
+                foreach (string sample in Samples.Keys.OrderBy(k => k, StringComparer.OrdinalIgnoreCase))
+                {
+                    outputWriter.WriteLine(sample);
+                }
+
+                return 0;
+            }
+
+            if (!string.IsNullOrWhiteSpace(options.WriteSampleName))
+            {
+                string sampleJson;
+                if (!TryReadSample(options.WriteSampleName, out sampleJson))
+                {
+                    errorWriter.WriteLine("Unknown sample '" + options.WriteSampleName + "'. Run --list-samples to see available samples.");
+                    return 64;
+                }
+
+                WriteOutput(options.OutputPath, sampleJson, outputWriter);
                 return 0;
             }
 
@@ -48,7 +79,7 @@ namespace FloorPlanGeneration.Cli
             EngineOutput output;
             try
             {
-                string json = ReadInput(options.InputPath, inputReader);
+                string json = ReadInput(options, inputReader);
                 if (string.IsNullOrWhiteSpace(json))
                 {
                     output = FailedOutput("cli.empty_input", "No JSON input was provided.");
@@ -101,14 +132,47 @@ namespace FloorPlanGeneration.Cli
             };
         }
 
-        private static string ReadInput(string inputPath, TextReader inputReader)
+        private static string ReadInput(CliOptions options, TextReader inputReader)
         {
-            if (!string.IsNullOrWhiteSpace(inputPath))
+            if (!string.IsNullOrWhiteSpace(options.SampleName))
             {
-                return File.ReadAllText(inputPath);
+                string sampleJson;
+                if (!TryReadSample(options.SampleName, out sampleJson))
+                {
+                    throw new ArgumentException("Unknown sample '" + options.SampleName + "'. Run --list-samples to see available samples.");
+                }
+
+                return sampleJson;
+            }
+
+            if (!string.IsNullOrWhiteSpace(options.InputPath))
+            {
+                return File.ReadAllText(options.InputPath);
             }
 
             return inputReader.ReadToEnd();
+        }
+
+        private static bool TryReadSample(string sampleName, out string json)
+        {
+            json = string.Empty;
+            string fileName;
+            if (!Samples.TryGetValue(sampleName ?? string.Empty, out fileName))
+            {
+                return false;
+            }
+
+            foreach (string root in SampleSearchRoots())
+            {
+                string candidate = Path.Combine(root, "samples", "floor-plan-generation", fileName);
+                if (File.Exists(candidate))
+                {
+                    json = File.ReadAllText(candidate);
+                    return true;
+                }
+            }
+
+            throw new FileNotFoundException(fileName);
         }
 
         private static string ReadSchemaArtifact(string fileName)
@@ -125,7 +189,17 @@ namespace FloorPlanGeneration.Cli
             throw new FileNotFoundException(fileName);
         }
 
+        private static IEnumerable<string> SampleSearchRoots()
+        {
+            return ArtifactSearchRoots();
+        }
+
         private static IEnumerable<string> SchemaSearchRoots()
+        {
+            return ArtifactSearchRoots();
+        }
+
+        private static IEnumerable<string> ArtifactSearchRoots()
         {
             HashSet<string> roots = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (string root in SearchRootChain(AppContext.BaseDirectory, roots))
@@ -245,6 +319,26 @@ namespace FloorPlanGeneration.Cli
                     continue;
                 }
 
+                if (arg == "--sample")
+                {
+                    if (++i >= args.Length) return false;
+                    options.SampleName = args[i];
+                    continue;
+                }
+
+                if (arg == "--write-sample")
+                {
+                    if (++i >= args.Length) return false;
+                    options.WriteSampleName = args[i];
+                    continue;
+                }
+
+                if (arg == "--list-samples")
+                {
+                    options.ListSamples = true;
+                    continue;
+                }
+
                 if (arg == "--output")
                 {
                     if (++i >= args.Length) return false;
@@ -303,6 +397,11 @@ namespace FloorPlanGeneration.Cli
                 return false;
             }
 
+            if (!string.IsNullOrWhiteSpace(options.InputPath) && !string.IsNullOrWhiteSpace(options.SampleName))
+            {
+                return false;
+            }
+
             return !(options.PrintInputSchema && options.PrintOutputSchema);
         }
 
@@ -310,12 +409,15 @@ namespace FloorPlanGeneration.Cli
         {
             public string InputPath { get; set; }
             public string OutputPath { get; set; }
+            public string SampleName { get; set; }
+            public string WriteSampleName { get; set; }
             public bool Help { get; set; }
             public int? SeedOverride { get; set; }
             public int? VariantCountOverride { get; set; }
             public bool Summary { get; set; }
             public bool FailOnPartial { get; set; }
             public bool ValidateOnly { get; set; }
+            public bool ListSamples { get; set; }
             public bool PrintInputSchema { get; set; }
             public bool PrintOutputSchema { get; set; }
         }

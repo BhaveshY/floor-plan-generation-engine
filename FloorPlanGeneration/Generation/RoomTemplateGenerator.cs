@@ -60,27 +60,29 @@ namespace FloorPlanGeneration.Generation
                 Id = "door-" + unit.Id,
                 Location = location,
                 Width = _input.Source.Rules.DoorWidth,
-                HostWall = "wall-entry-" + unit.Id,
+                HostWall = EntryWallId(unit.Id, polygon, corridor),
                 ConnectsSpaces = new List<string> { unit.Id, corridor.Id }
             };
         }
 
-        public IEnumerable<WallLayout> CreateUnitWalls(UnitLayout unit)
+        public IEnumerable<WallLayout> CreateUnitWalls(UnitLayout unit, CorridorStrategy corridor)
         {
             Polygon2 polygon = ToPolygon(unit.Polygon);
+            int entryEdgeIndex = EntryEdgeIndex(polygon, corridor);
             int index = 0;
             foreach (LineSegment2 edge in polygon.Edges())
             {
                 index++;
                 yield return new WallLayout
                 {
-                    Id = index == 1 ? "wall-entry-" + unit.Id : "wall-" + unit.Id + "-" + index.ToString(CultureInfo.InvariantCulture),
+                    Id = index == entryEdgeIndex ? "wall-entry-" + unit.Id : "wall-" + unit.Id + "-" + index.ToString(CultureInfo.InvariantCulture),
                     Centerline = new LineInput { Id = "wall-" + unit.Id + "-" + index.ToString(CultureInfo.InvariantCulture), Start = edge.Start.Clone(), End = edge.End.Clone() },
                     Thickness = 0.18,
                     LayerType = "unit_demising"
                 };
             }
 
+            HashSet<string> emittedPartitions = new HashSet<string>(StringComparer.Ordinal);
             foreach (RoomLayout room in unit.Rooms)
             {
                 Polygon2 roomPolygon = ToPolygon(room.Polygon);
@@ -88,7 +90,12 @@ namespace FloorPlanGeneration.Generation
                 foreach (LineSegment2 edge in roomPolygon.Edges())
                 {
                     roomEdgeIndex++;
-                    if (GeometryPredicates.SharedSegmentLength(edge, polygon.Edges().First(), _tolerance) > _tolerance)
+                    if (SharesUnitExterior(edge, polygon))
+                    {
+                        continue;
+                    }
+
+                    if (!emittedPartitions.Add(SegmentKey(edge)))
                     {
                         continue;
                     }
@@ -102,6 +109,62 @@ namespace FloorPlanGeneration.Generation
                     };
                 }
             }
+        }
+
+        private string EntryWallId(string unitId, Polygon2 polygon, CorridorStrategy corridor)
+        {
+            int index = EntryEdgeIndex(polygon, corridor);
+            return index > 0 ? "wall-entry-" + unitId : string.Empty;
+        }
+
+        private int EntryEdgeIndex(Polygon2 polygon, CorridorStrategy corridor)
+        {
+            Bounds2 bounds = polygon.Bounds();
+            int index = 0;
+            foreach (LineSegment2 edge in polygon.Edges())
+            {
+                index++;
+                if (corridor.Orientation == CorridorOrientation.Horizontal)
+                {
+                    double entryY = Math.Abs(bounds.MinY - corridor.MaxY) <= Math.Abs(bounds.MaxY - corridor.MinY)
+                        ? bounds.MinY
+                        : bounds.MaxY;
+                    if (edge.IsHorizontal(_tolerance) && Math.Abs(edge.Start.Y - entryY) <= _tolerance)
+                    {
+                        return index;
+                    }
+                }
+                else
+                {
+                    double entryX = Math.Abs(bounds.MinX - corridor.MaxX) <= Math.Abs(bounds.MaxX - corridor.MinX)
+                        ? bounds.MinX
+                        : bounds.MaxX;
+                    if (edge.IsVertical(_tolerance) && Math.Abs(edge.Start.X - entryX) <= _tolerance)
+                    {
+                        return index;
+                    }
+                }
+            }
+
+            return 1;
+        }
+
+        private bool SharesUnitExterior(LineSegment2 roomEdge, Polygon2 unitPolygon)
+        {
+            return unitPolygon.Edges().Any(unitEdge => GeometryPredicates.SharedSegmentLength(roomEdge, unitEdge, _tolerance) > _tolerance);
+        }
+
+        private static string SegmentKey(LineSegment2 edge)
+        {
+            string first = PointKey(edge.Start);
+            string second = PointKey(edge.End);
+            return string.CompareOrdinal(first, second) <= 0 ? first + "|" + second : second + "|" + first;
+        }
+
+        private static string PointKey(Point2 point)
+        {
+            return Math.Round(point.X, 6).ToString("0.######", CultureInfo.InvariantCulture) + "," +
+                Math.Round(point.Y, 6).ToString("0.######", CultureInfo.InvariantCulture);
         }
 
         public IEnumerable<LabelLayout> CreateLabels(UnitLayout unit)

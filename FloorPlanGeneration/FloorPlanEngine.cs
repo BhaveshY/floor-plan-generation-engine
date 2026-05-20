@@ -105,6 +105,7 @@ namespace FloorPlanGeneration
 
             CandidateGenerator generator = new CandidateGenerator(cleaned);
             List<LayoutVariant> candidates = generator.Generate();
+            output.Diagnostics.AddRange(generator.Diagnostics);
             if (candidates.Count == 0)
             {
                 output.Diagnostics.Add(Diagnostic.Error("generation.no_candidates", "Candidate generation produced no variants."));
@@ -379,6 +380,27 @@ namespace FloorPlanGeneration
             {
                 bool hasDoor = variant.DoorsOpenings.Any(d => d.ConnectsSpaces.Contains(unit.Id));
                 AddCheck(report, "unit_has_door", hasDoor, "error", "Unit must have a door/opening connection.", unit.Id);
+            }
+
+            HashSet<string> wallIds = new HashSet<string>(variant.Walls.Select(w => w.Id), StringComparer.OrdinalIgnoreCase);
+            HashSet<string> knownSpaceIds = new HashSet<string>(variant.Units.Select(u => u.Id), StringComparer.OrdinalIgnoreCase);
+            foreach (CorridorLayout corridor in variant.Corridors)
+            {
+                knownSpaceIds.Add(corridor.Id);
+            }
+
+            foreach (RoomLayout room in variant.Rooms)
+            {
+                knownSpaceIds.Add(room.Id);
+            }
+
+            foreach (DoorOpening door in variant.DoorsOpenings)
+            {
+                AddCheck(report, "door_host_wall_exists", wallIds.Contains(door.HostWall), "error", "Door/opening references a missing host wall.", door.Id);
+                bool connectsKnownSpaces = door.ConnectsSpaces != null &&
+                    door.ConnectsSpaces.Count >= 2 &&
+                    door.ConnectsSpaces.All(id => knownSpaceIds.Contains(id));
+                AddCheck(report, "door_connects_known_spaces", connectsKnownSpaces, "error", "Door/opening must connect known spaces.", door.Id);
             }
 
             AddCheck(report, "stable_external_ids", HasStableExternalIds(variant), "error", "Generated variants and elements must expose unique stable external ids.", variant.VariantId);

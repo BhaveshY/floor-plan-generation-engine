@@ -9,6 +9,8 @@ Completed product contract work:
 - Schema version `1.1` policy documented in `schemas/README.md`.
 - Stable `externalId` values on generated variants, elements, topology nodes, and topology edges.
 - Layer and external-id validation checks on generated variants.
+- Door host-wall and connected-space validation checks on generated variants.
+- GitHub Pages workflow for stable and versioned schema publication paths.
 - Compact golden contract fixture coverage for rectangular, L-shaped, moderately irregular, and infeasible samples.
 - Rhino/Grasshopper adapter contract documentation without adding RhinoCommon to the core.
 

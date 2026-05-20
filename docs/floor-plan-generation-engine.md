@@ -45,7 +45,7 @@ Main sections:
 - `facade`: optional explicit daylight-capable segments. If omitted, the outer floorplate boundary is treated as daylight-capable.
 - `program`: target unit types and room type rules.
 - `rules`: minimum corridor width, room size, door width, daylight requirements, and minimum unit area.
-- `generationSettings`: variant count, strictness, weighted variation, and scoring weights.
+- `generationSettings`: variant count, soft time limit, strictness, weighted variation, and scoring weights.
 
 Polygon rings may be open or closed. The engine stores unique vertices internally and reports cleanup diagnostics when it removes duplicate, closing, or collinear points.
 
@@ -121,6 +121,8 @@ dotnet run --project FloorPlanGeneration.Cli -- --input samples/floor-plan-gener
 ```
 
 `--summary` writes a compact status line to stderr and leaves stdout clean for JSON when no `--output` path is supplied. `--fail-on-partial` returns a non-zero exit code for partial outputs, which is useful in automated checks.
+
+`generationSettings.timeLimitMilliseconds` is a soft generation budget. The engine finishes the current variant, returns completed variants, and emits `generation.time_limit_reached` when the budget is reached before all requested variants are generated.
 
 Schema tooling:
 

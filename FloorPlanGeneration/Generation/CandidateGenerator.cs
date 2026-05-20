@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Globalization;
 using System.Linq;
 using FloorPlanGeneration.Geometry;
@@ -21,6 +22,7 @@ namespace FloorPlanGeneration.Generation
             _mixPlanner = new UnitMixPlanner(input.Source.Program);
             _roomGenerator = new RoomTemplateGenerator(input);
             _tolerance = input.Tolerance;
+            Diagnostics = new List<Diagnostic>();
         }
 
         public UnitMixPlanner MixPlanner
@@ -28,14 +30,28 @@ namespace FloorPlanGeneration.Generation
             get { return _mixPlanner; }
         }
 
+        public List<Diagnostic> Diagnostics { get; private set; }
+
         public List<LayoutVariant> Generate()
         {
             int requested = _input.Source.GenerationSettings != null ? _input.Source.GenerationSettings.VariantCount : 8;
             requested = Math.Max(1, Math.Min(20, requested));
+            int timeLimitMilliseconds = _input.Source.GenerationSettings != null ? _input.Source.GenerationSettings.TimeLimitMilliseconds : 1000;
+            timeLimitMilliseconds = Math.Max(1, timeLimitMilliseconds);
+            Stopwatch stopwatch = Stopwatch.StartNew();
             List<LayoutVariant> variants = new List<LayoutVariant>();
 
             for (int i = 0; i < requested; i++)
             {
+                if (i > 0 && stopwatch.ElapsedMilliseconds >= timeLimitMilliseconds)
+                {
+                    Diagnostics.Add(Diagnostic.Warning(
+                        "generation.time_limit_reached",
+                        "Generation stopped after reaching timeLimitMilliseconds; returned completed variants only.",
+                        "generationSettings.timeLimitMilliseconds"));
+                    break;
+                }
+
                 int seed = CombineSeed(_input.Source.Project.Seed, i);
                 SeededRandom random = new SeededRandom(seed);
                 List<Diagnostic> diagnostics = new List<Diagnostic>();
@@ -103,7 +119,7 @@ namespace FloorPlanGeneration.Generation
                 _roomGenerator.PopulateUnit(unit, corridor, target);
                 variant.Rooms.AddRange(unit.Rooms);
                 variant.DoorsOpenings.Add(_roomGenerator.CreateUnitDoor(unit, corridor, doorIndex++));
-                variant.Walls.AddRange(_roomGenerator.CreateUnitWalls(unit));
+                variant.Walls.AddRange(_roomGenerator.CreateUnitWalls(unit, corridor));
                 variant.Labels.AddRange(_roomGenerator.CreateLabels(unit));
                 variant.Corridors[0].Connections.Add(unit.Id);
             }
