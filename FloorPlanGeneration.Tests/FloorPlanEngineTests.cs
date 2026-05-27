@@ -151,8 +151,21 @@ namespace FloorPlanGeneration.Tests
             Assert.Contains(hypergraph.Hyperedges, edge => edge.Kind == "facade");
             Assert.Equal(hypergraph.Hyperedges.Sum(edge => edge.Members.Count), hypergraph.Incidence.Count);
 
+            HashSet<string> nodeIds = hypergraph.Nodes.Select(node => node.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            Assert.All(hypergraph.Hyperedges.SelectMany(edge => edge.Members), member => Assert.Contains(member.NodeId, nodeIds));
+            HashSet<string> memberKeys = hypergraph.Hyperedges
+                .SelectMany(edge => edge.Members.Select(member => HypergraphTuple(edge.Id, member.NodeId, member.Role)))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            Assert.All(hypergraph.Incidence, item => Assert.Contains(HypergraphTuple(item.HyperedgeId, item.NodeId, item.Role), memberKeys));
+
             Assert.Equal(hypergraph.Nodes.Count, hypergraph.Matrices.NodeOrder.Count);
             Assert.Equal(hypergraph.Hyperedges.Count, hypergraph.Matrices.HyperedgeOrder.Count);
+            Assert.Equal(
+                hypergraph.Nodes.Select(node => node.Id).OrderBy(id => id, StringComparer.OrdinalIgnoreCase),
+                hypergraph.Matrices.NodeOrder);
+            Assert.Equal(
+                hypergraph.Hyperedges.Select(edge => edge.Id).OrderBy(id => id, StringComparer.OrdinalIgnoreCase),
+                hypergraph.Matrices.HyperedgeOrder);
             Assert.Equal(hypergraph.Nodes.Count, hypergraph.Matrices.SubdivisionConnectivity.Count);
             Assert.Equal(hypergraph.Nodes.Count, hypergraph.Matrices.AdjacencyConnectivity.Count);
             Assert.Equal(hypergraph.Nodes.Count, hypergraph.Matrices.Area.Count);
@@ -170,6 +183,40 @@ namespace FloorPlanGeneration.Tests
             Assert.Contains("\"treeNodeMesh\"", rootJson, StringComparison.Ordinal);
             Assert.Contains("\"Area\"", rootJson, StringComparison.Ordinal);
             Assert.DoesNotContain("\"mergeId\"", rootJson, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void HypergraphValidationRejectsContractDrift()
+        {
+            EngineOutput output = new FloorPlanEngine().Generate(RectangularInput(seed: 20260519, variantCount: 1));
+            FloorPlanHypergraph hypergraph = Assert.Single(output.Variants).Topology.Hypergraph;
+
+            FloorPlanHypergraph unknownMember = CloneHypergraph(hypergraph);
+            unknownMember.Hyperedges.First(edge => edge.Members.Count > 0).Members[0].NodeId = "missing-node";
+            Assert.Contains(HypergraphBuilder.Validate(unknownMember), error => error.Contains("references unknown node missing-node", StringComparison.Ordinal));
+
+            FloorPlanHypergraph missingIncidence = CloneHypergraph(hypergraph);
+            missingIncidence.Incidence.RemoveAt(0);
+            Assert.Contains(HypergraphBuilder.Validate(missingIncidence), error => error.StartsWith("Missing incidence for hyperedge member", StringComparison.Ordinal));
+
+            FloorPlanHypergraph badOrder = CloneHypergraph(hypergraph);
+            string replacedNode = badOrder.Matrices.NodeOrder[0];
+            badOrder.Matrices.NodeOrder[0] = "not-a-node";
+            List<string> orderErrors = HypergraphBuilder.Validate(badOrder);
+            Assert.Contains(orderErrors, error => error.Contains("references unknown node not-a-node", StringComparison.Ordinal));
+            Assert.Contains(orderErrors, error => error.Contains("is missing node " + replacedNode, StringComparison.Ordinal));
+
+            FloorPlanHypergraph badMatrix = CloneHypergraph(hypergraph);
+            HypergraphIncidence incidence = badMatrix.Incidence[0];
+            int row = badMatrix.Matrices.NodeOrder.FindIndex(id => string.Equals(id, incidence.NodeId, StringComparison.OrdinalIgnoreCase));
+            int column = badMatrix.Matrices.HyperedgeOrder.FindIndex(id => string.Equals(id, incidence.HyperedgeId, StringComparison.OrdinalIgnoreCase));
+            badMatrix.Matrices.Incidence[row][column] = 0.0;
+            Assert.Contains(HypergraphBuilder.Validate(badMatrix), error => error.StartsWith("Matrix incidence does not match incidence record", StringComparison.Ordinal));
+
+            FloorPlanHypergraph badNodeReference = CloneHypergraph(hypergraph);
+            HypergraphNode nodeWithChild = badNodeReference.Nodes.First(node => node.Children.Count > 0);
+            nodeWithChild.Children[0] = "missing-child";
+            Assert.Contains(HypergraphBuilder.Validate(badNodeReference), error => error.Contains("references unknown child missing-child", StringComparison.Ordinal));
         }
 
         [Fact]
@@ -582,6 +629,18 @@ namespace FloorPlanGeneration.Tests
                 PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
                 DictionaryKeyPolicy = JsonNamingPolicy.CamelCase
             };
+        }
+
+        private static FloorPlanHypergraph CloneHypergraph(FloorPlanHypergraph hypergraph)
+        {
+            return JsonSerializer.Deserialize<FloorPlanHypergraph>(
+                JsonSerializer.Serialize(hypergraph, JsonOptions()),
+                JsonOptions());
+        }
+
+        private static string HypergraphTuple(string hyperedgeId, string nodeId, string role)
+        {
+            return (hyperedgeId ?? string.Empty) + "|" + (nodeId ?? string.Empty) + "|" + (role ?? string.Empty);
         }
 
         private static string RepositoryRoot()
