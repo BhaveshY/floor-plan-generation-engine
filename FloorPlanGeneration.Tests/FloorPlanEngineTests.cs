@@ -478,6 +478,66 @@ namespace FloorPlanGeneration.Tests
         }
 
         [Fact]
+        public void CliSummaryUsesInvariantCultureForAgentParsing()
+        {
+            CultureInfo originalCulture = CultureInfo.CurrentCulture;
+            CultureInfo originalUiCulture = CultureInfo.CurrentUICulture;
+            try
+            {
+                CultureInfo.CurrentCulture = new CultureInfo("de-DE");
+                CultureInfo.CurrentUICulture = new CultureInfo("de-DE");
+                StringWriter stderr = new StringWriter(CultureInfo.InvariantCulture);
+
+                int exitCode = CliApplication.Run(
+                    new[] { "--sample", "rectangular-core", "--variants", "1", "--summary" },
+                    new ThrowingTextReader(),
+                    new StringWriter(CultureInfo.InvariantCulture),
+                    stderr);
+
+                Assert.Equal(0, exitCode);
+                Assert.Contains("bestScore=", stderr.ToString());
+                Assert.DoesNotContain("bestScore=0,", stderr.ToString());
+            }
+            finally
+            {
+                CultureInfo.CurrentCulture = originalCulture;
+                CultureInfo.CurrentUICulture = originalUiCulture;
+            }
+        }
+
+        [Fact]
+        public void CliOutputWriteFailureReturnsMachineReadableFailure()
+        {
+            string blockingFile = Path.Combine(Path.GetTempPath(), "floor-plan-blocking-" + Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture));
+            File.WriteAllText(blockingFile, "not a directory");
+            string outputPath = Path.Combine(blockingFile, "out.json");
+            StringWriter stdout = new StringWriter(CultureInfo.InvariantCulture);
+            StringWriter stderr = new StringWriter(CultureInfo.InvariantCulture);
+
+            try
+            {
+                int exitCode = CliApplication.Run(
+                    new[] { "--sample", "rectangular-core", "--variants", "1", "--output", outputPath },
+                    new ThrowingTextReader(),
+                    stdout,
+                    stderr);
+
+                Assert.Equal(2, exitCode);
+                Assert.Contains("cli.output_write_failed", stderr.ToString());
+                EngineOutput output = JsonSerializer.Deserialize<EngineOutput>(stdout.ToString(), JsonOptions());
+                Assert.Equal("failed", output.Status);
+                Assert.Contains(output.Diagnostics, d => d.Code == "cli.output_write_failed");
+            }
+            finally
+            {
+                if (File.Exists(blockingFile))
+                {
+                    File.Delete(blockingFile);
+                }
+            }
+        }
+
+        [Fact]
         public async Task WebApiManifest_DescribesLocalGenerateContract()
         {
             using (WebApplicationFactory<global::Program> factory = new WebApplicationFactory<global::Program>())
@@ -489,6 +549,25 @@ namespace FloorPlanGeneration.Tests
                     manifest.RootElement.GetProperty("endpoints").EnumerateArray(),
                     endpoint => endpoint.GetProperty("path").GetString() == "/api/generate");
                 Assert.Equal(20, manifest.RootElement.GetProperty("limits").GetProperty("variantsMax").GetInt32());
+            }
+        }
+
+        [Fact]
+        public async Task WebApiGenerateUnknownRequestProperty_ReturnsJsonError()
+        {
+            using (WebApplicationFactory<global::Program> factory = new WebApplicationFactory<global::Program>())
+            using (HttpClient client = factory.CreateClient())
+            using (HttpContent content = new StringContent(
+                "{ \"sampleName\": \"rectangular-core\", \"unexpected\": true }",
+                System.Text.Encoding.UTF8,
+                "application/json"))
+            {
+                HttpResponseMessage response = await client.PostAsync("/api/generate", content);
+
+                Assert.Equal(System.Net.HttpStatusCode.BadRequest, response.StatusCode);
+                using JsonDocument body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+                Assert.Equal("invalid_request", body.RootElement.GetProperty("error").GetString());
+                Assert.Contains("Request JSON could not be bound", body.RootElement.GetProperty("message").GetString(), StringComparison.Ordinal);
             }
         }
 

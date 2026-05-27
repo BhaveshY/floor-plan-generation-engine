@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
@@ -61,7 +62,11 @@ namespace FloorPlanGeneration.Cli
                     return 64;
                 }
 
-                WriteOutput(options.OutputPath, sampleJson, outputWriter);
+                if (!TryWriteOutput(options.OutputPath, sampleJson, outputWriter, errorWriter, false))
+                {
+                    return 2;
+                }
+
                 return 0;
             }
 
@@ -72,7 +77,11 @@ namespace FloorPlanGeneration.Cli
                     string schema = ReadSchemaArtifact(options.PrintInputSchema
                         ? "floor-plan-engine-input.schema.json"
                         : "floor-plan-engine-output.schema.json");
-                    WriteOutput(options.OutputPath, schema, outputWriter);
+                    if (!TryWriteOutput(options.OutputPath, schema, outputWriter, errorWriter, false))
+                    {
+                        return 2;
+                    }
+
                     return 0;
                 }
                 catch (Exception ex)
@@ -107,7 +116,11 @@ namespace FloorPlanGeneration.Cli
                 output = FailedOutput("cli.exception", "CLI execution failed: " + ex.Message);
             }
 
-            WriteOutput(options.OutputPath, JsonSerializer.Serialize(output, JsonOptions()), outputWriter);
+            if (!TryWriteOutput(options.OutputPath, JsonSerializer.Serialize(output, JsonOptions()), outputWriter, errorWriter, true))
+            {
+                return 2;
+            }
+
             if (options.Summary)
             {
                 WriteSummary(output, options.OutputPath, errorWriter);
@@ -255,6 +268,27 @@ namespace FloorPlanGeneration.Cli
             File.WriteAllText(outputPath, json + Environment.NewLine);
         }
 
+        private static bool TryWriteOutput(string outputPath, string json, TextWriter outputWriter, TextWriter errorWriter, bool writeFailureJson)
+        {
+            try
+            {
+                WriteOutput(outputPath, json, outputWriter);
+                return true;
+            }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException || ex is NotSupportedException)
+            {
+                string message = "Output could not be written: " + ex.Message;
+                errorWriter.WriteLine("cli.output_write_failed: " + message);
+                if (writeFailureJson)
+                {
+                    EngineOutput failed = FailedOutput("cli.output_write_failed", message);
+                    outputWriter.WriteLine(JsonSerializer.Serialize(failed, JsonOptions()));
+                }
+
+                return false;
+            }
+        }
+
         private static void ApplyOverrides(EngineInput input, CliOptions options)
         {
             if (input == null)
@@ -283,14 +317,15 @@ namespace FloorPlanGeneration.Cli
             double bestScore = output.Variants != null && output.Variants.Count > 0 ? output.Variants.Max(v => v.Metrics != null ? v.Metrics.Score : 0.0) : 0.0;
             string target = string.IsNullOrWhiteSpace(outputPath) ? "stdout" : outputPath;
 
-            errorWriter.WriteLine(
+            errorWriter.WriteLine(string.Format(
+                CultureInfo.InvariantCulture,
                 "status={0} variants={1} valid={2} bestScore={3:0.####} diagnostics={4} output={5}",
                 output.Status,
                 variantCount,
                 validCount,
                 bestScore,
                 diagnosticCount,
-                target);
+                target));
         }
 
         private static EngineOutput FailedOutput(string code, string message)

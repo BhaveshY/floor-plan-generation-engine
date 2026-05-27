@@ -25,6 +25,19 @@ builder.Services.Configure<Microsoft.AspNetCore.Http.Json.JsonOptions>(options =
 });
 
 WebApplication app = builder.Build();
+app.UseStatusCodePages(async statusCodeContext =>
+{
+    HttpResponse response = statusCodeContext.HttpContext.Response;
+    if (response.StatusCode == StatusCodes.Status400BadRequest && !response.HasStarted)
+    {
+        response.ContentType = "application/json";
+        await response.WriteAsJsonAsync(new
+        {
+            error = "invalid_request",
+            message = "Request JSON could not be bound. Check property names and the expected body shape."
+        });
+    }
+});
 app.Use(async (context, next) =>
 {
     context.Response.OnStarting(() =>
@@ -156,8 +169,26 @@ app.MapGet("/api/schemas/{kind}", (string kind) =>
     return Results.Content(json, "application/json");
 });
 
-app.MapPost("/api/generate", (GenerationRequest request) =>
+app.MapPost("/api/generate", async (HttpRequest httpRequest) =>
 {
+    GenerationRequest request;
+    try
+    {
+        request = await JsonSerializer.DeserializeAsync<GenerationRequest>(httpRequest.Body, EngineJsonOptions());
+        if (request == null)
+        {
+            throw new ArgumentException("Request body is required.");
+        }
+    }
+    catch (Exception ex) when (ex is ArgumentException || ex is JsonException || ex is IOException)
+    {
+        return Results.BadRequest(new
+        {
+            error = "invalid_request",
+            message = "Request JSON could not be bound. " + ex.Message
+        });
+    }
+
     EngineInput input;
     try
     {
