@@ -25,8 +25,28 @@ builder.Services.Configure<Microsoft.AspNetCore.Http.Json.JsonOptions>(options =
 });
 
 WebApplication app = builder.Build();
+app.Use(async (context, next) =>
+{
+    context.Response.OnStarting(() =>
+    {
+        if (ShouldDisableFrontendCache(context.Request.Path))
+        {
+            DisableFrontendCache(context.Response);
+        }
+
+        return System.Threading.Tasks.Task.CompletedTask;
+    });
+
+    await next();
+});
 app.UseDefaultFiles();
-app.UseStaticFiles();
+app.UseStaticFiles(new StaticFileOptions
+{
+    OnPrepareResponse = context =>
+    {
+        DisableFrontendCache(context.Context.Response);
+    }
+});
 
 app.MapGet("/api/health", () => Results.Json(new
 {
@@ -153,10 +173,22 @@ app.MapPost("/api/generate", (GenerationRequest request) =>
         });
     }
 
-    FloorPlanEngine engine = new FloorPlanEngine();
-    EngineOutput output = request != null && request.ValidateOnly
-        ? engine.Validate(input)
-        : engine.Generate(input);
+    EngineOutput output;
+    try
+    {
+        FloorPlanEngine engine = new FloorPlanEngine();
+        output = request != null && request.ValidateOnly
+            ? engine.Validate(input)
+            : engine.Generate(input);
+    }
+    catch (Exception ex)
+    {
+        return Results.Json(new
+        {
+            error = "generation_failed",
+            message = "The engine could not complete this request. " + ex.Message
+        }, statusCode: StatusCodes.Status500InternalServerError);
+    }
 
     return Results.Json(BuildResponse(output, request != null && request.ValidateOnly));
 });
@@ -164,6 +196,23 @@ app.MapPost("/api/generate", (GenerationRequest request) =>
 app.MapFallbackToFile("index.html");
 
 app.Run();
+
+static bool ShouldDisableFrontendCache(PathString path)
+{
+    string value = path.Value ?? string.Empty;
+    return value.Length == 0
+        || value == "/"
+        || value.EndsWith(".html", StringComparison.OrdinalIgnoreCase)
+        || value.EndsWith(".css", StringComparison.OrdinalIgnoreCase)
+        || value.EndsWith(".js", StringComparison.OrdinalIgnoreCase);
+}
+
+static void DisableFrontendCache(HttpResponse response)
+{
+    response.Headers.CacheControl = "no-store, no-cache, must-revalidate";
+    response.Headers.Pragma = "no-cache";
+    response.Headers.Expires = "0";
+}
 
 static EngineInput ResolveInput(GenerationRequest request, Dictionary<string, string> samples)
 {

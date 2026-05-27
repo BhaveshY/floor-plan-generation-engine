@@ -3,6 +3,8 @@ const state = {
   input: null,
   response: null,
   selectedVariantId: "",
+  viewMode: "plan",
+  zoom: 1,
   syncing: false
 };
 
@@ -57,6 +59,10 @@ const els = {
   hypergraphPreview: document.getElementById("hypergraphPreview"),
   copyOutputBtn: document.getElementById("copyOutputBtn"),
   downloadOutputBtn: document.getElementById("downloadOutputBtn"),
+  exportCardGrid: document.querySelector(".export-card-grid"),
+  modeButtons: Array.from(document.querySelectorAll("[data-view-mode]")),
+  canvasButtons: Array.from(document.querySelectorAll("[data-canvas-action]")),
+  topNavLinks: Array.from(document.querySelectorAll(".top-nav a")),
   variantCountLabel: document.getElementById("variantCountLabel"),
   issueCountLabel: document.getElementById("issueCountLabel"),
   unitCountLabel: document.getElementById("unitCountLabel"),
@@ -67,9 +73,18 @@ init();
 
 async function init() {
   bindEvents();
-  await loadSamples();
-  if (!restoreDraft()) {
-    await loadSelectedSample(false);
+  updateActiveNav();
+  try {
+    await loadSamples();
+    if (!restoreDraft()) {
+      await loadSelectedSample(false);
+    }
+  } catch (error) {
+    els.sampleSelect.innerHTML = '<option value="">Manual input</option>';
+    setInput(ensureInputShape({ project: { id: "manual-project", name: "Manual Floor Plan" } }));
+    renderError("startup_failed", `The web app could not load its starter data. ${error.message}`);
+    setStatus("Starter data unavailable");
+    return;
   }
   renderAll();
   await runEngine(false);
@@ -88,11 +103,15 @@ function bindEvents() {
   els.formatBtn.addEventListener("click", formatInput);
   els.downloadInputBtn.addEventListener("click", () => downloadText("floor-plan-input.json", els.inputEditor.value));
   els.saveSvgBtn.addEventListener("click", saveSvg);
-  els.copyOutputBtn.addEventListener("click", copyOutput);
-  els.downloadOutputBtn.addEventListener("click", () => downloadText("floor-plan-output.json", els.outputJson.textContent || "{}"));
   els.exportSummary.addEventListener("click", handleExportAction);
+  els.exportCardGrid.addEventListener("click", handleExportAction);
+  els.modeButtons.forEach((button) => button.addEventListener("click", () => setViewMode(button.dataset.viewMode)));
+  els.canvasButtons.forEach((button) => button.addEventListener("click", () => handleCanvasAction(button.dataset.canvasAction)));
+  els.topNavLinks.forEach((link) => link.addEventListener("click", () => updateActiveNav(link.getAttribute("href"))));
+  window.addEventListener("hashchange", () => updateActiveNav());
   els.variantSelect.addEventListener("change", () => {
     state.selectedVariantId = els.variantSelect.value;
+    state.zoom = 1;
     renderAll();
   });
 
@@ -421,6 +440,9 @@ function renderAll() {
   els.cliCommand.textContent = buildCliCommand();
   els.copyOutputBtn.disabled = !output;
   els.downloadOutputBtn.disabled = !output;
+  document.querySelectorAll('[data-export-action="copy-rhino"], [data-export-action="copy-ifc"]').forEach((button) => {
+    button.disabled = !output;
+  });
   els.saveSvgBtn.disabled = !els.planSvg.childElementCount;
 }
 
@@ -485,12 +507,15 @@ function renderVariantSelect(output) {
 
 function renderPreview(output) {
   clearSvg();
+  updateModeButtons();
   const variant = selectedVariant(output);
   const input = state.input;
   const metadata = output ? output.metadata : null;
   const bounds = metadata && metadata.floorplate ? metadata.floorplate.bounds : collectBounds(output, variant, input);
 
   if (!bounds || bounds.width <= 0 || bounds.height <= 0) {
+    els.planSvg.removeAttribute("viewBox");
+    els.planSvg.dataset.viewMode = state.viewMode;
     els.emptyPreview.style.display = "grid";
     els.emptyPreview.textContent = "No plan available";
     renderLegend(false);
@@ -499,12 +524,12 @@ function renderPreview(output) {
 
   els.emptyPreview.style.display = variant ? "none" : "grid";
   els.emptyPreview.textContent = "Input outline";
-  const pad = Math.max(bounds.width, bounds.height) * 0.06;
-  const viewBox = [bounds.minX - pad, -bounds.maxY - pad, bounds.width + pad * 2, bounds.height + pad * 2].join(" ");
+  els.planSvg.dataset.viewMode = state.viewMode;
+  const viewBox = previewViewBox(bounds, state.zoom);
   els.planSvg.setAttribute("viewBox", viewBox);
   els.planSvg.setAttribute("preserveAspectRatio", "xMidYMid meet");
 
-  const group = svgEl("g", { transform: "scale(1,-1)" });
+  const group = svgEl("g", { transform: previewTransform() });
   els.planSvg.appendChild(group);
 
   if (input && input.floorplate && input.floorplate.outer) {
@@ -554,6 +579,64 @@ function renderPreview(output) {
   }
 
   renderLegend(Boolean(variant));
+}
+
+function previewViewBox(bounds, zoom) {
+  const pad = Math.max(bounds.width, bounds.height) * 0.06;
+  const baseWidth = bounds.width + pad * 2;
+  const baseHeight = bounds.height + pad * 2;
+  const safeZoom = clamp(Number(zoom) || 1, 1, 4);
+  const boxWidth = baseWidth / safeZoom;
+  const boxHeight = baseHeight / safeZoom;
+  const centerX = bounds.minX + bounds.width / 2;
+  const centerY = -(bounds.minY + bounds.height / 2);
+  return [centerX - boxWidth / 2, centerY - boxHeight / 2, boxWidth, boxHeight]
+    .map((value) => formatNumber(value, 3))
+    .join(" ");
+}
+
+function previewTransform() {
+  if (state.viewMode === "axon") {
+    return "scale(1,-1) skewX(-12) rotate(-3)";
+  }
+  return "scale(1,-1)";
+}
+
+function setViewMode(mode) {
+  if (!["plan", "axon", "circulation"].includes(mode)) {
+    return;
+  }
+
+  state.viewMode = mode;
+  state.zoom = 1;
+  renderPreview(state.response ? state.response.output : null);
+  setStatus(`${viewModeLabel(mode)} view`);
+}
+
+function handleCanvasAction(action) {
+  if (!els.planSvg.getAttribute("viewBox")) {
+    setStatus("Generate a plan before using canvas tools");
+    return;
+  }
+
+  if (action === "zoom-in") {
+    state.zoom = clamp(state.zoom * 1.25, 1, 4);
+  } else if (action === "zoom-out") {
+    state.zoom = clamp(state.zoom / 1.25, 1, 4);
+  } else if (action === "fit") {
+    state.zoom = 1;
+  }
+
+  renderPreview(state.response ? state.response.output : null);
+  setStatus(action === "fit" ? "Fit view" : `Zoom ${formatNumber(state.zoom, 2)}x`);
+}
+
+function updateModeButtons() {
+  els.modeButtons.forEach((button) => {
+    const active = button.dataset.viewMode === state.viewMode;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", active ? "true" : "false");
+  });
 }
 
 function renderLegend(hasVariant) {
@@ -645,6 +728,7 @@ function renderVariants(output) {
     `;
     item.addEventListener("click", () => {
       state.selectedVariantId = variant.variantId;
+      state.zoom = 1;
       renderAll();
     });
     els.variantList.appendChild(item);
@@ -874,26 +958,6 @@ function renderHypergraphPreview(output) {
 
   const variant = selectedVariant(output);
   const hypergraph = variant && variant.topology ? variant.topology.hypergraph : null;
-  const summary = summarizeHypergraph(hypergraph);
-  els.hypergraphPreview.innerHTML = `
-    <div class="diagnostic-item">
-      <div class="diagnostic-title">
-        <span>${escapeHtml(summary.headline)}</span>
-        <span class="pill info">Hypergraph</span>
-      </div>
-      <div class="diagnostic-message">${escapeHtml(summary.preview)}</div>
-      <div class="diagnostic-source">${escapeHtml(summary.matrices)}</div>
-    </div>
-  `;
-}
-
-function renderHypergraphPreview(output) {
-  if (!els.hypergraphPreview) {
-    return;
-  }
-
-  const variant = selectedVariant(output);
-  const hypergraph = variant && variant.topology ? variant.topology.hypergraph : null;
   if (!hypergraph) {
     els.hypergraphPreview.innerHTML = `
       <div class="empty-list">Generate a variant to inspect the DataNode tree, hyperedges, and incidence matrix.</div>
@@ -945,6 +1009,13 @@ function handleExportAction(event) {
     copyText(buildCliCommand(), "CLI command copied");
   } else if (action === "copy-api") {
     copyText(buildApiCopyText(), "API request text copied");
+  } else if (action === "copy-rhino") {
+    copyText(buildRhinoHandoffText(), "Rhino handoff payload copied");
+  } else if (action === "copy-ifc") {
+    copyText(buildBimHandoffText(), "BIM handoff payload copied");
+  } else if (action === "download-json") {
+    downloadText("floor-plan-output.json", els.outputJson.textContent || "{}");
+    setStatus("Output JSON downloaded");
   } else if (action === "copy-json") {
     copyOutput();
   } else if (action === "save-svg") {
@@ -1127,59 +1198,6 @@ async function fetchJson(url, options) {
 function clearSvg() {
   while (els.planSvg.firstChild) {
     els.planSvg.removeChild(els.planSvg.firstChild);
-  }
-}
-
-function variantThumbnailSvg(variant, input) {
-  const bounds = collectBounds(null, variant, input);
-  if (!bounds || bounds.width <= 0 || bounds.height <= 0) {
-    return `<div class="empty-list">No preview</div>`;
-  }
-
-  const pad = Math.max(bounds.width, bounds.height) * 0.04;
-  const viewBox = [bounds.minX - pad, -bounds.maxY - pad, bounds.width + pad * 2, bounds.height + pad * 2]
-    .map((value) => formatNumber(value, 3))
-    .join(" ");
-  const boundary = input && input.floorplate && input.floorplate.outer
-    ? thumbnailPolygon(input.floorplate.outer.points, "#f9fbfb", "#222831")
-    : "";
-  const fixed = input && Array.isArray(input.fixedElements)
-    ? input.fixedElements.map((item) => item.polygon ? thumbnailPolygon(item.polygon.points, "#334155", "#111820") : "").join("")
-    : "";
-  const units = (variant.units || [])
-    .map((unit) => thumbnailPolygon(unit.polygon ? unit.polygon.points : [], thumbnailUnitFill(unit.type), "#3f7ea6"))
-    .join("");
-  const corridors = (variant.corridors || [])
-    .map((corridor) => thumbnailPolygon(corridor.polygon ? corridor.polygon.points : [], "#f9d889", "#b7791f"))
-    .join("");
-
-  return `
-    <svg viewBox="${escapeHtml(viewBox)}" preserveAspectRatio="xMidYMid meet" aria-hidden="true" style="width:96px;height:64px;border:1px solid #d8dee5;border-radius:6px;background:#f8fafb;flex:0 0 auto;">
-      <g transform="scale(1,-1)">${boundary}${units}${corridors}${fixed}</g>
-    </svg>
-  `;
-}
-
-function thumbnailPolygon(points, fill, stroke) {
-  if (!Array.isArray(points) || points.length < 3) {
-    return "";
-  }
-
-  const pointText = points
-    .filter((point) => Number.isFinite(Number(point.x)) && Number.isFinite(Number(point.y)))
-    .map((point) => `${formatNumber(point.x, 3)},${formatNumber(point.y, 3)}`)
-    .join(" ");
-  return `<polygon points="${escapeHtml(pointText)}" fill="${escapeHtml(fill)}" stroke="${escapeHtml(stroke)}" stroke-width="0.18"></polygon>`;
-}
-
-function thumbnailUnitFill(type) {
-  switch (String(type || "").toLowerCase()) {
-    case "one_bed":
-      return "#dff0df";
-    case "two_bed":
-      return "#eadff6";
-    default:
-      return "#d9ebf7";
   }
 }
 
@@ -1690,6 +1708,25 @@ function titleCase(value) {
   return humanizeCode(String(value || "").replaceAll("-", " "));
 }
 
+function viewModeLabel(mode) {
+  switch (mode) {
+    case "axon":
+      return "3D axon";
+    case "circulation":
+      return "Circulation";
+    default:
+      return "2D plan";
+  }
+}
+
+function updateActiveNav(nextHash) {
+  const allowed = new Set(["#setup", "#plan", "#schedule", "#exports"]);
+  const hash = allowed.has(nextHash) ? nextHash : allowed.has(window.location.hash) ? window.location.hash : "#plan";
+  els.topNavLinks.forEach((link) => {
+    link.classList.toggle("active", link.getAttribute("href") === hash);
+  });
+}
+
 function slugify(value) {
   const slug = String(value || "project")
     .toLowerCase()
@@ -1724,6 +1761,58 @@ function buildApiCopyText() {
       seed: Number(seed) || 1
     }, null, 2)
   ].join("\n");
+}
+
+function buildRhinoHandoffText() {
+  const output = state.response ? state.response.output : null;
+  const variant = selectedVariant(output);
+  if (!output || !variant) {
+    return "Generate a variant before copying the Rhino handoff payload.";
+  }
+
+  return JSON.stringify({
+    adapter: "rhino-grasshopper",
+    schemaVersion: output.metadata ? output.metadata.schemaVersion : null,
+    project: state.input ? state.input.project : null,
+    selectedVariant: variant.variantId,
+    stableExternalIds: true,
+    layers: output.metadata ? output.metadata.layers : {},
+    geometryCounts: {
+      units: countOf(variant.units),
+      rooms: countOf(variant.rooms),
+      corridors: countOf(variant.corridors),
+      walls: countOf(variant.walls),
+      doors: countOf(variant.doorsOpenings),
+      labels: countOf(variant.labels)
+    },
+    cli: buildCliCommand(),
+    note: "Use this payload with a Rhino/Grasshopper adapter to map polygons, walls, doors, labels, layers, and external ids."
+  }, null, 2);
+}
+
+function buildBimHandoffText() {
+  const output = state.response ? state.response.output : null;
+  const variant = selectedVariant(output);
+  if (!output || !variant) {
+    return "Generate a variant before copying the BIM handoff payload.";
+  }
+
+  return JSON.stringify({
+    adapter: "ifc-bim",
+    schemaVersion: output.metadata ? output.metadata.schemaVersion : null,
+    project: state.input ? state.input.project : null,
+    selectedVariant: variant.variantId,
+    ifcGuidSource: "externalId",
+    spaces: (variant.units || []).map((unit) => ({
+      id: unit.id,
+      type: unit.type,
+      area: unit.area,
+      externalId: unit.externalId,
+      roomCount: unit.rooms ? unit.rooms.length : 0
+    })),
+    validation: summarizeValidation(variant),
+    note: "This is an adapter-ready BIM payload. A dedicated IFC adapter should translate these stable ids and spaces into IFC entities."
+  }, null, 2);
 }
 
 function escapeCli(value) {

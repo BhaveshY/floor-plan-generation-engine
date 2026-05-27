@@ -76,7 +76,13 @@ dotnet run --project FloorPlanGeneration.Cli -- --list-samples
 
 ## Quick Start
 
-Run the web app:
+Run the web app with the helper script. It uses an installed .NET 8 SDK when available and otherwise installs a local SDK under `.dotnet/` for this repo:
+
+```powershell
+.\scripts\run-web.ps1
+```
+
+If you already have .NET 8 on your PATH, this direct command also works:
 
 ```bash
 dotnet run --project FloorPlanGeneration.Web --urls http://localhost:5127
@@ -94,7 +100,13 @@ curl -X POST http://localhost:5127/api/generate \
   -d "{\"sampleName\":\"rectangular-core\",\"variants\":1}"
 ```
 
-Run the CLI:
+Run the CLI sample with the helper script:
+
+```powershell
+.\scripts\run-sample.ps1
+```
+
+Or, with .NET 8 already on PATH:
 
 ```bash
 dotnet build FloorPlanGeneration.sln

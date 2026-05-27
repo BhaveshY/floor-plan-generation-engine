@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Floor Plan Generation Engine</title>
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="styles.css?v=20260527">
 </head>
 <body>
   <main class="app-shell">
@@ -189,9 +189,9 @@
           </div>
           <div class="panel-actions preview-actions">
             <div class="mode-tabs" aria-label="Preview mode">
-              <button class="active" type="button">2D Plan</button>
-              <button type="button">3D Axon</button>
-              <button type="button">Circulation</button>
+              <button class="active" type="button" data-view-mode="plan" aria-pressed="true">2D Plan</button>
+              <button type="button" data-view-mode="axon" aria-pressed="false">3D Axon</button>
+              <button type="button" data-view-mode="circulation" aria-pressed="false">Circulation</button>
             </div>
             <select id="variantSelect"></select>
             <button id="saveSvgBtn" type="button">Save SVG</button>
@@ -199,9 +199,9 @@
         </div>
         <div class="preview-frame">
           <div class="canvas-tools" aria-label="Canvas tools">
-            <button type="button" title="Zoom in">+</button>
-            <button type="button" title="Zoom out">-</button>
-            <button type="button" title="Fit view">[]</button>
+            <button type="button" data-canvas-action="zoom-in" aria-label="Zoom in" title="Zoom in">+</button>
+            <button type="button" data-canvas-action="zoom-out" aria-label="Zoom out" title="Zoom out">-</button>
+            <button type="button" data-canvas-action="fit" aria-label="Fit view" title="Fit view">[]</button>
           </div>
           <svg id="planSvg" role="img" aria-label="Generated floor plan preview"></svg>
           <div id="emptyPreview" class="empty-preview">No plan available</div>
@@ -240,19 +240,19 @@
           </div>
           <div id="exportSummary" class="export-summary"></div>
           <div class="export-card-grid">
-            <button class="export-card" type="button">
+            <button class="export-card" type="button" data-export-action="copy-rhino">
               <strong>Rhino / Grasshopper</strong>
-              <span>Send layers and geometry</span>
+              <span>Copy adapter payload</span>
             </button>
-            <button class="export-card" type="button">
+            <button class="export-card" type="button" data-export-action="copy-ifc">
               <strong>IFC / BIM</strong>
-              <span>Model handoff package</span>
+              <span>Copy BIM handoff payload</span>
             </button>
-            <button id="downloadOutputBtn" class="export-card" type="button">
+            <button id="downloadOutputBtn" class="export-card" type="button" data-export-action="download-json">
               <strong>Output JSON</strong>
               <span>Download engine result</span>
             </button>
-            <button id="copyOutputBtn" class="export-card" type="button">
+            <button id="copyOutputBtn" class="export-card" type="button" data-export-action="copy-json">
               <strong>AI Agent Contract</strong>
               <span>Copy machine-readable JSON</span>
             </button>
@@ -305,6 +305,6 @@
     </section>
   </main>
 
-  <script src="app.js"></script>
+  <script src="app.js?v=20260527"></script>
 </body>
 </html>

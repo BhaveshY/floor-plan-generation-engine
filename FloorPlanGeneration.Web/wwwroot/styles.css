@@ -258,6 +258,14 @@ h3 {
   top: 70px;
 }
 
+#setup,
+#plan,
+#schedule,
+#exports,
+.hypergraph-panel {
+  scroll-margin-top: 86px;
+}
+
 .plan-panel {
   grid-area: plan;
   margin-top: 12px;
@@ -631,6 +639,41 @@ textarea.dragging {
   height: 100%;
   min-height: 500px;
   filter: drop-shadow(0 18px 22px rgba(15, 23, 42, 0.12));
+}
+
+#planSvg[data-view-mode="axon"] {
+  filter: drop-shadow(0 22px 24px rgba(15, 23, 42, 0.16));
+}
+
+#planSvg[data-view-mode="axon"] .unit,
+#planSvg[data-view-mode="axon"] .corridor,
+#planSvg[data-view-mode="axon"] .fixed {
+  filter: drop-shadow(0.7px -0.7px 0 rgba(16, 24, 32, 0.22));
+}
+
+#planSvg[data-view-mode="axon"] .room,
+#planSvg[data-view-mode="axon"] .svg-label {
+  opacity: 0.22;
+}
+
+#planSvg[data-view-mode="circulation"] .unit,
+#planSvg[data-view-mode="circulation"] .room {
+  opacity: 0.2;
+}
+
+#planSvg[data-view-mode="circulation"] .wall {
+  opacity: 0.28;
+}
+
+#planSvg[data-view-mode="circulation"] .corridor {
+  fill: #ffd760;
+  stroke: #9d610a;
+  stroke-width: 0.22;
+}
+
+#planSvg[data-view-mode="circulation"] .door {
+  fill: #0b63ce;
+  stroke-width: 0.18;
 }
 
 .empty-preview {
