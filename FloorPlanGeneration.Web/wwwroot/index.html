@@ -202,7 +202,9 @@
             <button type="button" data-canvas-action="zoom-in" aria-label="Zoom in" title="Zoom in">+</button>
             <button type="button" data-canvas-action="zoom-out" aria-label="Zoom out" title="Zoom out">-</button>
             <button type="button" data-canvas-action="fit" aria-label="Fit view" title="Fit view">[]</button>
+            <button type="button" data-canvas-action="edit-toggle" aria-label="Edit constraints" aria-pressed="false" title="Edit constraints">Edit</button>
           </div>
+          <div id="editReadout" class="edit-readout" aria-live="polite"></div>
           <svg id="planSvg" role="img" aria-label="Generated floor plan preview"></svg>
           <div id="emptyPreview" class="empty-preview">No plan available</div>
         </div>
@@ -224,6 +226,14 @@
             <span id="variantCountLabel">0</span>
           </div>
           <div id="variantList" class="variant-list"></div>
+        </section>
+
+        <section class="review-section">
+          <div class="section-title">
+            <h3>Plan Inspector</h3>
+            <span>Live</span>
+          </div>
+          <div id="selectionInspector" class="selection-inspector"></div>
         </section>
 
         <section class="review-section">

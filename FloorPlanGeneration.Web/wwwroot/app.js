@@ -5,10 +5,13 @@ const state = {
   selectedVariantId: "",
   viewMode: "plan",
   zoom: 1,
+  editMode: false,
+  editReadout: "",
   inputDirty: false,
   autoGenerateTimer: 0,
   runSerial: 0,
   dragEdit: null,
+  selection: null,
   syncing: false
 };
 
@@ -51,10 +54,12 @@ const els = {
   saveSvgBtn: document.getElementById("saveSvgBtn"),
   planSvg: document.getElementById("planSvg"),
   previewFrame: document.querySelector(".preview-frame"),
+  editReadout: document.getElementById("editReadout"),
   emptyPreview: document.getElementById("emptyPreview"),
   legendRow: document.getElementById("legendRow"),
   metricsRow: document.getElementById("metricsRow"),
   variantList: document.getElementById("variantList"),
+  selectionInspector: document.getElementById("selectionInspector"),
   diagnosticList: document.getElementById("diagnosticList"),
   validationList: document.getElementById("validationList"),
   unitSchedule: document.getElementById("unitSchedule"),
@@ -114,10 +119,12 @@ function bindEvents() {
   els.canvasButtons.forEach((button) => button.addEventListener("click", () => handleCanvasAction(button.dataset.canvasAction)));
   els.topNavLinks.forEach((link) => link.addEventListener("click", () => updateActiveNav(link.getAttribute("href"))));
   window.addEventListener("hashchange", () => updateActiveNav());
+  els.planSvg.addEventListener("click", handlePlanClick);
   els.planSvg.addEventListener("pointerdown", handlePlanPointerDown);
   window.addEventListener("pointermove", handlePlanPointerMove);
   window.addEventListener("pointerup", finishPlanPointerEdit);
   window.addEventListener("pointercancel", finishPlanPointerEdit);
+  els.selectionInspector.addEventListener("click", handleInspectorAction);
   els.variantSelect.addEventListener("change", () => {
     state.selectedVariantId = els.variantSelect.value;
     state.zoom = 1;
@@ -475,6 +482,7 @@ async function runEngine(validateOnly) {
 
 function renderAll() {
   const output = state.response ? state.response.output : null;
+  syncSelection(output);
   renderVariantSelect(output);
   renderPreview(output);
   renderMetrics(output);
@@ -484,8 +492,10 @@ function renderAll() {
   renderHypergraphPreview(output);
   renderSchedule(output);
   renderValidation(output);
+  renderSelectionInspector(output);
   renderSubtitles(output);
   updateDirtyState();
+  updateCanvasUi(output);
 
   const exportReady = Boolean(output && !state.inputDirty);
   els.outputJson.textContent = output ? JSON.stringify(output, null, 2) : "";
@@ -502,6 +512,7 @@ function updateDirtyState() {
   const stalePreview = Boolean(state.inputDirty && state.response);
   els.previewFrame.classList.toggle("is-stale", stalePreview);
   els.previewFrame.classList.toggle("is-dragging", Boolean(state.dragEdit));
+  els.previewFrame.classList.toggle("is-edit-mode", Boolean(state.editMode && state.viewMode !== "axon"));
   els.planSvg.classList.toggle("stale-preview", stalePreview);
 
   if (!state.inputDirty) {
@@ -603,31 +614,39 @@ function renderPreview(output) {
   els.planSvg.appendChild(group);
 
   if (input && input.floorplate && input.floorplate.outer) {
-    group.appendChild(polygonEl(input.floorplate.outer.points, "boundary", { "data-edit-target": "floorplate" }));
+    group.appendChild(polygonEl(input.floorplate.outer.points, selectableClass("boundary", "floorplate", "floorplate"), {
+      ...selectableAttributes("floorplate", "floorplate"),
+      "data-edit-target": "floorplate"
+    }));
   }
   if (input && Array.isArray(input.fixedElements)) {
     input.fixedElements.forEach((fixed) => {
       if (fixed.polygon && fixed.polygon.points) {
-        group.appendChild(polygonEl(fixed.polygon.points, "fixed", { "data-edit-target": fixed.id || "fixed" }));
+        const kind = String(fixed.type || "").toLowerCase() === "core" ? "core" : "fixed";
+        group.appendChild(polygonEl(fixed.polygon.points, selectableClass("fixed", kind, fixed.id || "fixed"), {
+          ...selectableAttributes(kind, fixed.id || "fixed"),
+          "data-edit-target": fixed.id || "fixed"
+        }));
       }
     });
   }
 
   if (variant) {
-    (variant.units || []).forEach((unit) => group.appendChild(polygonEl(unit.polygon.points, `unit unit-${unit.type || "standard"}`)));
-    (variant.rooms || []).forEach((room) => group.appendChild(polygonEl(room.polygon.points, "room")));
-    (variant.corridors || []).forEach((corridor) => group.appendChild(polygonEl(corridor.polygon.points, "corridor")));
+    (variant.units || []).forEach((unit) => group.appendChild(polygonEl(unit.polygon.points, selectableClass(`unit unit-${unit.type || "standard"}`, "unit", unit.id), selectableAttributes("unit", unit.id))));
+    (variant.rooms || []).forEach((room) => group.appendChild(polygonEl(room.polygon.points, selectableClass("room", "room", room.id), selectableAttributes("room", room.id))));
+    (variant.corridors || []).forEach((corridor) => group.appendChild(polygonEl(corridor.polygon.points, selectableClass("corridor", "corridor", corridor.id), selectableAttributes("corridor", corridor.id))));
     (variant.walls || []).forEach((wall) => {
       if (wall.centerline && wall.centerline.start && wall.centerline.end) {
-        group.appendChild(lineEl(wall.centerline.start, wall.centerline.end, `wall wall-${wall.layerType || "partition"}`));
+        group.appendChild(lineEl(wall.centerline.start, wall.centerline.end, selectableClass(`wall wall-${wall.layerType || "partition"}`, "wall", wall.id), selectableAttributes("wall", wall.id)));
       }
     });
     (variant.doorsOpenings || []).forEach((door) => {
       group.appendChild(svgEl("circle", {
-        class: "door",
+        class: selectableClass("door", "door", door.id),
         cx: door.location.x,
         cy: door.location.y,
-        r: Math.max(bounds.width, bounds.height) * 0.006
+        r: Math.max(bounds.width, bounds.height) * 0.006,
+        ...selectableAttributes("door", door.id)
       }));
     });
 
@@ -680,11 +699,28 @@ function setViewMode(mode) {
 
   state.viewMode = mode;
   state.zoom = 1;
-  renderPreview(state.response ? state.response.output : null);
+  if (mode === "axon") {
+    state.editMode = false;
+    state.dragEdit = null;
+  }
+  state.editReadout = "";
+  renderAll();
   setStatus(`${viewModeLabel(mode)} view`);
 }
 
 function handleCanvasAction(action) {
+  if (action === "edit-toggle") {
+    if (state.viewMode === "axon") {
+      state.viewMode = "plan";
+    }
+    state.editMode = !state.editMode;
+    state.dragEdit = null;
+    state.editReadout = state.editMode ? editSummary(state.input) : "";
+    renderAll();
+    setStatus(state.editMode ? "Edit constraints mode" : "Plan review mode");
+    return;
+  }
+
   if (!els.planSvg.getAttribute("viewBox")) {
     setStatus("Generate a plan before using canvas tools");
     return;
@@ -698,7 +734,7 @@ function handleCanvasAction(action) {
     state.zoom = 1;
   }
 
-  renderPreview(state.response ? state.response.output : null);
+  renderAll();
   setStatus(action === "fit" ? "Fit view" : `Zoom ${formatNumber(state.zoom, 2)}x`);
 }
 
@@ -710,9 +746,423 @@ function updateModeButtons() {
   });
 }
 
+function selectableAttributes(kind, id) {
+  return {
+    "data-select-kind": kind,
+    "data-select-id": id == null ? "" : String(id)
+  };
+}
+
+function selectableClass(baseClass, kind, id) {
+  return `${baseClass}${isSelection(kind, id) ? " selected-element" : ""}`;
+}
+
+function isSelection(kind, id) {
+  return Boolean(state.selection && state.selection.kind === kind && state.selection.id === String(id || ""));
+}
+
+function handlePlanClick(event) {
+  if (event.target.closest && event.target.closest("[data-edit-action]")) {
+    return;
+  }
+
+  const target = event.target.closest ? event.target.closest("[data-select-kind]") : null;
+  if (!target) {
+    if (event.target === els.planSvg) {
+      state.selection = null;
+      renderAll();
+    }
+    return;
+  }
+
+  state.selection = {
+    kind: target.dataset.selectKind,
+    id: target.dataset.selectId || ""
+  };
+  setStatus(`${selectionKindLabel(state.selection.kind)} selected`);
+  renderAll();
+}
+
+function updateCanvasUi(output) {
+  const editActive = Boolean(state.editMode && state.viewMode !== "axon");
+  const editToggle = els.canvasButtons.find((button) => button.dataset.canvasAction === "edit-toggle");
+  if (editToggle) {
+    editToggle.classList.toggle("active", editActive);
+    editToggle.setAttribute("aria-pressed", editActive ? "true" : "false");
+  }
+
+  els.previewFrame.classList.toggle("is-edit-mode", editActive);
+  const selectedSummary = selectionInlineSummary(selectedElementDetails(output));
+  const text = editActive ? (state.editReadout || editSummary(state.input)) : selectedSummary;
+  els.editReadout.textContent = text || "";
+  els.editReadout.hidden = !text;
+}
+
+function selectionKindLabel(kind) {
+  switch (kind) {
+    case "floorplate":
+      return "Floorplate";
+    case "core":
+      return "Core";
+    case "fixed":
+      return "Fixed element";
+    case "unit":
+      return "Unit";
+    case "room":
+      return "Room";
+    case "corridor":
+      return "Corridor";
+    case "wall":
+      return "Wall";
+    case "door":
+      return "Door";
+    default:
+      return "Plan element";
+  }
+}
+
+function renderSelectionInspector(output) {
+  const detail = selectedElementDetails(output);
+  if (!detail) {
+    els.selectionInspector.innerHTML = `
+      <div class="empty-list">Select a plan element to inspect the inputs that drive it.</div>
+    `;
+    return;
+  }
+
+  els.selectionInspector.innerHTML = inspectorMarkup(detail);
+}
+
+function selectedElementDetails(output) {
+  if (!state.selection) {
+    return null;
+  }
+
+  const selection = state.selection;
+  const input = state.input ? ensureInputShape(state.input) : null;
+  const variant = selectedVariant(output);
+
+  if (selection.kind === "floorplate" && input && input.floorplate && input.floorplate.outer) {
+    const points = input.floorplate.outer.points || [];
+    const bounds = boundsOfPoints(points);
+    return {
+      kind: "floorplate",
+      id: "floorplate",
+      title: "Floorplate",
+      item: input.floorplate.outer,
+      points,
+      bounds,
+      area: polygonArea(points),
+      source: "input"
+    };
+  }
+
+  if ((selection.kind === "core" || selection.kind === "fixed") && input && Array.isArray(input.fixedElements)) {
+    const fixed = input.fixedElements.find((item) => String(item.id || "fixed") === selection.id)
+      || input.fixedElements.find((item) => String(item.type || "").toLowerCase() === selection.kind);
+    if (fixed && fixed.polygon) {
+      const points = fixed.polygon.points || [];
+      return {
+        kind: String(fixed.type || selection.kind).toLowerCase() === "core" ? "core" : "fixed",
+        id: fixed.id || "fixed",
+        title: fixed.type || "Fixed element",
+        item: fixed,
+        points,
+        bounds: boundsOfPoints(points),
+        area: polygonArea(points),
+        source: "input"
+      };
+    }
+  }
+
+  if (!variant) {
+    return null;
+  }
+
+  if (selection.kind === "unit") {
+    const unit = (variant.units || []).find((item) => String(item.id || "") === selection.id);
+    if (unit) {
+      const points = unit.polygon ? unit.polygon.points || [] : [];
+      return {
+        kind: "unit",
+        id: unit.id,
+        title: `${displayUnitType(unit.type)} ${unit.id}`,
+        item: unit,
+        points,
+        bounds: boundsOfPoints(points),
+        area: Number(unit.area) || polygonArea(points),
+        source: "generated"
+      };
+    }
+  }
+
+  if (selection.kind === "room") {
+    const room = (variant.rooms || []).find((item) => String(item.id || "") === selection.id);
+    if (room) {
+      const points = room.polygon ? room.polygon.points || [] : [];
+      return {
+        kind: "room",
+        id: room.id,
+        title: `${displayUnitType(room.type)} ${room.id}`,
+        item: room,
+        points,
+        bounds: boundsOfPoints(points),
+        area: Number(room.area) || polygonArea(points),
+        source: "generated"
+      };
+    }
+  }
+
+  if (selection.kind === "corridor") {
+    const corridor = (variant.corridors || []).find((item) => String(item.id || "") === selection.id);
+    if (corridor) {
+      const points = corridor.polygon ? corridor.polygon.points || [] : [];
+      const bounds = boundsOfPoints(points);
+      return {
+        kind: "corridor",
+        id: corridor.id,
+        title: `Corridor ${corridor.id}`,
+        item: corridor,
+        points,
+        bounds,
+        area: Number(corridor.area) || polygonArea(points),
+        source: "generated"
+      };
+    }
+  }
+
+  if (selection.kind === "wall") {
+    const wall = (variant.walls || []).find((item) => String(item.id || "") === selection.id);
+    if (wall) {
+      return {
+        kind: "wall",
+        id: wall.id,
+        title: `${displayUnitType(wall.layerType || "wall")} ${wall.id}`,
+        item: wall,
+        length: lineLength(wall.centerline),
+        source: "generated"
+      };
+    }
+  }
+
+  if (selection.kind === "door") {
+    const door = (variant.doorsOpenings || []).find((item) => String(item.id || "") === selection.id);
+    if (door) {
+      return {
+        kind: "door",
+        id: door.id,
+        title: `${displayUnitType(door.type || "door")} ${door.id}`,
+        item: door,
+        source: "generated"
+      };
+    }
+  }
+
+  return null;
+}
+
+function selectionInlineSummary(detail) {
+  if (!detail) {
+    return "";
+  }
+
+  if (detail.kind === "unit" || detail.kind === "room" || detail.kind === "corridor") {
+    return `${selectionKindLabel(detail.kind)} ${detail.id} - ${formatNumber(detail.area, 1)} m2`;
+  }
+
+  if (detail.bounds) {
+    return `${selectionKindLabel(detail.kind)} - ${formatNumber(detail.bounds.width, 1)} x ${formatNumber(detail.bounds.height, 1)} m`;
+  }
+
+  return `${selectionKindLabel(detail.kind)} ${detail.id || ""}`.trim();
+}
+
+function inspectorMarkup(detail) {
+  const rows = [];
+  const actions = [];
+  rows.push(["Source", detail.source === "input" ? "Input constraint" : "Generated output"]);
+  rows.push(["Id", detail.id || "-"]);
+
+  if (detail.bounds) {
+    rows.push(["Size", `${formatNumber(detail.bounds.width, 1)} x ${formatNumber(detail.bounds.height, 1)} m`]);
+  }
+  if (Number.isFinite(Number(detail.area))) {
+    rows.push(["Area", `${formatNumber(detail.area, 1)} m2`]);
+  }
+
+  if (detail.kind === "unit") {
+    rows.push(["Type", displayUnitType(detail.item.type)]);
+    rows.push(["Rooms", String(Array.isArray(detail.item.rooms) ? detail.item.rooms.length : 0)]);
+    rows.push(["Score", formatNumber(detail.item.score, 3)]);
+    actions.push(["unit-more", "More like this"], ["unit-less", "Fewer like this"], ["unit-fit-area", "Fit target area"]);
+  } else if (detail.kind === "floorplate") {
+    actions.push(["floor-wider", "Wider"], ["floor-narrower", "Narrower"], ["floor-deeper", "Deeper"], ["floor-shallower", "Shallower"]);
+  } else if (detail.kind === "core") {
+    rows.push(["Blocks units", detail.item.blocksGeneration === false ? "No" : "Yes"]);
+    actions.push(["core-left", "Left"], ["core-right", "Right"], ["core-up", "Up"], ["core-down", "Down"], ["core-grow", "Grow"], ["core-shrink", "Shrink"]);
+  } else if (detail.kind === "room") {
+    rows.push(["Type", displayUnitType(detail.item.type)]);
+    rows.push(["Unit", detail.item.unitId || "-"]);
+    rows.push(["Daylight", detail.item.hasDaylight === false ? "No" : "Yes"]);
+    actions.push(["room-use-dimensions", "Use as room minimum"]);
+  } else if (detail.kind === "corridor") {
+    rows.push(["Width", `${formatNumber(corridorWidth(detail), 2)} m`]);
+    actions.push(["corridor-use-width", "Use as corridor width"]);
+  } else if (detail.kind === "wall") {
+    rows.push(["Layer", displayUnitType(detail.item.layerType || "partition")]);
+    rows.push(["Length", `${formatNumber(detail.length, 1)} m`]);
+  } else if (detail.kind === "door") {
+    rows.push(["Kind", displayUnitType(detail.item.type || "door")]);
+    rows.push(["Width", `${formatNumber(detail.item.width || 0.9, 2)} m`]);
+    if (detail.item.location) {
+      rows.push(["Location", `${formatNumber(detail.item.location.x, 1)}, ${formatNumber(detail.item.location.y, 1)}`]);
+    }
+  }
+
+  return `
+    <div class="inspector-card">
+      <div class="inspector-kicker">${escapeHtml(selectionKindLabel(detail.kind))}</div>
+      <div class="inspector-title">${escapeHtml(detail.title || detail.id || "Selected element")}</div>
+      <div class="inspector-grid">
+        ${rows.map(([label, value]) => `
+          <div class="inspector-row">
+            <span>${escapeHtml(label)}</span>
+            <strong>${escapeHtml(value)}</strong>
+          </div>
+        `).join("")}
+      </div>
+      ${actions.length ? `
+        <div class="inspector-actions">
+          ${actions.map(([action, label]) => `<button type="button" data-inspector-action="${escapeHtml(action)}">${escapeHtml(label)}</button>`).join("")}
+        </div>
+      ` : ""}
+      <button class="inspector-clear" type="button" data-inspector-action="clear-selection">Clear selection</button>
+    </div>
+  `;
+}
+
+function handleInspectorAction(event) {
+  const button = event.target.closest("[data-inspector-action]");
+  if (!button) {
+    return;
+  }
+
+  const action = button.dataset.inspectorAction;
+  if (!action) {
+    return;
+  }
+
+  if (action === "clear-selection") {
+    state.selection = null;
+    renderAll();
+    setStatus("Selection cleared");
+    return;
+  }
+
+  const detail = selectedElementDetails(state.response ? state.response.output : null);
+  if (!detail) {
+    setStatus("Select a plan element first");
+    return;
+  }
+
+  if (action.startsWith("floor-")) {
+    adjustFloorplateFromInspector(action);
+  } else if (action.startsWith("core-")) {
+    adjustCoreFromInspector(action);
+  } else if (action.startsWith("unit-")) {
+    adjustUnitTargetFromInspector(action, detail);
+  } else if (action === "room-use-dimensions") {
+    applyRoomMinimumFromInspector(detail);
+  } else if (action === "corridor-use-width") {
+    applyCorridorWidthFromInspector(detail);
+  }
+}
+
+function syncSelection(output) {
+  if (state.selection && !selectedElementDetails(output)) {
+    state.selection = null;
+  }
+}
+
+function adjustFloorplateFromInspector(action) {
+  const step = 1;
+  applyInputMutation("Resizing floorplate", 180, (input) => {
+    const source = clone(input);
+    const bounds = boundsOfPoints(source.floorplate.outer.points) || { width: 42, height: 22 };
+    const width = clamp(bounds.width + (action === "floor-wider" ? step : action === "floor-narrower" ? -step : 0), 8, 300);
+    const depth = clamp(bounds.height + (action === "floor-deeper" ? step : action === "floor-shallower" ? -step : 0), 8, 300);
+    resizeFloorplateInput(input, source, width, depth);
+    clampCoreIntoFloorplate(input);
+  });
+}
+
+function adjustCoreFromInspector(action) {
+  const step = 1;
+  applyInputMutation("Adjusting core", 180, (input) => {
+    const core = ensureCore(input);
+    const floorBounds = boundsOfPoints(input.floorplate.outer.points) || { minX: 0, minY: 0, maxX: 42, maxY: 22, width: 42, height: 22 };
+    const coreBounds = boundsOfPoints(core.polygon.points) || { minX: 18, minY: 8, width: 6, height: 6 };
+    const nextWidth = clamp(coreBounds.width + (action === "core-grow" ? step : action === "core-shrink" ? -step : 0), 1, floorBounds.width);
+    const nextDepth = clamp(coreBounds.height + (action === "core-grow" ? step : action === "core-shrink" ? -step : 0), 1, floorBounds.height);
+    const dx = action === "core-left" ? -step : action === "core-right" ? step : 0;
+    const dy = action === "core-down" ? -step : action === "core-up" ? step : 0;
+    const x = clamp(coreBounds.minX + dx, floorBounds.minX, floorBounds.maxX - nextWidth);
+    const y = clamp(coreBounds.minY + dy, floorBounds.minY, floorBounds.maxY - nextDepth);
+    core.polygon.points = rectPoints(x, y, nextWidth, nextDepth);
+    refreshAccessFromCore(input);
+  });
+}
+
+function adjustUnitTargetFromInspector(action, detail) {
+  const unit = detail.item || {};
+  const type = unit.type || "studio";
+  applyInputMutation(action === "unit-fit-area" ? "Updating target unit area" : "Updating target unit mix", 220, (input) => {
+    const target = ensureUnitTarget(input, type);
+    if (action === "unit-fit-area") {
+      const area = Number(unit.area) || detail.area || polygonArea(detail.points);
+      target.minArea = Math.max(10, round(area * 0.9));
+      target.maxArea = Math.max(target.minArea, round(area * 1.1));
+      return;
+    }
+
+    const delta = action === "unit-more" ? 0.05 : -0.05;
+    target.targetRatio = clamp(round((Number(target.targetRatio) || 0) + delta), 0, 1);
+    normalizeUnitTargetRatios(input.program.targetUnitTypes);
+  });
+}
+
+function applyRoomMinimumFromInspector(detail) {
+  applyInputMutation("Updating room sizing rules", 220, (input) => {
+    const bounds = detail.bounds || boundsOfPoints(detail.points);
+    if (!bounds) {
+      return;
+    }
+    input.rules.minRoomWidth = clamp(round(Math.min(bounds.width, bounds.height)), 1.2, 20);
+    input.rules.minRoomDepth = clamp(round(Math.max(bounds.width, bounds.height)), 1.2, 25);
+  });
+}
+
+function applyCorridorWidthFromInspector(detail) {
+  applyInputMutation("Updating corridor width", 220, (input) => {
+    input.rules.minCorridorWidth = clamp(round(corridorWidth(detail)), 0.9, 12);
+  });
+}
+
+function applyInputMutation(message, autoGenerateDelay, mutate) {
+  const input = ensureInputShape(state.input || {});
+  mutate(input);
+  state.input = input;
+  syncFormFromInput(state.input);
+  setEditorFromInput(state.input);
+  saveDraft();
+  state.editReadout = editSummary(state.input);
+  markInputDirty(message, autoGenerateDelay);
+  renderAll();
+}
+
 function handlePlanPointerDown(event) {
   const handle = event.target.closest ? event.target.closest("[data-edit-action]") : null;
-  if (!handle || !state.input || state.viewMode === "axon") {
+  if (!handle || !state.editMode || !state.input || state.viewMode === "axon") {
     return;
   }
 
@@ -756,6 +1206,7 @@ function handlePlanPointerMove(event) {
   syncFormFromInput(state.input);
   setEditorFromInput(state.input);
   saveDraft();
+  state.editReadout = editSummary(state.input);
   markInputDirty("Editing plan", null);
   renderAll();
 }
@@ -767,6 +1218,7 @@ function finishPlanPointerEdit() {
 
   state.dragEdit = null;
   els.previewFrame.classList.remove("is-dragging");
+  state.editReadout = editSummary(state.input);
   markInputDirty("Regenerating edited plan", 120);
   renderAll();
 }
@@ -854,10 +1306,93 @@ function clampCoreIntoFloorplate(input) {
   const x = clamp(coreBounds.minX, floorBounds.minX, floorBounds.maxX - width);
   const y = clamp(coreBounds.minY, floorBounds.minY, floorBounds.maxY - depth);
   core.polygon.points = rectPoints(x, y, width, depth);
+  refreshAccessFromCore(input);
+}
+
+function ensureCore(input) {
+  let core = firstCore(input);
+  if (!core) {
+    core = {
+      id: "core-01",
+      type: "core",
+      blocksGeneration: true,
+      polygon: { id: "core-01", points: rectPoints(18, 8, 6, 6) }
+    };
+    input.fixedElements.push(core);
+  }
+
+  core.id = core.id || "core-01";
+  core.type = core.type || "core";
+  core.blocksGeneration = core.blocksGeneration !== false;
+  core.polygon = core.polygon || { id: core.id, points: rectPoints(18, 8, 6, 6) };
+  core.polygon.id = core.polygon.id || core.id;
+  core.polygon.points = Array.isArray(core.polygon.points) && core.polygon.points.length >= 4
+    ? core.polygon.points
+    : rectPoints(18, 8, 6, 6);
+  return core;
+}
+
+function refreshAccessFromCore(input) {
+  const core = firstCore(input);
+  const bounds = core && core.polygon ? boundsOfPoints(core.polygon.points) : null;
+  if (!bounds) {
+    return;
+  }
+
+  const coreCenterX = round(bounds.minX + bounds.width / 2);
+  input.access = input.access || {};
+  input.access.entryPoints = [{ x: coreCenterX, y: 0 }];
+  input.access.verticalCoreAccess = [{ x: coreCenterX, y: round(bounds.maxY) }];
+  input.access.corridorStartPoints = input.access.corridorStartPoints || [];
+  input.access.corridorEndPoints = input.access.corridorEndPoints || [];
+  input.access.corridorCenterlines = input.access.corridorCenterlines || [];
+}
+
+function ensureUnitTarget(input, type) {
+  input.program = input.program || {};
+  input.program.targetUnitTypes = Array.isArray(input.program.targetUnitTypes)
+    ? input.program.targetUnitTypes
+    : [];
+  let target = input.program.targetUnitTypes.find((item) => item.type === type);
+  if (!target) {
+    target = defaultUnitTarget(type);
+    input.program.targetUnitTypes.push(target);
+  }
+
+  return target;
+}
+
+function normalizeUnitTargetRatios(targets) {
+  const usableTargets = (targets || []).filter((target) => Number(target.targetRatio) > 0);
+  const total = usableTargets.reduce((sum, target) => sum + Number(target.targetRatio), 0);
+  if (total <= 0) {
+    return;
+  }
+
+  usableTargets.forEach((target) => {
+    target.targetRatio = round(Number(target.targetRatio) / total);
+  });
+}
+
+function editSummary(input) {
+  if (!input || !input.floorplate || !input.floorplate.outer) {
+    return "";
+  }
+
+  const floorBounds = boundsOfPoints(input.floorplate.outer.points);
+  const core = firstCore(input);
+  const coreBounds = core && core.polygon ? boundsOfPoints(core.polygon.points) : null;
+  const floorText = floorBounds
+    ? `Floor ${formatNumber(floorBounds.width, 1)} x ${formatNumber(floorBounds.height, 1)} m`
+    : "Floor outline";
+  const coreText = coreBounds
+    ? `Core ${formatNumber(coreBounds.width, 1)} x ${formatNumber(coreBounds.height, 1)} m at ${formatNumber(coreBounds.minX, 1)}, ${formatNumber(coreBounds.minY, 1)}`
+    : "No core";
+  return `${floorText} - ${coreText}`;
 }
 
 function renderInputEditHandles(group, input) {
-  if (!input || state.viewMode === "axon") {
+  if (!state.editMode || !input || state.viewMode === "axon") {
     return;
   }
 
@@ -1468,13 +2003,14 @@ function polygonEl(points, className, attributes = {}) {
   });
 }
 
-function lineEl(start, end, className) {
+function lineEl(start, end, className, attributes = {}) {
   return svgEl("line", {
     class: className,
     x1: start.x,
     y1: start.y,
     x2: end.x,
-    y2: end.y
+    y2: end.y,
+    ...attributes
   });
 }
 
@@ -1863,6 +2399,43 @@ function boundsOfPoints(points) {
   const minY = Math.min(...ys);
   const maxY = Math.max(...ys);
   return { minX, minY, maxX, maxY, width: maxX - minX, height: maxY - minY };
+}
+
+function polygonArea(points) {
+  const valid = (points || []).filter((p) => Number.isFinite(Number(p.x)) && Number.isFinite(Number(p.y)));
+  if (valid.length < 3) {
+    return 0;
+  }
+
+  const sum = valid.reduce((total, point, index) => {
+    const next = valid[(index + 1) % valid.length];
+    return total + Number(point.x) * Number(next.y) - Number(next.x) * Number(point.y);
+  }, 0);
+  return Math.abs(sum) / 2;
+}
+
+function lineLength(centerline) {
+  if (!centerline || !centerline.start || !centerline.end) {
+    return 0;
+  }
+
+  const dx = Number(centerline.end.x) - Number(centerline.start.x);
+  const dy = Number(centerline.end.y) - Number(centerline.start.y);
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
+function corridorWidth(detail) {
+  const corridor = detail && detail.item ? detail.item : {};
+  if (Number.isFinite(Number(corridor.width)) && Number(corridor.width) > 0) {
+    return Number(corridor.width);
+  }
+
+  const bounds = detail ? detail.bounds : null;
+  if (bounds) {
+    return Math.min(bounds.width, bounds.height);
+  }
+
+  return state.input && state.input.rules ? Number(state.input.rules.minCorridorWidth) || 1.8 : 1.8;
 }
 
 function scalePointsToBox(points, bounds, width, depth) {

@@ -379,6 +379,14 @@ h3 {
   backdrop-filter: blur(8px);
 }
 
+.canvas-tools button[aria-pressed="true"],
+.canvas-tools button.active {
+  border-color: var(--teal);
+  color: var(--teal-strong);
+  background: var(--teal-soft);
+  box-shadow: 0 0 0 3px rgba(0, 125, 120, 0.12);
+}
+
 .guided-steps {
   padding: 12px 14px;
   border-bottom: 1px solid var(--line);
@@ -657,6 +665,35 @@ textarea.dragging {
   cursor: grabbing;
 }
 
+.preview-frame.is-edit-mode {
+  box-shadow: inset 0 0 0 2px rgba(0, 125, 120, 0.28);
+}
+
+.edit-readout {
+  position: absolute;
+  z-index: 3;
+  right: 14px;
+  bottom: 14px;
+  max-width: min(520px, calc(100% - 128px));
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 12px;
+  border: 1px solid rgba(15, 23, 42, 0.16);
+  border-radius: 6px;
+  color: var(--ink-soft);
+  background: rgba(255, 255, 255, 0.94);
+  backdrop-filter: blur(8px);
+  font-size: 12px;
+  font-weight: 800;
+  box-shadow: var(--shadow-soft);
+  pointer-events: none;
+}
+
+.edit-readout[hidden] {
+  display: none;
+}
+
 #planSvg {
   display: block;
   width: 100%;
@@ -714,11 +751,11 @@ textarea.dragging {
 .edit-handle {
   fill: #fff;
   stroke: var(--teal);
-  stroke-width: 0.24;
+  stroke-width: 0.3;
   vector-effect: non-scaling-stroke;
   cursor: grab;
   pointer-events: all;
-  filter: drop-shadow(0 1px 2px rgba(15, 23, 42, 0.25));
+  filter: drop-shadow(0 2px 3px rgba(15, 23, 42, 0.28));
 }
 
 .edit-handle:hover {
@@ -737,6 +774,13 @@ textarea.dragging {
 .edit-floor-size,
 .edit-core-size {
   cursor: nwse-resize;
+}
+
+#planSvg .selected-element {
+  stroke: var(--teal-strong);
+  stroke-width: 0.32;
+  vector-effect: non-scaling-stroke;
+  filter: drop-shadow(0 0 3px rgba(0, 125, 120, 0.42));
 }
 
 .empty-preview {
@@ -874,6 +918,78 @@ textarea.dragging {
 .variant-list {
   max-height: 420px;
   overflow: auto;
+}
+
+.selection-inspector {
+  display: grid;
+  gap: 8px;
+  padding: 0 14px 14px;
+}
+
+.inspector-card {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  background: #fff;
+  box-shadow: 0 1px 0 rgba(15, 23, 42, 0.03);
+}
+
+.inspector-kicker {
+  color: var(--teal);
+  font-size: 11px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.inspector-title {
+  margin-top: 4px;
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 900;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.inspector-grid {
+  display: grid;
+  gap: 7px;
+  margin-top: 10px;
+}
+
+.inspector-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: baseline;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.inspector-row strong {
+  color: var(--ink);
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.inspector-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+  margin-top: 12px;
+}
+
+.inspector-actions button,
+.inspector-clear {
+  min-height: 34px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+.inspector-clear {
+  width: 100%;
+  margin-top: 8px;
+  color: var(--muted);
+  background: var(--surface);
 }
 
 .variant-item,
