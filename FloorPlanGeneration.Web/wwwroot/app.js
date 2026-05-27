@@ -54,6 +54,7 @@ const els = {
   outputJson: document.getElementById("outputJson"),
   cliCommand: document.getElementById("cliCommand"),
   exportSummary: document.getElementById("exportSummary"),
+  hypergraphPreview: document.getElementById("hypergraphPreview"),
   copyOutputBtn: document.getElementById("copyOutputBtn"),
   downloadOutputBtn: document.getElementById("downloadOutputBtn"),
   variantCountLabel: document.getElementById("variantCountLabel"),
@@ -89,6 +90,7 @@ function bindEvents() {
   els.saveSvgBtn.addEventListener("click", saveSvg);
   els.copyOutputBtn.addEventListener("click", copyOutput);
   els.downloadOutputBtn.addEventListener("click", () => downloadText("floor-plan-output.json", els.outputJson.textContent || "{}"));
+  els.exportSummary.addEventListener("click", handleExportAction);
   els.variantSelect.addEventListener("change", () => {
     state.selectedVariantId = els.variantSelect.value;
     renderAll();
@@ -392,7 +394,7 @@ async function runEngine(validateOnly) {
     });
     state.response = response;
     state.selectedVariantId = response.bestVariantId || firstVariantId(response.output);
-    setStatus(`${response.status} - ${response.validVariantCount}/${response.variantCount} valid`);
+    setStatus(`${friendlyStatus(response.status)} - ${response.validVariantCount}/${response.variantCount} valid variants`);
     renderAll();
   } catch (error) {
     renderError("request_failed", error.message);
@@ -410,6 +412,7 @@ function renderAll() {
   renderVariants(output);
   renderDiagnostics(output);
   renderExportSummary(output);
+  renderHypergraphPreview(output);
   renderSchedule(output);
   renderValidation(output);
   renderSubtitles(output);
@@ -423,26 +426,41 @@ function renderAll() {
 
 function renderSubtitles(output) {
   const projectName = state.input && state.input.project ? state.input.project.name : "Project";
+  const floorBounds = state.input && state.input.floorplate && state.input.floorplate.outer
+    ? boundsOfPoints(state.input.floorplate.outer.points)
+    : null;
+  const targets = state.input && state.input.program && Array.isArray(state.input.program.targetUnitTypes)
+    ? state.input.program.targetUnitTypes
+    : [];
+  const targetMix = targets
+    .filter((target) => Number(target.targetRatio) > 0)
+    .map((target) => `${shortUnitType(target.type)} ${Math.round(Number(target.targetRatio) * 100)}%`)
+    .join(", ");
   els.setupSubtitle.textContent = state.input && state.input.project ? state.input.project.id : "project";
 
   if (!output) {
-    els.resultSubtitle.textContent = projectName;
-    els.planSubtitle.textContent = "Input outline";
-    els.scheduleSubtitle.textContent = "Generate to populate schedule";
+    els.resultSubtitle.textContent = `${projectName} ready for generation`;
+    els.planSubtitle.textContent = floorBounds
+      ? `Input outline ${formatNumber(floorBounds.width, 1)} x ${formatNumber(floorBounds.height, 1)} m`
+      : "Input outline";
+    els.scheduleSubtitle.textContent = targetMix ? `Target mix: ${targetMix}` : "Generate to populate schedule";
     return;
   }
 
   const variant = selectedVariant(output);
   const valid = output.variants ? output.variants.filter((v) => v.validation && v.validation.passed).length : 0;
-  els.resultSubtitle.textContent = `${output.status} - ${valid}/${output.variants ? output.variants.length : 0} valid`;
+  const issueCount = collectDiagnostics(output).length;
+  els.resultSubtitle.textContent = `${friendlyStatus(output.status)} - ${valid}/${output.variants ? output.variants.length : 0} valid${issueCount ? `, ${issueCount} issue${issueCount === 1 ? "" : "s"}` : ""}`;
   if (!variant) {
-    els.planSubtitle.textContent = output.status === "validated" ? "Input passed validation" : "No generated variant";
-    els.scheduleSubtitle.textContent = "No generated units";
+    els.planSubtitle.textContent = output.status === "validated" ? "Input passed validation. Generate variants when ready." : "No generated variant";
+    els.scheduleSubtitle.textContent = targetMix ? `Target mix: ${targetMix}` : "No generated units";
     return;
   }
 
-  els.planSubtitle.textContent = `${variant.variantId} - ${variant.units.length} units - score ${formatNumber(variant.metrics.score, 3)}`;
-  els.scheduleSubtitle.textContent = `${variant.rooms.length} rooms, ${variant.doorsOpenings.length} doors, ${variant.walls.length} walls`;
+  const metrics = variant.metrics || {};
+  const mix = unitMixSummary(variant.units || []);
+  els.planSubtitle.textContent = `${variant.variantId} - score ${formatNumber(metrics.score, 3)} - net/gross ${formatNumber(metrics.netGrossRatio, 3)}`;
+  els.scheduleSubtitle.textContent = `${variant.units.length} units${mix ? ` (${mix})` : ""}, ${variant.rooms.length} rooms, ${variant.doorsOpenings.length} doors`;
 }
 
 function renderVariantSelect(output) {
@@ -455,7 +473,12 @@ function renderVariantSelect(output) {
 
   els.variantSelect.disabled = false;
   els.variantSelect.innerHTML = variants
-    .map((variant) => `<option value="${escapeHtml(variant.variantId)}">${escapeHtml(variant.variantId)}</option>`)
+    .map((variant, index) => {
+      const metrics = variant.metrics || {};
+      const status = friendlyStatus(variant.status);
+      const score = Number.isFinite(Number(metrics.score)) ? ` - ${formatNumber(metrics.score, 3)}` : "";
+      return `<option value="${escapeHtml(variant.variantId)}">#${index + 1} ${escapeHtml(variant.variantId)} - ${escapeHtml(status)}${score}</option>`;
+    })
     .join("");
   els.variantSelect.value = state.selectedVariantId || firstVariantId(output);
 }
@@ -499,6 +522,11 @@ function renderPreview(output) {
     (variant.units || []).forEach((unit) => group.appendChild(polygonEl(unit.polygon.points, `unit unit-${unit.type || "standard"}`)));
     (variant.rooms || []).forEach((room) => group.appendChild(polygonEl(room.polygon.points, "room")));
     (variant.corridors || []).forEach((corridor) => group.appendChild(polygonEl(corridor.polygon.points, "corridor")));
+    (variant.walls || []).forEach((wall) => {
+      if (wall.centerline && wall.centerline.start && wall.centerline.end) {
+        group.appendChild(lineEl(wall.centerline.start, wall.centerline.end, `wall wall-${wall.layerType || "partition"}`));
+      }
+    });
     (variant.doorsOpenings || []).forEach((door) => {
       group.appendChild(svgEl("circle", {
         class: "door",
@@ -547,13 +575,15 @@ function renderMetrics(output) {
   const metadata = output ? output.metadata : null;
   const metrics = variant ? variant.metrics : null;
   const floorplate = metadata ? metadata.floorplate : null;
+  const checks = variant && variant.validation && Array.isArray(variant.validation.checks) ? variant.validation.checks : [];
+  const failed = checks.filter((check) => !check.passed);
   const rows = [
-    ["Status", output ? output.status : "ready"],
+    ["Status", output ? friendlyStatus(output.status) : "Ready"],
     ["Units", variant ? String(variant.units.length) : "-"],
     ["Sellable", metrics ? `${formatNumber(metrics.sellableArea, 1)} m2` : "-"],
-    ["Corridor", metrics ? `${formatNumber(metrics.corridorArea, 1)} m2` : "-"],
+    ["Circulation", metrics ? `${formatNumber(metrics.corridorArea, 1)} m2` : "-"],
     ["Net/Gross", metrics ? formatNumber(metrics.netGrossRatio, 3) : floorplate ? formatNumber(floorplate.usableArea / Math.max(1, floorplate.grossArea), 3) : "-"],
-    ["Score", metrics ? formatNumber(metrics.score, 3) : "-"]
+    ["Checks", checks.length ? (failed.length ? `${failed.length} open` : `${checks.length} passed`) : "-"]
   ];
 
   els.metricsRow.innerHTML = rows.map(([label, value]) => `
@@ -568,24 +598,50 @@ function renderVariants(output) {
   const variants = output && Array.isArray(output.variants) ? output.variants : [];
   els.variantCountLabel.textContent = String(variants.length);
   if (variants.length === 0) {
-    els.variantList.innerHTML = `<div class="empty-list">No variants generated</div>`;
+    els.variantList.innerHTML = `<div class="empty-list">Generate variants to compare score, unit mix, validation, and export readiness.</div>`;
     return;
   }
 
   els.variantList.innerHTML = "";
   variants.forEach((variant, index) => {
+    const metrics = variant.metrics || {};
+    const units = Array.isArray(variant.units) ? variant.units : [];
+    const checks = variant.validation && Array.isArray(variant.validation.checks) ? variant.validation.checks : [];
+    const failedChecks = checks.filter((check) => !check.passed);
+    const warnings = failedChecks.filter((check) => String(check.severity || "").toLowerCase() !== "error");
+    const errors = failedChecks.length - warnings.length;
+    const hypergraph = variant.topology ? variant.topology.hypergraph : null;
+    const scoreWidth = Math.round(clamp(metrics.score || 0, 0, 1) * 100);
+    const mix = unitMixSummary(units);
+    const checkText = checks.length === 0
+      ? "No checks"
+      : failedChecks.length === 0
+        ? `${checks.length} checks passed`
+        : `${errors ? `${errors} fail${errors === 1 ? "" : "s"}` : ""}${errors && warnings.length ? ", " : ""}${warnings.length ? `${warnings.length} warning${warnings.length === 1 ? "" : "s"}` : ""}`;
     const item = document.createElement("button");
     item.type = "button";
     item.className = `variant-item${variant.variantId === state.selectedVariantId ? " active" : ""}`;
+    item.setAttribute("aria-pressed", variant.variantId === state.selectedVariantId ? "true" : "false");
     item.innerHTML = `
       <div class="variant-title">
         <span>#${index + 1} ${escapeHtml(variant.variantId)}</span>
-        <span class="pill ${escapeHtml(variant.status)}">${escapeHtml(variant.status)}</span>
+        <span class="pill ${escapeHtml(variant.status)}">${escapeHtml(friendlyStatus(variant.status))}</span>
       </div>
-      <div class="variant-meta">
-        ${variant.units ? variant.units.length : 0} units, ${variant.rooms ? variant.rooms.length : 0} rooms, net/gross ${formatNumber(variant.metrics ? variant.metrics.netGrossRatio : 0, 3)}
+      <div class="variant-card-body" style="display:flex;gap:10px;align-items:center;margin-top:8px;">
+        ${variantThumbnailSvg(variant, state.input)}
+        <div>
+          <div class="variant-meta">
+            Score ${formatNumber(metrics.score, 3)} - Net/gross ${formatNumber(metrics.netGrossRatio, 3)} - ${units.length} units
+          </div>
+          <div class="variant-meta">
+            ${escapeHtml(mix || "No unit mix")} - ${escapeHtml(checkText)}
+          </div>
+          <div class="variant-meta">
+            Hypergraph ${hypergraph ? `${countOf(hypergraph.nodes)} nodes, ${countOf(hypergraph.hyperedges)} edges` : "not available"}
+          </div>
+        </div>
       </div>
-      <div class="score-bar"><i style="width:${Math.round(clamp(variant.metrics ? variant.metrics.score : 0, 0, 1) * 100)}%"></i></div>
+      <div class="score-bar" aria-label="Variant score ${scoreWidth}%"><i style="width:${scoreWidth}%"></i></div>
     `;
     item.addEventListener("click", () => {
       state.selectedVariantId = variant.variantId;
@@ -597,22 +653,28 @@ function renderVariants(output) {
 
 function renderDiagnostics(output) {
   const diagnostics = collectDiagnostics(output);
-  els.issueCountLabel.textContent = String(diagnostics.filter((item) => item.severity !== "info").length);
+  const warningCount = diagnostics.filter((item) => String(item.severity || "").toLowerCase() !== "error").length;
+  const errorCount = diagnostics.length - warningCount;
+  els.issueCountLabel.textContent = diagnostics.length === 0
+    ? "0"
+    : errorCount
+      ? `${errorCount} fail${errorCount === 1 ? "" : "s"}`
+      : `${warningCount} warning${warningCount === 1 ? "" : "s"}`;
   if (diagnostics.length === 0) {
-    els.diagnosticList.innerHTML = `<div class="empty-list good">No issues found</div>`;
+    els.diagnosticList.innerHTML = `<div class="empty-list good">No blocking issues found. This variant is ready to review or export.</div>`;
     return;
   }
 
-  els.diagnosticList.innerHTML = diagnostics.map((diagnostic) => `
+  els.diagnosticList.innerHTML = diagnostics.slice(0, 10).map((diagnostic) => `
     <div class="diagnostic-item ${escapeHtml(diagnostic.severity || "info")}">
       <div class="diagnostic-title">
         <span>${escapeHtml(humanizeCode(diagnostic.code || diagnostic.name || "diagnostic"))}</span>
-        <span class="pill ${escapeHtml(diagnostic.severity || "info")}">${escapeHtml(diagnostic.severity || "info")}</span>
+        <span class="pill ${escapeHtml(diagnostic.severity || "info")}">${escapeHtml(friendlySeverity(diagnostic.severity))}</span>
       </div>
-      <div class="diagnostic-message">${escapeHtml(diagnostic.message || diagnostic.reason || "")}</div>
+      <div class="diagnostic-message">${escapeHtml(friendlyDiagnosticMessage(diagnostic))}</div>
       ${diagnostic.sourceId ? `<div class="diagnostic-source">${escapeHtml(diagnostic.sourceId)}</div>` : ""}
     </div>
-  `).join("");
+  `).join("") + (diagnostics.length > 10 ? `<div class="empty-list">${diagnostics.length - 10} more issue${diagnostics.length - 10 === 1 ? "" : "s"} in Output JSON</div>` : "");
 }
 
 function renderSchedule(output) {
@@ -620,11 +682,48 @@ function renderSchedule(output) {
   const units = variant && Array.isArray(variant.units) ? variant.units : [];
   els.unitCountLabel.textContent = String(units.length);
   if (units.length === 0) {
-    els.unitSchedule.innerHTML = `<div class="empty-list">No generated units</div>`;
+    els.unitSchedule.innerHTML = `<div class="empty-list">No generated units yet. Generate a layout to see the aggregated unit schedule.</div>`;
     return;
   }
 
+  const summaryRows = aggregateUnits(units);
+  const totalArea = summaryRows.reduce((sum, row) => sum + row.totalArea, 0);
   els.unitSchedule.innerHTML = `
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Count</th>
+          <th>% Total</th>
+          <th>Avg Area</th>
+          <th>Min</th>
+          <th>Max</th>
+          <th>Total Area</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${summaryRows.map((row) => `
+          <tr>
+            <td>${escapeHtml(displayUnitType(row.type))}</td>
+            <td>${row.count}</td>
+            <td>${formatPercent(row.count / Math.max(1, units.length), 0)}</td>
+            <td>${formatNumber(row.averageArea, 1)} m2</td>
+            <td>${formatNumber(row.minArea, 1)} m2</td>
+            <td>${formatNumber(row.maxArea, 1)} m2</td>
+            <td>${formatNumber(row.totalArea, 1)} m2</td>
+          </tr>
+        `).join("")}
+        <tr>
+          <td><strong>Total</strong></td>
+          <td><strong>${units.length}</strong></td>
+          <td><strong>100%</strong></td>
+          <td>-</td>
+          <td>-</td>
+          <td>-</td>
+          <td><strong>${formatNumber(totalArea, 1)} m2</strong></td>
+        </tr>
+      </tbody>
+    </table>
     <table>
       <thead>
         <tr>
@@ -633,6 +732,7 @@ function renderSchedule(output) {
           <th>Area</th>
           <th>Rooms</th>
           <th>Score</th>
+          <th>External Id</th>
         </tr>
       </thead>
       <tbody>
@@ -643,6 +743,7 @@ function renderSchedule(output) {
             <td>${formatNumber(unit.area, 1)} m2</td>
             <td>${unit.rooms ? unit.rooms.length : 0}</td>
             <td>${formatNumber(unit.score, 3)}</td>
+            <td>${escapeHtml(compactExternalId(unit.externalId || ""))}</td>
           </tr>
         `).join("")}
       </tbody>
@@ -666,23 +767,32 @@ function renderValidation(output) {
         ? `${errors.length} failed`
         : `${warnings.length} warnings`;
   if (checks.length === 0) {
-    els.validationList.innerHTML = `<div class="empty-list">No checks to show</div>`;
+    els.validationList.innerHTML = `<div class="empty-list">No checks to show yet. Use Check for validation only, or Generate for ranked variants.</div>`;
     return;
   }
+
+  const passed = checks.length - notPassed.length;
+  const summary = `
+    <div class="check-item ${errors.length ? "failed" : warnings.length ? "warning" : "passed"}">
+      <span>${errors.length ? "Fail" : warnings.length ? "Warn" : "Pass"}</span>
+      <strong>${passed}/${checks.length} checks passed</strong>
+      <em>${errors.length ? "Resolve blocking checks before export." : warnings.length ? "Warnings are review items; the generated plan is still inspectable." : "Validation is clear for the selected variant."}</em>
+    </div>
+  `;
 
   if (notPassed.length === 0) {
-    els.validationList.innerHTML = `<div class="empty-list good">${checks.length} validation checks passed</div>`;
+    els.validationList.innerHTML = `${summary}<div class="empty-list good">${checks.length} validation checks passed</div>`;
     return;
   }
 
-  els.validationList.innerHTML = notPassed.slice(0, 12).map((check) => {
+  els.validationList.innerHTML = summary + notPassed.slice(0, 12).map((check) => {
     const severity = String(check.severity || "warning").toLowerCase();
     const label = severity === "error" ? "Fail" : "Warn";
     return `
     <div class="check-item ${severity === "error" ? "failed" : "warning"}">
       <span>${label}</span>
       <strong>${escapeHtml(humanizeCode(check.name))}</strong>
-      ${check.reason ? `<em>${escapeHtml(check.reason)}</em>` : ""}
+      ${check.reason ? `<em>${escapeHtml(friendlyCheckReason(check))}</em>` : ""}
     </div>
   `;
   }).join("") + (notPassed.length > 12 ? `<div class="empty-list">${notPassed.length - 12} more checks in Output JSON</div>` : "");
@@ -690,24 +800,264 @@ function renderValidation(output) {
 
 function renderExportSummary(output) {
   if (!output) {
+    const cli = buildCliCommand();
+    const apiText = buildApiCopyText();
     els.exportSummary.innerHTML = `
-      <div><span>Schema</span><strong>-</strong></div>
-      <div><span>Hypergraph</span><strong>-</strong></div>
-      <div><span>Agent Ready</span><strong>CLI and API available</strong></div>
+      <div>
+        <span>CLI Access</span>
+        <strong>${escapeHtml(firstLine(cli))}</strong>
+        <button type="button" data-export-action="copy-cli">Copy CLI</button>
+      </div>
+      <div>
+        <span>API Endpoint</span>
+        <strong>${escapeHtml(apiText)}</strong>
+        <button type="button" data-export-action="copy-api">Copy API</button>
+      </div>
+      <div><span>Raw JSON</span><strong>Hidden until Output JSON is opened</strong></div>
     `;
     return;
   }
 
   const variant = selectedVariant(output);
   const hypergraph = variant && variant.topology ? variant.topology.hypergraph : null;
-  const hypergraphText = hypergraph
-    ? `${hypergraph.nodes ? hypergraph.nodes.length : 0} nodes, ${hypergraph.hyperedges ? hypergraph.hyperedges.length : 0} edges, ${hypergraph.incidence ? hypergraph.incidence.length : 0} incidence`
-    : "validated input only";
+  const hypergraphSummary = summarizeHypergraph(hypergraph);
+  const validation = summarizeValidation(variant);
+  const schema = output.metadata ? output.metadata.schemaVersion : "-";
+  const layers = output.metadata && output.metadata.layers ? Object.keys(output.metadata.layers).length : 0;
 
   els.exportSummary.innerHTML = `
-    <div><span>Schema</span><strong>${escapeHtml(output.metadata ? output.metadata.schemaVersion : "-")}</strong></div>
-    <div><span>Hypergraph</span><strong>${escapeHtml(hypergraphText)}</strong></div>
-    <div><span>Best Variant</span><strong>${escapeHtml(variant ? variant.variantId : "-")}</strong></div>
+    <div>
+      <span>Selected Variant</span>
+      <strong>${escapeHtml(variant ? variant.variantId : "-")} - ${escapeHtml(validation.label)}</strong>
+    </div>
+    <div>
+      <span>Schema and Layers</span>
+      <strong>${escapeHtml(schema)}${layers ? ` - ${layers} layer keys` : ""}</strong>
+    </div>
+    <div>
+      <span>Rhino / Grasshopper</span>
+      <strong>${escapeHtml(variant ? `${countOf(variant.units)} units, ${countOf(variant.rooms)} rooms, ${countOf(variant.walls)} walls` : "Generate a variant first")}</strong>
+      <button type="button" data-export-action="copy-cli">Copy CLI</button>
+    </div>
+    <div>
+      <span>IFC / BIM Ready</span>
+      <strong>${escapeHtml(variant ? `${countExternalIds(variant)} stable external ids` : "No element ids yet")}</strong>
+      <button type="button" data-export-action="copy-api">Copy API</button>
+    </div>
+    <div>
+      <span>SVG / Report</span>
+      <strong>${els.planSvg.childElementCount ? "Preview SVG can be saved" : "No preview to save"}</strong>
+      <button type="button" data-export-action="save-svg">Save SVG</button>
+    </div>
+    <div>
+      <span>AI Agent Contract</span>
+      <strong>${escapeHtml(hypergraph ? "Output JSON includes topology.hypergraph" : "Validation-only output")}</strong>
+      <button type="button" data-export-action="copy-json">Copy JSON</button>
+    </div>
+    <div>
+      <span>Hypergraph Summary</span>
+      <strong>${escapeHtml(hypergraphSummary.headline)}</strong>
+      <div class="variant-meta">${escapeHtml(hypergraphSummary.detail)}</div>
+    </div>
+    <div>
+      <span>Hypergraph Preview</span>
+      <strong>${escapeHtml(hypergraphSummary.preview)}</strong>
+      <div class="variant-meta">${escapeHtml(hypergraphSummary.matrices)}</div>
+    </div>
+  `;
+}
+
+function renderHypergraphPreview(output) {
+  if (!els.hypergraphPreview) {
+    return;
+  }
+
+  const variant = selectedVariant(output);
+  const hypergraph = variant && variant.topology ? variant.topology.hypergraph : null;
+  const summary = summarizeHypergraph(hypergraph);
+  els.hypergraphPreview.innerHTML = `
+    <div class="diagnostic-item">
+      <div class="diagnostic-title">
+        <span>${escapeHtml(summary.headline)}</span>
+        <span class="pill info">Hypergraph</span>
+      </div>
+      <div class="diagnostic-message">${escapeHtml(summary.preview)}</div>
+      <div class="diagnostic-source">${escapeHtml(summary.matrices)}</div>
+    </div>
+  `;
+}
+
+function renderHypergraphPreview(output) {
+  if (!els.hypergraphPreview) {
+    return;
+  }
+
+  const variant = selectedVariant(output);
+  const hypergraph = variant && variant.topology ? variant.topology.hypergraph : null;
+  if (!hypergraph) {
+    els.hypergraphPreview.innerHTML = `
+      <div class="empty-list">Generate a variant to inspect the DataNode tree, hyperedges, and incidence matrix.</div>
+    `;
+    return;
+  }
+
+  const summary = summarizeHypergraph(hypergraph);
+  const edgeKinds = Object.entries(countBy(hypergraph.hyperedges || [], (edge) => edge.kind || "edge"))
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 6);
+
+  els.hypergraphPreview.innerHTML = `
+    <div class="hypergraph-card">
+      <span>DataNode tree</span>
+      <strong>${escapeHtml(summary.preview)}</strong>
+      <ul class="node-tree">
+        ${dataNodeRows(hypergraph.root).map((row) => `
+          <li style="--depth:${row.depth}">
+            <b>${escapeHtml(row.name)}</b>
+            <em>${row.final ? "final" : "branch"}${row.area ? ` - ${formatNumber(row.area, 1)} m2` : ""}</em>
+          </li>
+        `).join("")}
+      </ul>
+    </div>
+    <div class="hypergraph-card">
+      <span>Hyperedges</span>
+      <strong>${escapeHtml(summary.detail)}</strong>
+      <div class="edge-cloud">
+        ${edgeKinds.map(([kind, count]) => `<i>${escapeHtml(humanizeCode(kind))}<b>${count}</b></i>`).join("")}
+      </div>
+    </div>
+    <div class="hypergraph-card">
+      <span>Incidence matrix</span>
+      <strong>${escapeHtml(summary.matrices)}</strong>
+      ${incidencePreview(hypergraph)}
+    </div>
+  `;
+}
+
+function handleExportAction(event) {
+  const button = event.target.closest("[data-export-action]");
+  if (!button) {
+    return;
+  }
+
+  const action = button.getAttribute("data-export-action");
+  if (action === "copy-cli") {
+    copyText(buildCliCommand(), "CLI command copied");
+  } else if (action === "copy-api") {
+    copyText(buildApiCopyText(), "API request text copied");
+  } else if (action === "copy-json") {
+    copyOutput();
+  } else if (action === "save-svg") {
+    saveSvg();
+  }
+}
+
+function summarizeValidation(variant) {
+  if (!variant || !variant.validation || !Array.isArray(variant.validation.checks)) {
+    return { label: "No checks", passed: 0, failed: 0, warnings: 0, total: 0 };
+  }
+
+  const checks = variant.validation.checks;
+  const failed = checks.filter((check) => !check.passed);
+  const warnings = failed.filter((check) => String(check.severity || "").toLowerCase() !== "error");
+  const errors = failed.length - warnings.length;
+  const label = failed.length === 0
+    ? `${checks.length} checks passed`
+    : errors
+      ? `${errors} blocking issue${errors === 1 ? "" : "s"}`
+      : `${warnings.length} warning${warnings.length === 1 ? "" : "s"}`;
+  return {
+    label,
+    passed: checks.length - failed.length,
+    failed: errors,
+    warnings: warnings.length,
+    total: checks.length
+  };
+}
+
+function summarizeHypergraph(hypergraph) {
+  if (!hypergraph) {
+    return {
+      headline: "No hypergraph for validation-only output",
+      detail: "Generate variants to inspect DataNode, hyperedges, incidence, and matrices.",
+      preview: "DataNode preview unavailable",
+      matrices: "Matrix dimensions unavailable"
+    };
+  }
+
+  const nodes = Array.isArray(hypergraph.nodes) ? hypergraph.nodes : [];
+  const hyperedges = Array.isArray(hypergraph.hyperedges) ? hypergraph.hyperedges : [];
+  const incidence = Array.isArray(hypergraph.incidence) ? hypergraph.incidence : [];
+  const kinds = countBy(hyperedges, (edge) => edge.kind || "edge");
+  const kindText = Object.entries(kinds)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 4)
+    .map(([kind, count]) => `${humanizeCode(kind)} ${count}`)
+    .join(", ");
+  const preview = previewDataNode(hypergraph.root);
+  const matrices = hypergraph.matrices || {};
+  const nodeOrder = countOf(matrices.nodeOrder);
+  const edgeOrder = countOf(matrices.hyperedgeOrder);
+
+  return {
+    headline: `${nodes.length} nodes, ${hyperedges.length} hyperedges, ${incidence.length} incidence records`,
+    detail: kindText || "No hyperedge kind breakdown available",
+    preview,
+    matrices: `${nodeOrder} node order x ${edgeOrder} hyperedge order`
+  };
+}
+
+function previewDataNode(node) {
+  if (!node) {
+    return "DataNode tree unavailable";
+  }
+
+  const children = Array.isArray(node.children) ? node.children : [];
+  const childNames = children.slice(0, 4).map((child) => child.name || child.id || "node").join(", ");
+  const more = children.length > 4 ? `, +${children.length - 4} more` : "";
+  return `${node.name || "root"} -> ${childNames || "no children"}${more}`;
+}
+
+function dataNodeRows(node, depth = 0, rows = []) {
+  if (!node || rows.length >= 12) {
+    return rows;
+  }
+
+  rows.push({
+    depth,
+    name: node.name || "node",
+    final: Boolean(node.final),
+    area: node.area || (node.treeNodeMesh && node.treeNodeMesh.Area) || 0
+  });
+  (node.children || []).forEach((child) => dataNodeRows(child, depth + 1, rows));
+  return rows;
+}
+
+function incidencePreview(hypergraph) {
+  const matrices = hypergraph && hypergraph.matrices ? hypergraph.matrices : {};
+  const rows = Array.isArray(matrices.incidence) ? matrices.incidence.slice(0, 6) : [];
+  const edgeOrder = Array.isArray(matrices.hyperedgeOrder) ? matrices.hyperedgeOrder.slice(0, 5) : [];
+  if (rows.length === 0 || edgeOrder.length === 0) {
+    return `<div class="empty-list">Matrix preview unavailable</div>`;
+  }
+
+  return `
+    <table class="matrix-preview">
+      <thead>
+        <tr>
+          <th>Node</th>
+          ${edgeOrder.map((_, index) => `<th>E${index + 1}</th>`).join("")}
+        </tr>
+      </thead>
+      <tbody>
+        ${rows.map((row, rowIndex) => `
+          <tr>
+            <td>V${rowIndex + 1}</td>
+            ${row.slice(0, edgeOrder.length).map((value) => `<td>${Number(value) ? "1" : "-"}</td>`).join("")}
+          </tr>
+        `).join("")}
+      </tbody>
+    </table>
   `;
 }
 
@@ -780,10 +1130,73 @@ function clearSvg() {
   }
 }
 
+function variantThumbnailSvg(variant, input) {
+  const bounds = collectBounds(null, variant, input);
+  if (!bounds || bounds.width <= 0 || bounds.height <= 0) {
+    return `<div class="empty-list">No preview</div>`;
+  }
+
+  const pad = Math.max(bounds.width, bounds.height) * 0.04;
+  const viewBox = [bounds.minX - pad, -bounds.maxY - pad, bounds.width + pad * 2, bounds.height + pad * 2]
+    .map((value) => formatNumber(value, 3))
+    .join(" ");
+  const boundary = input && input.floorplate && input.floorplate.outer
+    ? thumbnailPolygon(input.floorplate.outer.points, "#f9fbfb", "#222831")
+    : "";
+  const fixed = input && Array.isArray(input.fixedElements)
+    ? input.fixedElements.map((item) => item.polygon ? thumbnailPolygon(item.polygon.points, "#334155", "#111820") : "").join("")
+    : "";
+  const units = (variant.units || [])
+    .map((unit) => thumbnailPolygon(unit.polygon ? unit.polygon.points : [], thumbnailUnitFill(unit.type), "#3f7ea6"))
+    .join("");
+  const corridors = (variant.corridors || [])
+    .map((corridor) => thumbnailPolygon(corridor.polygon ? corridor.polygon.points : [], "#f9d889", "#b7791f"))
+    .join("");
+
+  return `
+    <svg viewBox="${escapeHtml(viewBox)}" preserveAspectRatio="xMidYMid meet" aria-hidden="true" style="width:96px;height:64px;border:1px solid #d8dee5;border-radius:6px;background:#f8fafb;flex:0 0 auto;">
+      <g transform="scale(1,-1)">${boundary}${units}${corridors}${fixed}</g>
+    </svg>
+  `;
+}
+
+function thumbnailPolygon(points, fill, stroke) {
+  if (!Array.isArray(points) || points.length < 3) {
+    return "";
+  }
+
+  const pointText = points
+    .filter((point) => Number.isFinite(Number(point.x)) && Number.isFinite(Number(point.y)))
+    .map((point) => `${formatNumber(point.x, 3)},${formatNumber(point.y, 3)}`)
+    .join(" ");
+  return `<polygon points="${escapeHtml(pointText)}" fill="${escapeHtml(fill)}" stroke="${escapeHtml(stroke)}" stroke-width="0.18"></polygon>`;
+}
+
+function thumbnailUnitFill(type) {
+  switch (String(type || "").toLowerCase()) {
+    case "one_bed":
+      return "#dff0df";
+    case "two_bed":
+      return "#eadff6";
+    default:
+      return "#d9ebf7";
+  }
+}
+
 function polygonEl(points, className) {
   return svgEl("polygon", {
     class: className,
     points: (points || []).map((p) => `${p.x},${p.y}`).join(" ")
+  });
+}
+
+function lineEl(start, end, className) {
+  return svgEl("line", {
+    class: className,
+    x1: start.x,
+    y1: start.y,
+    x2: end.x,
+    y2: end.y
   });
 }
 
@@ -821,6 +1234,153 @@ function collectBounds(output, variant, input) {
   return boundsOfPoints(points);
 }
 
+function variantThumbnailSvg(variant, input) {
+  const bounds = collectBounds(null, variant, input);
+  if (!bounds || bounds.width <= 0 || bounds.height <= 0) {
+    return `<div class="variant-thumb empty">No preview</div>`;
+  }
+
+  const pad = Math.max(bounds.width, bounds.height) * 0.05;
+  const viewBox = [bounds.minX - pad, -bounds.maxY - pad, bounds.width + pad * 2, bounds.height + pad * 2].join(" ");
+  const polygons = [];
+  if (input && input.floorplate && input.floorplate.outer) {
+    polygons.push(thumbPolygon(input.floorplate.outer.points, "thumb-boundary"));
+  }
+  (variant.units || []).forEach((unit) => polygons.push(thumbPolygon(unit.polygon.points, `thumb-unit thumb-${unit.type || "unit"}`)));
+  (variant.corridors || []).forEach((corridor) => polygons.push(thumbPolygon(corridor.polygon.points, "thumb-corridor")));
+  if (input && Array.isArray(input.fixedElements)) {
+    input.fixedElements.forEach((fixed) => {
+      if (fixed.polygon && fixed.polygon.points) {
+        polygons.push(thumbPolygon(fixed.polygon.points, "thumb-core"));
+      }
+    });
+  }
+
+  return `
+    <svg class="variant-thumb" viewBox="${escapeHtml(viewBox)}" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+      <g transform="scale(1,-1)">${polygons.join("")}</g>
+    </svg>
+  `;
+}
+
+function thumbPolygon(points, className) {
+  return `<polygon class="${escapeHtml(className)}" points="${(points || []).map((point) => `${point.x},${point.y}`).join(" ")}"></polygon>`;
+}
+
+function aggregateUnits(units) {
+  const buckets = new Map();
+  (units || []).forEach((unit) => {
+    const type = unit.type || "unit";
+    if (!buckets.has(type)) {
+      buckets.set(type, { type, count: 0, totalArea: 0, minArea: Number.POSITIVE_INFINITY, maxArea: 0 });
+    }
+    const row = buckets.get(type);
+    const area = Number(unit.area);
+    row.count += 1;
+    if (Number.isFinite(area)) {
+      row.totalArea += area;
+      row.minArea = Math.min(row.minArea, area);
+      row.maxArea = Math.max(row.maxArea, area);
+    }
+  });
+
+  return Array.from(buckets.values())
+    .map((row) => ({
+      ...row,
+      minArea: Number.isFinite(row.minArea) ? row.minArea : 0,
+      averageArea: row.count ? row.totalArea / row.count : 0
+    }))
+    .sort((a, b) => unitTypeSort(a.type) - unitTypeSort(b.type) || a.type.localeCompare(b.type));
+}
+
+function unitMixSummary(units) {
+  const rows = aggregateUnits(units);
+  return rows.map((row) => `${row.count} ${shortUnitType(row.type)}`).join(", ");
+}
+
+function countBy(items, selector) {
+  return (items || []).reduce((result, item) => {
+    const key = selector(item);
+    result[key] = (result[key] || 0) + 1;
+    return result;
+  }, {});
+}
+
+function countOf(value) {
+  return Array.isArray(value) ? value.length : 0;
+}
+
+function countExternalIds(variant) {
+  if (!variant) {
+    return 0;
+  }
+
+  return ["units", "rooms", "corridors", "walls", "doorsOpenings", "labels"]
+    .reduce((total, key) => total + (Array.isArray(variant[key]) ? variant[key].filter((item) => item.externalId).length : 0), variant.externalId ? 1 : 0);
+}
+
+function compactExternalId(value) {
+  if (!value) {
+    return "-";
+  }
+
+  const parts = String(value).split("/");
+  return parts.length > 4 ? parts.slice(-3).join("/") : String(value);
+}
+
+function unitTypeSort(type) {
+  const order = { studio: 1, one_bed: 2, two_bed: 3 };
+  return order[String(type || "").toLowerCase()] || 99;
+}
+
+function friendlyStatus(value) {
+  switch (String(value || "").toLowerCase()) {
+    case "succeeded":
+      return "Succeeded";
+    case "validated":
+      return "Validated";
+    case "partial":
+      return "Needs attention";
+    case "failed":
+      return "Failed";
+    case "ready":
+      return "Ready";
+    default:
+      return titleCase(value || "ready");
+  }
+}
+
+function friendlySeverity(value) {
+  const severity = String(value || "info").toLowerCase();
+  if (severity === "error") {
+    return "Blocking";
+  }
+  if (severity === "warning") {
+    return "Review";
+  }
+  return titleCase(severity);
+}
+
+function friendlyDiagnosticMessage(diagnostic) {
+  const message = diagnostic.message || diagnostic.reason || "Review this item before export.";
+  const severity = String(diagnostic.severity || "").toLowerCase();
+  if (severity === "error") {
+    return `${message} This is blocking export-ready confidence.`;
+  }
+  if (severity === "warning") {
+    return `${message} Review it, but the plan can still be inspected.`;
+  }
+  return message;
+}
+
+function friendlyCheckReason(check) {
+  const reason = check.reason || "Validation check did not pass.";
+  const severity = String(check.severity || "").toLowerCase();
+  return severity === "error"
+    ? `${reason} Fix this before relying on the variant.`
+    : `${reason} Treat this as a review note.`;
+}
+
 function formatInput() {
   try {
     const parsed = JSON.parse(els.inputEditor.value);
@@ -835,9 +1395,13 @@ function formatInput() {
 
 async function copyOutput() {
   const text = els.outputJson.textContent || "{}";
+  await copyText(text, "Output JSON copied");
+}
+
+async function copyText(text, successMessage) {
   try {
     await navigator.clipboard.writeText(text);
-    setStatus("Output copied");
+    setStatus(successMessage || "Copied");
   } catch (_) {
     const scratch = document.createElement("textarea");
     scratch.value = text;
@@ -848,7 +1412,7 @@ async function copyOutput() {
     scratch.select();
     document.execCommand("copy");
     scratch.remove();
-    setStatus("Output copied");
+    setStatus(successMessage || "Copied");
   }
 }
 
@@ -1080,6 +1644,17 @@ function formatNumber(value, digits) {
   return Number(value).toFixed(digits);
 }
 
+function formatPercent(value, digits) {
+  if (!Number.isFinite(Number(value))) {
+    return "-";
+  }
+  return `${(Number(value) * 100).toFixed(digits)}%`;
+}
+
+function firstLine(value) {
+  return String(value || "").split(/\r?\n/)[0];
+}
+
 function labelText(text) {
   return String(text || "").replace(/\s+\d+(\.\d+)?\s*m2$/i, "");
 }
@@ -1132,6 +1707,22 @@ function buildCliCommand() {
     `  --seed ${escapeCli(els.seedInput.value || "1")} \\`,
     `  --variants ${escapeCli(els.variantInput.value || "4")} \\`,
     "  --summary"
+  ].join("\n");
+}
+
+function buildApiCopyText() {
+  const variants = escapeCli(els.variantInput.value || "4");
+  const seed = escapeCli(els.seedInput.value || "1");
+  return [
+    "POST /api/generate",
+    "Content-Type: application/json",
+    "",
+    JSON.stringify({
+      input: state.input || {},
+      validateOnly: false,
+      variants: Number(variants) || 4,
+      seed: Number(seed) || 1
+    }, null, 2)
   ].join("\n");
 }
 

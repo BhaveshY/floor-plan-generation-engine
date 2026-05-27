@@ -16,6 +16,12 @@
           <p id="runStatus">Ready</p>
         </div>
       </div>
+      <nav class="top-nav" aria-label="Product views">
+        <a href="#setup">Setup</a>
+        <a class="active" href="#plan">Plan Review</a>
+        <a href="#schedule">Schedule</a>
+        <a href="#exports">Exports</a>
+      </nav>
       <div class="top-actions">
         <label class="field field-compact">
           <span>Template</span>
@@ -28,12 +34,18 @@
     </header>
 
     <section class="workspace">
-      <aside class="panel setup-panel">
+      <aside id="setup" class="panel setup-panel">
         <div class="panel-head">
           <div>
             <h2>Setup</h2>
             <p id="setupSubtitle">Residential floorplate</p>
           </div>
+        </div>
+        <div class="guided-steps" aria-label="Setup steps">
+          <span class="active">1 Floorplate</span>
+          <span>2 Core</span>
+          <span>3 Rules</span>
+          <span>4 Unit Mix</span>
         </div>
 
         <form id="setupForm" class="setup-form">
@@ -169,18 +181,28 @@
         </details>
       </aside>
 
-      <section class="panel plan-panel">
+      <section id="plan" class="panel plan-panel">
         <div class="panel-head">
           <div>
             <h2>Plan Review</h2>
             <p id="planSubtitle">Input outline</p>
           </div>
           <div class="panel-actions preview-actions">
+            <div class="mode-tabs" aria-label="Preview mode">
+              <button class="active" type="button">2D Plan</button>
+              <button type="button">3D Axon</button>
+              <button type="button">Circulation</button>
+            </div>
             <select id="variantSelect"></select>
             <button id="saveSvgBtn" type="button">Save SVG</button>
           </div>
         </div>
         <div class="preview-frame">
+          <div class="canvas-tools" aria-label="Canvas tools">
+            <button type="button" title="Zoom in">+</button>
+            <button type="button" title="Zoom out">-</button>
+            <button type="button" title="Fit view">[]</button>
+          </div>
           <svg id="planSvg" role="img" aria-label="Generated floor plan preview"></svg>
           <div id="emptyPreview" class="empty-preview">No plan available</div>
         </div>
@@ -212,14 +234,28 @@
           <div id="diagnosticList" class="diagnostic-list"></div>
         </section>
 
-        <section class="review-section">
+        <section id="exports" class="review-section">
           <div class="section-title">
             <h3>Export</h3>
           </div>
           <div id="exportSummary" class="export-summary"></div>
-          <div class="export-actions">
-            <button id="downloadOutputBtn" type="button">Save Output</button>
-            <button id="copyOutputBtn" type="button">Copy JSON</button>
+          <div class="export-card-grid">
+            <button class="export-card" type="button">
+              <strong>Rhino / Grasshopper</strong>
+              <span>Send layers and geometry</span>
+            </button>
+            <button class="export-card" type="button">
+              <strong>IFC / BIM</strong>
+              <span>Model handoff package</span>
+            </button>
+            <button id="downloadOutputBtn" class="export-card" type="button">
+              <strong>Output JSON</strong>
+              <span>Download engine result</span>
+            </button>
+            <button id="copyOutputBtn" class="export-card" type="button">
+              <strong>AI Agent Contract</strong>
+              <span>Copy machine-readable JSON</span>
+            </button>
           </div>
           <details class="advanced-details">
             <summary>AI and API Contract</summary>
@@ -232,7 +268,7 @@
         </section>
       </aside>
 
-      <section class="panel schedule-panel">
+      <section id="schedule" class="panel schedule-panel">
         <div class="panel-head">
           <div>
             <h2>Schedule</h2>
@@ -255,6 +291,16 @@
             <div id="validationList" class="check-list"></div>
           </div>
         </div>
+      </section>
+
+      <section class="panel hypergraph-panel">
+        <div class="panel-head">
+          <div>
+            <h2>Hypergraph Inspection</h2>
+            <p>DataNode tree, hyperedges, and incidence</p>
+          </div>
+        </div>
+        <div id="hypergraphPreview" class="hypergraph-preview"></div>
       </section>
     </section>
   </main>
