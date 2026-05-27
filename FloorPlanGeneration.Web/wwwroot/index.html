@@ -42,14 +42,15 @@
           </div>
         </div>
         <div class="guided-steps" aria-label="Setup steps">
-          <span class="active">1 Floorplate</span>
-          <span>2 Core</span>
-          <span>3 Rules</span>
-          <span>4 Unit Mix</span>
+          <button class="active" type="button" data-setup-step-button="floorplate" aria-pressed="true">1 Floorplate</button>
+          <button type="button" data-setup-step-button="core" aria-pressed="false">2 Core</button>
+          <button type="button" data-setup-step-button="rules" aria-pressed="false">3 Rules</button>
+          <button type="button" data-setup-step-button="mix" aria-pressed="false">4 Unit Mix</button>
+          <button type="button" data-setup-step-button="generate" aria-pressed="false">5 Generate</button>
         </div>
 
         <form id="setupForm" class="setup-form">
-          <fieldset>
+          <fieldset data-setup-step="floorplate">
             <legend>Project</legend>
             <label class="field">
               <span>Name</span>
@@ -67,7 +68,7 @@
             </div>
           </fieldset>
 
-          <fieldset>
+          <fieldset data-setup-step="floorplate">
             <legend>Floorplate</legend>
             <div class="field-grid">
               <label class="field">
@@ -81,7 +82,7 @@
             </div>
           </fieldset>
 
-          <fieldset>
+          <fieldset data-setup-step="core">
             <legend>Core</legend>
             <div class="field-grid">
               <label class="field">
@@ -103,7 +104,7 @@
             </div>
           </fieldset>
 
-          <fieldset>
+          <fieldset data-setup-step="rules">
             <legend>Rules</legend>
             <div class="field-grid">
               <label class="field">
@@ -137,7 +138,7 @@
             </label>
           </fieldset>
 
-          <fieldset>
+          <fieldset data-setup-step="mix">
             <legend>Unit Mix</legend>
             <div class="mix-table" id="unitMixRows">
               <div class="mix-head">
@@ -166,7 +167,18 @@
               </div>
             </div>
           </fieldset>
+
+          <fieldset data-setup-step="generate">
+            <legend>Generate</legend>
+            <div id="setupReview" class="setup-review-card"></div>
+          </fieldset>
         </form>
+
+        <div class="setup-guide-actions" aria-label="Setup navigation">
+          <button id="setupPrevBtn" type="button">Back</button>
+          <button id="setupNextBtn" type="button">Next</button>
+          <button id="setupGenerateBtn" class="primary" type="button">Generate Variants</button>
+        </div>
 
         <details class="advanced-details input-details">
           <summary>Advanced Input JSON</summary>

@@ -7,6 +7,7 @@ const state = {
   zoom: 1,
   editMode: false,
   editReadout: "",
+  setupStep: "floorplate",
   inputDirty: false,
   autoGenerateTimer: 0,
   runSerial: 0,
@@ -17,11 +18,16 @@ const state = {
 
 const draftKey = "floor-engine-web-draft-v2";
 const unitTypes = ["studio", "one_bed", "two_bed"];
+const setupSteps = ["floorplate", "core", "rules", "mix", "generate"];
 
 const els = {
   sampleSelect: document.getElementById("sampleSelect"),
   setupForm: document.getElementById("setupForm"),
   setupSubtitle: document.getElementById("setupSubtitle"),
+  setupReview: document.getElementById("setupReview"),
+  setupPrevBtn: document.getElementById("setupPrevBtn"),
+  setupNextBtn: document.getElementById("setupNextBtn"),
+  setupGenerateBtn: document.getElementById("setupGenerateBtn"),
   projectName: document.getElementById("projectName"),
   floorWidth: document.getElementById("floorWidth"),
   floorDepth: document.getElementById("floorDepth"),
@@ -72,6 +78,8 @@ const els = {
   exportCardGrid: document.querySelector(".export-card-grid"),
   modeButtons: Array.from(document.querySelectorAll("[data-view-mode]")),
   canvasButtons: Array.from(document.querySelectorAll("[data-canvas-action]")),
+  setupStepButtons: Array.from(document.querySelectorAll("[data-setup-step-button]")),
+  setupStepPanels: Array.from(document.querySelectorAll("[data-setup-step]")),
   topNavLinks: Array.from(document.querySelectorAll(".top-nav a")),
   variantCountLabel: document.getElementById("variantCountLabel"),
   issueCountLabel: document.getElementById("issueCountLabel"),
@@ -109,6 +117,14 @@ function bindEvents() {
   els.inputFile.addEventListener("change", openInputFile);
   els.setupForm.addEventListener("input", handleSetupInput);
   els.setupForm.addEventListener("change", handleSetupInput);
+  els.setupStepButtons.forEach((button) => button.addEventListener("click", () => setSetupStep(button.dataset.setupStepButton)));
+  els.setupPrevBtn.addEventListener("click", () => moveSetupStep(-1));
+  els.setupNextBtn.addEventListener("click", () => moveSetupStep(1));
+  els.setupGenerateBtn.addEventListener("click", async () => {
+    await runEngine(false);
+    window.location.hash = "#plan";
+    updateActiveNav("#plan");
+  });
   els.inputEditor.addEventListener("input", saveDraft);
   els.formatBtn.addEventListener("click", formatInput);
   els.downloadInputBtn.addEventListener("click", () => downloadText("floor-plan-input.json", els.inputEditor.value));
@@ -483,6 +499,7 @@ async function runEngine(validateOnly) {
 function renderAll() {
   const output = state.response ? state.response.output : null;
   syncSelection(output);
+  renderSetupGuide(output);
   renderVariantSelect(output);
   renderPreview(output);
   renderMetrics(output);
@@ -506,6 +523,110 @@ function renderAll() {
     button.disabled = !exportReady;
   });
   els.saveSvgBtn.disabled = state.inputDirty || !els.planSvg.childElementCount;
+}
+
+function setSetupStep(step) {
+  if (!setupSteps.includes(step)) {
+    return;
+  }
+
+  state.setupStep = step;
+  renderSetupGuide(state.response ? state.response.output : null);
+  setStatus(`${setupStepLabel(step)} setup`);
+}
+
+function moveSetupStep(delta) {
+  const index = setupSteps.indexOf(state.setupStep);
+  const nextIndex = clamp(index + delta, 0, setupSteps.length - 1);
+  setSetupStep(setupSteps[nextIndex]);
+}
+
+function renderSetupGuide(output) {
+  const activeIndex = setupSteps.indexOf(state.setupStep);
+  const safeIndex = activeIndex >= 0 ? activeIndex : 0;
+  const activeStep = setupSteps[safeIndex];
+  state.setupStep = activeStep;
+
+  els.setupStepButtons.forEach((button) => {
+    const buttonIndex = setupSteps.indexOf(button.dataset.setupStepButton);
+    const active = button.dataset.setupStepButton === activeStep;
+    button.classList.toggle("active", active);
+    button.classList.toggle("complete", buttonIndex >= 0 && buttonIndex < safeIndex);
+    button.setAttribute("aria-pressed", active ? "true" : "false");
+  });
+
+  els.setupStepPanels.forEach((panel) => {
+    panel.hidden = panel.dataset.setupStep !== activeStep;
+  });
+
+  els.setupPrevBtn.disabled = safeIndex === 0;
+  els.setupNextBtn.hidden = activeStep === "generate";
+  els.setupGenerateBtn.hidden = activeStep !== "generate";
+  els.setupReview.innerHTML = buildSetupReview(output);
+}
+
+function setupStepLabel(step) {
+  switch (step) {
+    case "core":
+      return "Core";
+    case "rules":
+      return "Rules";
+    case "mix":
+      return "Unit mix";
+    case "generate":
+      return "Generate";
+    default:
+      return "Floorplate";
+  }
+}
+
+function buildSetupReview(output) {
+  const input = state.input ? ensureInputShape(state.input) : null;
+  if (!input) {
+    return `<div class="empty-list">Load a template or enter project basics to prepare generation.</div>`;
+  }
+
+  const floorBounds = input.floorplate && input.floorplate.outer ? boundsOfPoints(input.floorplate.outer.points) : null;
+  const core = firstCore(input);
+  const coreBounds = core && core.polygon ? boundsOfPoints(core.polygon.points) : null;
+  const rules = input.rules || {};
+  const targets = input.program && Array.isArray(input.program.targetUnitTypes) ? input.program.targetUnitTypes : [];
+  const mix = targets
+    .filter((target) => Number(target.targetRatio) > 0)
+    .map((target) => `${shortUnitType(target.type)} ${Math.round(Number(target.targetRatio) * 100)}%`)
+    .join(", ");
+  const variant = selectedVariant(output);
+  const checks = variant && variant.validation && Array.isArray(variant.validation.checks) ? variant.validation.checks : [];
+  const failedChecks = checks.filter((check) => !check.passed);
+  const readiness = state.inputDirty
+    ? "Edits pending"
+    : output && variant
+      ? `${friendlyStatus(output.status)} - ${variant.units.length} units`
+      : "Ready to generate";
+
+  const rows = [
+    ["Project", input.project ? input.project.name : "Floor Plan Project"],
+    ["Floorplate", floorBounds ? `${formatNumber(floorBounds.width, 1)} x ${formatNumber(floorBounds.height, 1)} m` : "Not set"],
+    ["Core", coreBounds ? `${formatNumber(coreBounds.width, 1)} x ${formatNumber(coreBounds.height, 1)} m at ${formatNumber(coreBounds.minX, 1)}, ${formatNumber(coreBounds.minY, 1)}` : "No core"],
+    ["Rules", `Corridor ${formatNumber(rules.minCorridorWidth, 1)} m, min unit ${formatNumber(rules.minUnitArea, 0)} m2`],
+    ["Unit mix", mix || "No target mix"],
+    ["Readiness", readiness]
+  ];
+
+  return `
+    <div class="setup-review-status ${failedChecks.length ? "warning" : "good"}">
+      <strong>${escapeHtml(readiness)}</strong>
+      <span>${failedChecks.length ? `${failedChecks.length} review item${failedChecks.length === 1 ? "" : "s"}` : "Inputs are ready for a ranked variant run"}</span>
+    </div>
+    <div class="setup-review-grid">
+      ${rows.map(([label, value]) => `
+        <div>
+          <span>${escapeHtml(label)}</span>
+          <strong>${escapeHtml(value)}</strong>
+        </div>
+      `).join("")}
+    </div>
+  `;
 }
 
 function updateDirtyState() {

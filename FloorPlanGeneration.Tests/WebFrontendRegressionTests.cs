@@ -50,6 +50,41 @@ namespace FloorPlanGeneration.Tests
         }
 
         [Fact]
+        public void GuidedSetupIsARealStepFlowForNontechnicalUsers()
+        {
+            string app = ReadWebFile("app.js");
+            string index = ReadWebFile("index.html");
+            string styles = ReadWebFile("styles.css");
+            string bindEvents = SliceFunction(app, "bindEvents");
+            string renderAll = SliceFunction(app, "renderAll");
+            string renderSetupGuide = SliceFunction(app, "renderSetupGuide");
+            string buildSetupReview = SliceFunction(app, "buildSetupReview");
+
+            Assert.Contains("setupStep: \"floorplate\"", app, StringComparison.Ordinal);
+            Assert.Contains("const setupSteps = [\"floorplate\", \"core\", \"rules\", \"mix\", \"generate\"]", app, StringComparison.Ordinal);
+            Assert.Contains("data-setup-step-button=\"floorplate\"", index, StringComparison.Ordinal);
+            Assert.Contains("data-setup-step-button=\"generate\"", index, StringComparison.Ordinal);
+            Assert.Contains("data-setup-step=\"floorplate\"", index, StringComparison.Ordinal);
+            Assert.Contains("data-setup-step=\"generate\"", index, StringComparison.Ordinal);
+            Assert.Contains("id=\"setupReview\"", index, StringComparison.Ordinal);
+            Assert.Contains("id=\"setupPrevBtn\"", index, StringComparison.Ordinal);
+            Assert.Contains("id=\"setupNextBtn\"", index, StringComparison.Ordinal);
+            Assert.Contains("id=\"setupGenerateBtn\"", index, StringComparison.Ordinal);
+            Assert.Contains("setSetupStep(button.dataset.setupStepButton)", bindEvents, StringComparison.Ordinal);
+            Assert.Contains("moveSetupStep(-1)", bindEvents, StringComparison.Ordinal);
+            Assert.Contains("moveSetupStep(1)", bindEvents, StringComparison.Ordinal);
+            Assert.Contains("await runEngine(false)", bindEvents, StringComparison.Ordinal);
+            Assert.Contains("renderSetupGuide(output)", renderAll, StringComparison.Ordinal);
+            Assert.Contains("panel.hidden = panel.dataset.setupStep !== activeStep", renderSetupGuide, StringComparison.Ordinal);
+            Assert.Contains("els.setupGenerateBtn.hidden = activeStep !== \"generate\"", renderSetupGuide, StringComparison.Ordinal);
+            Assert.Contains("buildSetupReview(output)", renderSetupGuide, StringComparison.Ordinal);
+            Assert.Contains("Readiness", buildSetupReview, StringComparison.Ordinal);
+            Assert.Contains(".guided-steps button", styles, StringComparison.Ordinal);
+            Assert.Contains(".setup-guide-actions", styles, StringComparison.Ordinal);
+            Assert.Contains(".setup-review-card", styles, StringComparison.Ordinal);
+        }
+
+        [Fact]
         public void EditModeControlsAreExplicitAndGateCanvasEditHooks()
         {
             string app = ReadWebFile("app.js");
