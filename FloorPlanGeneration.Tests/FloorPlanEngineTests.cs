@@ -158,6 +158,21 @@ namespace FloorPlanGeneration.Tests
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
             Assert.All(hypergraph.Incidence, item => Assert.Contains(HypergraphTuple(item.HyperedgeId, item.NodeId, item.Role), memberKeys));
 
+            foreach (HypergraphDataNode dataNode in HypergraphBuilder.FlattenDataNodes(hypergraph.Root))
+            {
+                HypergraphNode node = Assert.Single(hypergraph.Nodes, item => item.Id == dataNode.Name);
+                Assert.Equal(dataNode.MergeId, node.MergeId);
+                Assert.Equal(dataNode.Final, node.Final);
+                Assert.Equal(dataNode.Area, node.Area);
+                Assert.Equal(dataNode.Angle, node.Angle);
+                Assert.Equal(
+                    dataNode.Children.Select(child => child.Name).OrderBy(id => id, StringComparer.OrdinalIgnoreCase),
+                    node.Children.OrderBy(id => id, StringComparer.OrdinalIgnoreCase));
+                Assert.Equal(
+                    dataNode.Connected.OrderBy(id => id, StringComparer.OrdinalIgnoreCase),
+                    node.Connected.OrderBy(id => id, StringComparer.OrdinalIgnoreCase));
+            }
+
             Assert.Equal(hypergraph.Nodes.Count, hypergraph.Matrices.NodeOrder.Count);
             Assert.Equal(hypergraph.Hyperedges.Count, hypergraph.Matrices.HyperedgeOrder.Count);
             Assert.Equal(
@@ -217,6 +232,81 @@ namespace FloorPlanGeneration.Tests
             HypergraphNode nodeWithChild = badNodeReference.Nodes.First(node => node.Children.Count > 0);
             nodeWithChild.Children[0] = "missing-child";
             Assert.Contains(HypergraphBuilder.Validate(badNodeReference), error => error.Contains("references unknown child missing-child", StringComparison.Ordinal));
+
+            FloorPlanHypergraph badDataNodeName = CloneHypergraph(hypergraph);
+            badDataNodeName.Root.Children[0].Name = "renamed-circulation";
+            Assert.Contains(HypergraphBuilder.Validate(badDataNodeName), error => error.Contains("DataNode renamed-circulation is missing matching hypergraph node", StringComparison.Ordinal));
+
+            FloorPlanHypergraph badSchema = CloneHypergraph(hypergraph);
+            badSchema.SchemaVersion = "wrong";
+            Assert.Contains(HypergraphBuilder.Validate(badSchema), error => error.Contains("schemaVersion must be hypergraph-floorplan-1.0", StringComparison.Ordinal));
+
+            FloorPlanHypergraph badDataNodeMirror = CloneHypergraph(hypergraph);
+            HypergraphDataNode mirroredLeaf = HypergraphBuilder.FlattenDataNodes(badDataNodeMirror.Root).First(node => node.Final);
+            badDataNodeMirror.Nodes.First(node => node.Id == mirroredLeaf.Name).Area += 1.0;
+            Assert.Contains(HypergraphBuilder.Validate(badDataNodeMirror), error => error.Contains("does not mirror DataNode area", StringComparison.Ordinal));
+
+            FloorPlanHypergraph badNodeProjection = CloneHypergraph(hypergraph);
+            HypergraphNode projectedNode = badNodeProjection.Nodes.First(node => node.Id == "circulation");
+            projectedNode.ParentId = "wrong-parent";
+            projectedNode.MergeId = "wrong-merge";
+            projectedNode.Final = true;
+            List<string> projectionErrors = HypergraphBuilder.Validate(badNodeProjection);
+            Assert.Contains(projectionErrors, error => error.Contains("does not mirror DataNode parent", StringComparison.Ordinal));
+            Assert.Contains(projectionErrors, error => error.Contains("does not mirror DataNode mergeid", StringComparison.Ordinal));
+            Assert.Contains(projectionErrors, error => error.Contains("does not mirror DataNode final flag", StringComparison.Ordinal));
+
+            FloorPlanHypergraph badConnectedProjection = CloneHypergraph(hypergraph);
+            HypergraphDataNode connectedDataNode = HypergraphBuilder.FlattenDataNodes(badConnectedProjection.Root).First(node => node.Connected.Count > 0);
+            connectedDataNode.Connected.Add("missing-connected");
+            badConnectedProjection.Nodes.First(node => node.Id == connectedDataNode.Name).Connected.Add("missing-connected");
+            Assert.Contains(HypergraphBuilder.Validate(badConnectedProjection), error => error.Contains("DataNode " + connectedDataNode.Name + " references unknown connected node missing-connected", StringComparison.Ordinal));
+
+            FloorPlanHypergraph duplicateMember = CloneHypergraph(hypergraph);
+            Hyperedge edgeWithMember = duplicateMember.Hyperedges.First(edge => edge.Members.Count > 0);
+            edgeWithMember.Members.Add(new HyperedgeMember { NodeId = edgeWithMember.Members[0].NodeId, Role = edgeWithMember.Members[0].Role });
+            Assert.Contains(HypergraphBuilder.Validate(duplicateMember), error => error.Contains("contains duplicate member", StringComparison.Ordinal));
+
+            FloorPlanHypergraph badAreaMatrix = CloneHypergraph(hypergraph);
+            Hyperedge subdivision = badAreaMatrix.Hyperedges.First(edge => edge.Kind == "subdivision" && edge.Members.Any(member => member.Role == "child"));
+            string parentId = subdivision.Members.First(member => member.Role == "parent").NodeId;
+            string childId = subdivision.Members.First(member => member.Role == "child").NodeId;
+            int matrixRow = badAreaMatrix.Matrices.NodeOrder.FindIndex(id => string.Equals(id, parentId, StringComparison.OrdinalIgnoreCase));
+            int matrixColumn = badAreaMatrix.Matrices.NodeOrder.FindIndex(id => string.Equals(id, childId, StringComparison.OrdinalIgnoreCase));
+            badAreaMatrix.Matrices.Area[matrixRow][matrixColumn] += 1.0;
+            Assert.Contains(HypergraphBuilder.Validate(badAreaMatrix), error => error.Contains("Matrix area does not match subdivision child", StringComparison.Ordinal));
+
+            FloorPlanHypergraph badAngleMatrix = CloneHypergraph(hypergraph);
+            badAngleMatrix.Matrices.Angle[matrixRow][matrixColumn] += 1.0;
+            Assert.Contains(HypergraphBuilder.Validate(badAngleMatrix), error => error.Contains("Matrix angle does not match subdivision child", StringComparison.Ordinal));
+
+            FloorPlanHypergraph unexpectedAreaMatrix = CloneHypergraph(hypergraph);
+            unexpectedAreaMatrix.Matrices.Area[0][0] = 99.0;
+            Assert.Contains(HypergraphBuilder.Validate(unexpectedAreaMatrix), error => error.Contains("Matrix area contains unexpected subdivision value", StringComparison.Ordinal));
+
+            FloorPlanHypergraph badSubdivision = CloneHypergraph(hypergraph);
+            Hyperedge badSubdivisionEdge = badSubdivision.Hyperedges.First(edge => edge.Kind == "subdivision" && edge.Members.Any(member => member.Role == "child"));
+            string replacementNode = badSubdivision.Nodes.First(node => badSubdivisionEdge.Members.All(member => member.NodeId != node.Id)).Id;
+            badSubdivisionEdge.Members.First(member => member.Role == "child").NodeId = replacementNode;
+            Assert.Contains(HypergraphBuilder.Validate(badSubdivision), error => error.Contains("Subdivision hyperedge " + badSubdivisionEdge.Id + " children contains unexpected", StringComparison.Ordinal));
+        }
+
+        [Theory]
+        [MemberData(nameof(HypergraphSampleInputs))]
+        public void GeneratedHypergraphContractsValidateAcrossSupportedFloorplates(string sampleName, EngineInput input)
+        {
+            EngineOutput output = new FloorPlanEngine().Generate(input);
+
+            Assert.False(string.IsNullOrWhiteSpace(sampleName));
+            Assert.Equal("succeeded", output.Status);
+            Assert.NotEmpty(output.Variants);
+            Assert.All(output.Variants, variant =>
+            {
+                Assert.Contains(variant.Validation.Checks, check => check.Name == "hypergraph_contract" && check.Passed);
+                Assert.NotNull(variant.Topology.Hypergraph);
+                Assert.Empty(HypergraphBuilder.Validate(variant.Topology.Hypergraph));
+                Assert.Contains(HypergraphBuilder.FlattenDataNodes(variant.Topology.Hypergraph.Root), node => node.Name == "units");
+            });
         }
 
         [Fact]
@@ -720,6 +810,13 @@ namespace FloorPlanGeneration.Tests
         private static string HypergraphTuple(string hyperedgeId, string nodeId, string role)
         {
             return (hyperedgeId ?? string.Empty) + "|" + (nodeId ?? string.Empty) + "|" + (role ?? string.Empty);
+        }
+
+        public static IEnumerable<object[]> HypergraphSampleInputs()
+        {
+            yield return new object[] { "rectangular", RectangularInput(seed: 20260519, variantCount: 1) };
+            yield return new object[] { "l-shaped", LShapedInput(seed: 20260519, variantCount: 1) };
+            yield return new object[] { "moderately-irregular", ModeratelyIrregularInput(seed: 20260519, variantCount: 1) };
         }
 
         private static string RepositoryRoot()

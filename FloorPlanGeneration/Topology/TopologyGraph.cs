@@ -291,12 +291,22 @@ namespace FloorPlanGeneration.Topology
             {
                 errors.Add("Hypergraph root is missing.");
             }
+            else if (!string.Equals(hypergraph.Root.Name, "root", StringComparison.OrdinalIgnoreCase))
+            {
+                errors.Add("Hypergraph root DataNode must be named root.");
+            }
+
+            if (!string.Equals(hypergraph.SchemaVersion, "hypergraph-floorplan-1.0", StringComparison.OrdinalIgnoreCase))
+            {
+                errors.Add("Hypergraph schemaVersion must be hypergraph-floorplan-1.0.");
+            }
 
             List<HypergraphNode> nodes = hypergraph.Nodes ?? new List<HypergraphNode>();
             List<Hyperedge> hyperedges = hypergraph.Hyperedges ?? new List<Hyperedge>();
             List<HypergraphIncidence> incidence = hypergraph.Incidence ?? new List<HypergraphIncidence>();
 
             HashSet<string> nodeIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            Dictionary<string, HypergraphNode> nodeById = new Dictionary<string, HypergraphNode>(StringComparer.OrdinalIgnoreCase);
             foreach (HypergraphNode node in nodes)
             {
                 if (string.IsNullOrWhiteSpace(node.Id))
@@ -308,6 +318,10 @@ namespace FloorPlanGeneration.Topology
                 if (!nodeIds.Add(node.Id))
                 {
                     errors.Add("Duplicate hypergraph node id: " + node.Id);
+                }
+                else
+                {
+                    nodeById[node.Id] = node;
                 }
             }
 
@@ -335,6 +349,8 @@ namespace FloorPlanGeneration.Topology
                 }
             }
 
+            ValidateDataNodeMirrors(hypergraph.Root, nodeById, errors);
+
             HashSet<string> edgeIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             Dictionary<string, int> expectedIncidence = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
             foreach (Hyperedge edge in hyperedges)
@@ -355,6 +371,7 @@ namespace FloorPlanGeneration.Topology
                     errors.Add("Hyperedge " + edge.Id + " must contain at least two members.");
                 }
 
+                HashSet<string> memberTuples = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 foreach (HyperedgeMember member in edge.Members ?? new List<HyperedgeMember>())
                 {
                     if (string.IsNullOrWhiteSpace(member.NodeId))
@@ -371,6 +388,12 @@ namespace FloorPlanGeneration.Topology
                     if (string.IsNullOrWhiteSpace(member.Role))
                     {
                         errors.Add("Hyperedge " + edge.Id + " member " + member.NodeId + " has an empty role.");
+                    }
+
+                    string memberTuple = IncidenceKey(edge.Id, member.NodeId, member.Role);
+                    if (!memberTuples.Add(memberTuple))
+                    {
+                        errors.Add("Hyperedge " + edge.Id + " contains duplicate member " + member.NodeId + " with role " + member.Role + ".");
                     }
 
                     Increment(expectedIncidence, IncidenceKey(edge.Id, member.NodeId, member.Role));
@@ -404,6 +427,7 @@ namespace FloorPlanGeneration.Topology
             }
 
             CompareIncidence(expectedIncidence, actualIncidence, errors);
+            CheckSubdivisionHyperedgesAgainstDataTree(hypergraph.Root, hyperedges, errors);
 
             if (hypergraph.Matrices == null)
             {
@@ -423,6 +447,7 @@ namespace FloorPlanGeneration.Topology
                 CheckIncidenceMatrix(hypergraph.Matrices, incidence, errors);
                 CheckSubdivisionMatrix(hypergraph.Matrices, hyperedges, errors);
                 CheckAdjacencyMatrix(hypergraph.Matrices, hyperedges, errors);
+                CheckAreaAngleMatrices(hypergraph.Matrices, hyperedges, nodes, errors);
             }
 
             ValidateDataTree(hypergraph.Root, errors);
@@ -463,6 +488,123 @@ namespace FloorPlanGeneration.Topology
             foreach (HypergraphDataNode child in node.Children ?? new List<HypergraphDataNode>())
             {
                 ValidateDataTree(child, errors);
+            }
+        }
+
+        private static void ValidateDataNodeMirrors(HypergraphDataNode root, Dictionary<string, HypergraphNode> nodeById, List<string> errors)
+        {
+            HashSet<string> dataNodeNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            Dictionary<string, string> dataNodeParents = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            Dictionary<string, int> dataNodeLevels = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            CollectDataNodeProjection(root, string.Empty, 0, dataNodeParents, dataNodeLevels);
+            foreach (HypergraphDataNode dataNode in FlattenDataNodes(root))
+            {
+                if (string.IsNullOrWhiteSpace(dataNode.Name))
+                {
+                    errors.Add("DataNode name is empty.");
+                    continue;
+                }
+
+                if (!dataNodeNames.Add(dataNode.Name))
+                {
+                    errors.Add("Duplicate DataNode name: " + dataNode.Name);
+                }
+
+                HypergraphNode node;
+                if (!nodeById.TryGetValue(dataNode.Name, out node))
+                {
+                    errors.Add("DataNode " + dataNode.Name + " is missing matching hypergraph node.");
+                    continue;
+                }
+
+                string expectedParent = dataNodeParents.ContainsKey(dataNode.Name) ? dataNodeParents[dataNode.Name] : string.Empty;
+                if (!string.Equals(node.ParentId ?? string.Empty, expectedParent, StringComparison.OrdinalIgnoreCase))
+                {
+                    errors.Add("Hypergraph node " + node.Id + " does not mirror DataNode parent.");
+                }
+
+                int expectedLevel = dataNodeLevels.ContainsKey(dataNode.Name) ? dataNodeLevels[dataNode.Name] : 0;
+                if (node.Level != expectedLevel)
+                {
+                    errors.Add("Hypergraph node " + node.Id + " does not mirror DataNode level.");
+                }
+
+                if (!string.Equals(node.MergeId ?? string.Empty, dataNode.MergeId ?? string.Empty, StringComparison.OrdinalIgnoreCase))
+                {
+                    errors.Add("Hypergraph node " + node.Id + " does not mirror DataNode mergeid.");
+                }
+
+                if (node.Final != dataNode.Final)
+                {
+                    errors.Add("Hypergraph node " + node.Id + " does not mirror DataNode final flag.");
+                }
+
+                if (!NearlyEqual(node.Area, dataNode.Area))
+                {
+                    errors.Add("Hypergraph node " + node.Id + " does not mirror DataNode area.");
+                }
+
+                if (!NearlyEqual(node.Angle, dataNode.Angle))
+                {
+                    errors.Add("Hypergraph node " + node.Id + " does not mirror DataNode angle.");
+                }
+
+                if (dataNode.TreeNodeMesh != null && !NearlyEqual(dataNode.TreeNodeMesh.Area, dataNode.Area))
+                {
+                    errors.Add("DataNode " + dataNode.Name + " treeNodeMesh Area does not mirror DataNode area.");
+                }
+
+                if (dataNode.TreeNodeMesh != null && dataNode.TreeNodeMesh.Centroid != null && node.Centroid != null)
+                {
+                    if (!NearlyEqual(node.Centroid.X, dataNode.TreeNodeMesh.Centroid.X) ||
+                        !NearlyEqual(node.Centroid.Y, dataNode.TreeNodeMesh.Centroid.Y))
+                    {
+                        errors.Add("Hypergraph node " + node.Id + " does not mirror DataNode centroid.");
+                    }
+                }
+
+                foreach (string connectedId in dataNode.Connected ?? new List<string>())
+                {
+                    if (!nodeById.ContainsKey(connectedId))
+                    {
+                        errors.Add("DataNode " + dataNode.Name + " references unknown connected node " + connectedId + ".");
+                    }
+                }
+
+                CompareReferenceSet(
+                    "Hypergraph node " + node.Id + " children",
+                    node.Children,
+                    (dataNode.Children ?? new List<HypergraphDataNode>()).Select(child => child.Name).ToList(),
+                    errors);
+                CompareReferenceSet(
+                    "Hypergraph node " + node.Id + " connected",
+                    node.Connected,
+                    dataNode.Connected ?? new List<string>(),
+                    errors);
+            }
+        }
+
+        private static void CollectDataNodeProjection(
+            HypergraphDataNode node,
+            string parentId,
+            int level,
+            Dictionary<string, string> parents,
+            Dictionary<string, int> levels)
+        {
+            if (node == null || string.IsNullOrWhiteSpace(node.Name))
+            {
+                return;
+            }
+
+            if (!parents.ContainsKey(node.Name))
+            {
+                parents[node.Name] = parentId ?? string.Empty;
+                levels[node.Name] = level;
+            }
+
+            foreach (HypergraphDataNode child in node.Children ?? new List<HypergraphDataNode>())
+            {
+                CollectDataNodeProjection(child, node.Name, level + 1, parents, levels);
             }
         }
 
@@ -544,6 +686,69 @@ namespace FloorPlanGeneration.Topology
                 if (count != item.Value)
                 {
                     errors.Add("Unexpected incidence record " + item.Key + ".");
+                }
+            }
+        }
+
+        private static void CheckSubdivisionHyperedgesAgainstDataTree(HypergraphDataNode root, List<Hyperedge> hyperedges, List<string> errors)
+        {
+            Dictionary<string, List<Hyperedge>> subdivisionByParent = new Dictionary<string, List<Hyperedge>>(StringComparer.OrdinalIgnoreCase);
+            foreach (Hyperedge edge in (hyperedges ?? new List<Hyperedge>()).Where(e => string.Equals(e.Kind, "subdivision", StringComparison.OrdinalIgnoreCase)))
+            {
+                List<string> parents = (edge.Members ?? new List<HyperedgeMember>())
+                    .Where(member => string.Equals(member.Role, "parent", StringComparison.OrdinalIgnoreCase))
+                    .Select(member => member.NodeId)
+                    .Where(id => !string.IsNullOrWhiteSpace(id))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+                if (parents.Count != 1)
+                {
+                    errors.Add("Subdivision hyperedge " + edge.Id + " must contain exactly one parent member.");
+                    continue;
+                }
+
+                if (!subdivisionByParent.ContainsKey(parents[0]))
+                {
+                    subdivisionByParent[parents[0]] = new List<Hyperedge>();
+                }
+
+                subdivisionByParent[parents[0]].Add(edge);
+            }
+
+            HashSet<string> expectedParents = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (HypergraphDataNode dataNode in FlattenDataNodes(root))
+            {
+                List<string> childNames = (dataNode.Children ?? new List<HypergraphDataNode>())
+                    .Select(child => child.Name)
+                    .Where(name => !string.IsNullOrWhiteSpace(name))
+                    .ToList();
+                if (childNames.Count == 0)
+                {
+                    continue;
+                }
+
+                expectedParents.Add(dataNode.Name);
+                List<Hyperedge> parentEdges;
+                subdivisionByParent.TryGetValue(dataNode.Name, out parentEdges);
+                if (parentEdges == null || parentEdges.Count != 1)
+                {
+                    errors.Add("DataNode " + dataNode.Name + " must have exactly one subdivision hyperedge.");
+                    continue;
+                }
+
+                List<string> edgeChildren = (parentEdges[0].Members ?? new List<HyperedgeMember>())
+                    .Where(member => string.Equals(member.Role, "child", StringComparison.OrdinalIgnoreCase))
+                    .Select(member => member.NodeId)
+                    .Where(id => !string.IsNullOrWhiteSpace(id))
+                    .ToList();
+                CompareReferenceSet("Subdivision hyperedge " + parentEdges[0].Id + " children", edgeChildren, childNames, errors);
+            }
+
+            foreach (string parentId in subdivisionByParent.Keys)
+            {
+                if (!expectedParents.Contains(parentId))
+                {
+                    errors.Add("Subdivision hyperedge references non-branch DataNode " + parentId + ".");
                 }
             }
         }
@@ -651,6 +856,49 @@ namespace FloorPlanGeneration.Topology
             CheckBinarySquareMatrix("adjacencyConnectivity", matrices.AdjacencyConnectivity, matrices.NodeOrder, expected, errors);
         }
 
+        private static void CheckAreaAngleMatrices(HypergraphMatrices matrices, List<Hyperedge> hyperedges, List<HypergraphNode> nodes, List<string> errors)
+        {
+            if (matrices.NodeOrder == null ||
+                matrices.Area == null ||
+                matrices.Angle == null ||
+                !TryBuildIndex(matrices.NodeOrder, out Dictionary<string, int> nodeIndex))
+            {
+                return;
+            }
+
+            Dictionary<string, HypergraphNode> nodeById = nodes
+                .Where(node => !string.IsNullOrWhiteSpace(node.Id))
+                .GroupBy(node => node.Id, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+            Dictionary<string, double> expectedArea = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+            Dictionary<string, double> expectedAngle = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (Hyperedge edge in hyperedges.Where(e => string.Equals(e.Kind, "subdivision", StringComparison.OrdinalIgnoreCase)))
+            {
+                string parentId = edge.Members.Where(m => string.Equals(m.Role, "parent", StringComparison.OrdinalIgnoreCase)).Select(m => m.NodeId).FirstOrDefault();
+                if (string.IsNullOrWhiteSpace(parentId) || !nodeIndex.ContainsKey(parentId))
+                {
+                    continue;
+                }
+
+                foreach (HyperedgeMember child in edge.Members.Where(m => string.Equals(m.Role, "child", StringComparison.OrdinalIgnoreCase)))
+                {
+                    HypergraphNode childNode;
+                    if (!nodeIndex.ContainsKey(child.NodeId) || !nodeById.TryGetValue(child.NodeId, out childNode))
+                    {
+                        continue;
+                    }
+
+                    string key = MatrixKey(parentId, child.NodeId);
+                    expectedArea[key] = childNode.Area;
+                    expectedAngle[key] = childNode.Angle == 0.0 ? Math.Round(Math.PI * 2.0, 6) : childNode.Angle;
+                }
+            }
+
+            CheckWeightedSquareMatrix("area", matrices.Area, matrices.NodeOrder, expectedArea, errors);
+            CheckWeightedSquareMatrix("angle", matrices.Angle, matrices.NodeOrder, expectedAngle, errors);
+        }
+
         private static void CheckBinarySquareMatrix(string name, List<List<double>> matrix, List<string> order, HashSet<string> expected, List<string> errors)
         {
             if (!TryBuildIndex(order, out Dictionary<string, int> index))
@@ -676,6 +924,56 @@ namespace FloorPlanGeneration.Topology
                     {
                         errors.Add("Matrix " + name + " contains unexpected relationship " + MatrixKey(from, to) + ".");
                     }
+                }
+            }
+        }
+
+        private static void CheckWeightedSquareMatrix(string name, List<List<double>> matrix, List<string> order, Dictionary<string, double> expected, List<string> errors)
+        {
+            if (!TryBuildIndex(order, out Dictionary<string, int> index))
+            {
+                return;
+            }
+
+            foreach (KeyValuePair<string, double> item in expected)
+            {
+                string[] parts = item.Key.Split('|');
+                if (!NearlyEqual(MatrixValue(matrix, index[parts[0]], index[parts[1]]), item.Value))
+                {
+                    errors.Add("Matrix " + name + " does not match subdivision child " + item.Key + ".");
+                }
+            }
+
+            foreach (string from in order)
+            {
+                foreach (string to in order)
+                {
+                    double value = MatrixValue(matrix, index[from], index[to]);
+                    if (!NearlyEqual(value, 0.0) && !expected.ContainsKey(MatrixKey(from, to)))
+                    {
+                        errors.Add("Matrix " + name + " contains unexpected subdivision value " + MatrixKey(from, to) + ".");
+                    }
+                }
+            }
+        }
+
+        private static void CompareReferenceSet(string label, List<string> actual, List<string> expected, List<string> errors)
+        {
+            HashSet<string> actualSet = new HashSet<string>(actual ?? new List<string>(), StringComparer.OrdinalIgnoreCase);
+            HashSet<string> expectedSet = new HashSet<string>(expected ?? new List<string>(), StringComparer.OrdinalIgnoreCase);
+            foreach (string expectedId in expectedSet)
+            {
+                if (!actualSet.Contains(expectedId))
+                {
+                    errors.Add(label + " is missing " + expectedId + ".");
+                }
+            }
+
+            foreach (string actualId in actualSet)
+            {
+                if (!expectedSet.Contains(actualId))
+                {
+                    errors.Add(label + " contains unexpected " + actualId + ".");
                 }
             }
         }
