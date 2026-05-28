@@ -138,6 +138,7 @@ function bindEvents() {
   els.topNavLinks.forEach((link) => link.addEventListener("click", () => updateActiveNav(link.getAttribute("href"))));
   window.addEventListener("hashchange", () => updateActiveNav());
   els.planSvg.addEventListener("click", handlePlanClick);
+  els.planSvg.addEventListener("keydown", handlePlanActionKeyDown);
   els.planSvg.addEventListener("pointerdown", handlePlanPointerDown);
   window.addEventListener("pointermove", handlePlanPointerMove);
   window.addEventListener("pointerup", finishPlanPointerEdit);
@@ -820,6 +821,8 @@ function renderPreview(output) {
   }
 
   renderInputEditHandles(group, input);
+  renderSelectionConstraintHandles(group, output);
+  renderPlanQuickActions(output, bounds);
   renderLegend(Boolean(variant));
 }
 
@@ -914,6 +917,14 @@ function isSelection(kind, id) {
 }
 
 function handlePlanClick(event) {
+  const planAction = event.target.closest ? event.target.closest("[data-plan-action]") : null;
+  if (planAction) {
+    event.preventDefault();
+    event.stopPropagation();
+    runSelectedPlanAction(planAction.dataset.planAction);
+    return;
+  }
+
   if (event.target.closest && event.target.closest("[data-edit-action]")) {
     return;
   }
@@ -933,6 +944,21 @@ function handlePlanClick(event) {
   };
   setStatus(`${selectionKindLabel(state.selection.kind)} selected`);
   renderAll();
+}
+
+function handlePlanActionKeyDown(event) {
+  if (event.key !== "Enter" && event.key !== " ") {
+    return;
+  }
+
+  const planAction = event.target.closest ? event.target.closest("[data-plan-action]") : null;
+  if (!planAction) {
+    return;
+  }
+
+  event.preventDefault();
+  event.stopPropagation();
+  runSelectedPlanAction(planAction.dataset.planAction);
 }
 
 function updateCanvasUi(output) {
@@ -1129,9 +1155,33 @@ function selectionInlineSummary(detail) {
   return `${selectionKindLabel(detail.kind)} ${detail.id || ""}`.trim();
 }
 
+function planActionsForDetail(detail) {
+  if (!detail) {
+    return [];
+  }
+
+  if (detail.kind === "unit") {
+    return [["unit-more", "More like this"], ["unit-less", "Fewer like this"], ["unit-fit-area", "Fit target area"]];
+  }
+  if (detail.kind === "floorplate") {
+    return [["floor-wider", "Wider"], ["floor-narrower", "Narrower"], ["floor-deeper", "Deeper"], ["floor-shallower", "Shallower"]];
+  }
+  if (detail.kind === "core") {
+    return [["core-left", "Left"], ["core-right", "Right"], ["core-up", "Up"], ["core-down", "Down"], ["core-grow", "Grow"], ["core-shrink", "Shrink"]];
+  }
+  if (detail.kind === "room") {
+    return [["room-use-dimensions", "Use as room minimum"]];
+  }
+  if (detail.kind === "corridor") {
+    return [["corridor-use-width", "Use as corridor width"]];
+  }
+
+  return [];
+}
+
 function inspectorMarkup(detail) {
   const rows = [];
-  const actions = [];
+  const actions = planActionsForDetail(detail);
   rows.push(["Source", detail.source === "input" ? "Input constraint" : "Generated output"]);
   rows.push(["Id", detail.id || "-"]);
 
@@ -1146,20 +1196,15 @@ function inspectorMarkup(detail) {
     rows.push(["Type", displayUnitType(detail.item.type)]);
     rows.push(["Rooms", String(Array.isArray(detail.item.rooms) ? detail.item.rooms.length : 0)]);
     rows.push(["Score", formatNumber(detail.item.score, 3)]);
-    actions.push(["unit-more", "More like this"], ["unit-less", "Fewer like this"], ["unit-fit-area", "Fit target area"]);
   } else if (detail.kind === "floorplate") {
-    actions.push(["floor-wider", "Wider"], ["floor-narrower", "Narrower"], ["floor-deeper", "Deeper"], ["floor-shallower", "Shallower"]);
   } else if (detail.kind === "core") {
     rows.push(["Blocks units", detail.item.blocksGeneration === false ? "No" : "Yes"]);
-    actions.push(["core-left", "Left"], ["core-right", "Right"], ["core-up", "Up"], ["core-down", "Down"], ["core-grow", "Grow"], ["core-shrink", "Shrink"]);
   } else if (detail.kind === "room") {
     rows.push(["Type", displayUnitType(detail.item.type)]);
     rows.push(["Unit", detail.item.unitId || "-"]);
     rows.push(["Daylight", detail.item.hasDaylight === false ? "No" : "Yes"]);
-    actions.push(["room-use-dimensions", "Use as room minimum"]);
   } else if (detail.kind === "corridor") {
     rows.push(["Width", `${formatNumber(corridorWidth(detail), 2)} m`]);
-    actions.push(["corridor-use-width", "Use as corridor width"]);
   } else if (detail.kind === "wall") {
     rows.push(["Layer", displayUnitType(detail.item.layerType || "partition")]);
     rows.push(["Length", `${formatNumber(detail.length, 1)} m`]);
@@ -1211,9 +1256,19 @@ function handleInspectorAction(event) {
     return;
   }
 
+  runSelectedPlanAction(action);
+}
+
+function runSelectedPlanAction(action) {
   const detail = selectedElementDetails(state.response ? state.response.output : null);
   if (!detail) {
     setStatus("Select a plan element first");
+    return;
+  }
+
+  const actions = new Set(planActionsForDetail(detail).map(([availableAction]) => availableAction));
+  if (!actions.has(action)) {
+    setStatus("No canvas edit available for this element");
     return;
   }
 
@@ -1312,6 +1367,29 @@ function applyInputMutation(message, autoGenerateDelay, mutate) {
   renderAll();
 }
 
+function selectionEditSnapshot(detail) {
+  if (!detail || !detail.bounds) {
+    return null;
+  }
+
+  const snapshot = {
+    kind: detail.kind,
+    id: detail.id,
+    bounds: { ...detail.bounds },
+    area: Number(detail.area) || 0
+  };
+  if (detail.kind === "unit") {
+    snapshot.unitType = detail.item && detail.item.type ? detail.item.type : "studio";
+  }
+  if (detail.kind === "room") {
+    snapshot.roomType = detail.item && detail.item.type ? detail.item.type : "room";
+  }
+  if (detail.kind === "corridor") {
+    snapshot.corridorWidth = corridorWidth(detail);
+  }
+  return snapshot;
+}
+
 function handlePlanPointerDown(event) {
   const handle = event.target.closest ? event.target.closest("[data-edit-action]") : null;
   if (!handle || !state.editMode || !state.input || state.viewMode === "axon") {
@@ -1324,10 +1402,12 @@ function handlePlanPointerDown(event) {
   }
 
   event.preventDefault();
+  const detail = selectedElementDetails(state.response ? state.response.output : null);
   state.dragEdit = {
     action: handle.dataset.editAction,
     startPoint: point,
-    startInput: clone(state.input)
+    startInput: clone(state.input),
+    selection: selectionEditSnapshot(detail)
   };
   try {
     handle.setPointerCapture(event.pointerId);
@@ -1407,6 +1487,38 @@ function applyCanvasEdit(edit, point) {
     return input;
   }
 
+  if (edit.action === "unit-target-area" && edit.selection && edit.selection.kind === "unit") {
+    const target = ensureUnitTarget(input, edit.selection.unitType || "studio");
+    const bounds = edit.selection.bounds;
+    const width = clamp(round(point.x - bounds.minX), 2, 60);
+    const depth = clamp(round(point.y - bounds.minY), 2, 60);
+    const area = clamp(round(width * depth), 10, 400);
+    target.minArea = Math.max(10, round(area * 0.9));
+    target.maxArea = Math.max(target.minArea, round(area * 1.1));
+    return input;
+  }
+
+  if (edit.action === "room-min-size" && edit.selection && edit.selection.kind === "room") {
+    const bounds = edit.selection.bounds;
+    const width = clamp(round(point.x - bounds.minX), 1.2, 25);
+    const depth = clamp(round(point.y - bounds.minY), 1.2, 25);
+    input.rules.minRoomWidth = clamp(round(Math.min(width, depth)), 1.2, 20);
+    input.rules.minRoomDepth = clamp(round(Math.max(width, depth)), 1.2, 25);
+    return input;
+  }
+
+  if (edit.action === "corridor-width" && edit.selection && edit.selection.kind === "corridor") {
+    const bounds = edit.selection.bounds;
+    const centerX = bounds.minX + bounds.width / 2;
+    const centerY = bounds.minY + bounds.height / 2;
+    const horizontal = bounds.width >= bounds.height;
+    const width = horizontal
+      ? Math.abs(point.y - centerY) * 2
+      : Math.abs(point.x - centerX) * 2;
+    input.rules.minCorridorWidth = clamp(round(width), 0.9, 12);
+    return input;
+  }
+
   const core = firstCore(input);
   const startCore = firstCore(edit.startInput);
   const startCoreBounds = startCore && startCore.polygon ? boundsOfPoints(startCore.polygon.points) : null;
@@ -1421,6 +1533,7 @@ function applyCanvasEdit(edit, point) {
     const x = clamp(round(startCoreBounds.minX + dx), currentFloorBounds.minX, currentFloorBounds.maxX - startCoreBounds.width);
     const y = clamp(round(startCoreBounds.minY + dy), currentFloorBounds.minY, currentFloorBounds.maxY - startCoreBounds.height);
     core.polygon.points = rectPoints(x, y, startCoreBounds.width, startCoreBounds.height);
+    refreshAccessFromCore(input);
     return input;
   }
 
@@ -1428,6 +1541,7 @@ function applyCanvasEdit(edit, point) {
     const width = clamp(round(point.x - startCoreBounds.minX), 1, currentFloorBounds.maxX - startCoreBounds.minX);
     const depth = clamp(round(point.y - startCoreBounds.minY), 1, currentFloorBounds.maxY - startCoreBounds.minY);
     core.polygon.points = rectPoints(startCoreBounds.minX, startCoreBounds.minY, width, depth);
+    refreshAccessFromCore(input);
     return input;
   }
 
@@ -1571,6 +1685,41 @@ function renderInputEditHandles(group, input) {
   group.appendChild(floorGroup);
 }
 
+function renderSelectionConstraintHandles(group, output) {
+  if (!state.editMode || state.viewMode === "axon") {
+    return;
+  }
+
+  const detail = selectedElementDetails(output);
+  if (!detail || !detail.bounds || detail.source !== "generated") {
+    return;
+  }
+
+  const bounds = detail.bounds;
+  const handleRadius = Math.max(Math.max(bounds.width, bounds.height) * 0.05, 0.18);
+  const editGroup = svgEl("g", { class: "edit-selection-handles" });
+  editGroup.appendChild(svgEl("rect", {
+    class: "edit-selection-box",
+    x: round(bounds.minX),
+    y: round(bounds.minY),
+    width: round(bounds.width),
+    height: round(bounds.height)
+  }));
+
+  if (detail.kind === "unit") {
+    editGroup.appendChild(editHandle("unit-target-area", bounds.maxX, bounds.maxY, handleRadius, "Drag to fit this unit type target area"));
+  } else if (detail.kind === "room") {
+    editGroup.appendChild(editHandle("room-min-size", bounds.maxX, bounds.maxY, handleRadius, "Drag to set room minimum size"));
+  } else if (detail.kind === "corridor") {
+    const horizontal = bounds.width >= bounds.height;
+    const x = horizontal ? bounds.minX + bounds.width / 2 : bounds.maxX;
+    const y = horizontal ? bounds.maxY : bounds.minY + bounds.height / 2;
+    editGroup.appendChild(editHandle("corridor-width", x, y, handleRadius, "Drag to set corridor width"));
+  }
+
+  group.appendChild(editGroup);
+}
+
 function editHandle(action, x, y, radius, label) {
   const handle = svgEl("circle", {
     class: `edit-handle edit-${action}`,
@@ -1583,6 +1732,110 @@ function editHandle(action, x, y, radius, label) {
   title.textContent = label;
   handle.appendChild(title);
   return handle;
+}
+
+function renderPlanQuickActions(output, canvasBounds) {
+  if (state.viewMode === "axon") {
+    return;
+  }
+
+  const detail = selectedElementDetails(output);
+  const actions = planActionsForDetail(detail);
+  if (!detail || actions.length === 0 || !detail.bounds || !canvasBounds) {
+    return;
+  }
+
+  const chips = actions.slice(0, 6).map(([action, label]) => ({
+    action,
+    label: shortPlanActionLabel(label),
+    title: label,
+    width: planActionChipWidth(shortPlanActionLabel(label))
+  }));
+  const maxPerRow = detail.kind === "core" ? 3 : 4;
+  const rows = [];
+  for (let index = 0; index < chips.length; index += maxPerRow) {
+    rows.push(chips.slice(index, index + maxPerRow));
+  }
+
+  const chipHeight = Math.max(canvasBounds.height * 0.04, 1.65);
+  const gap = Math.max(canvasBounds.width * 0.008, 0.34);
+  const rowGap = Math.max(canvasBounds.height * 0.008, 0.32);
+  const stripWidth = Math.max(...rows.map((row) => row.reduce((total, chip, index) => total + chip.width + (index ? gap : 0), 0)));
+  const centerX = detail.bounds.minX + detail.bounds.width / 2;
+  const minX = canvasBounds.minX + gap;
+  const maxX = canvasBounds.maxX - stripWidth - gap;
+  const x = clamp(centerX - stripWidth / 2, minX, Math.max(minX, maxX));
+  let y = -(detail.bounds.maxY + chipHeight + rowGap);
+  const topLimit = -canvasBounds.maxY - chipHeight - rowGap;
+  if (y < topLimit) {
+    y = -(detail.bounds.minY - rowGap);
+  }
+
+  const strip = svgEl("g", {
+    class: "plan-action-strip",
+    "aria-label": "Selected element edit actions"
+  });
+
+  let yOffset = 0;
+  rows.forEach((row) => {
+    let xOffset = 0;
+    row.forEach((chip) => {
+      strip.appendChild(planActionChip(chip.action, chip.label, chip.title, x + xOffset, y + yOffset, chip.width, chipHeight));
+      xOffset += chip.width + gap;
+    });
+    yOffset += chipHeight + rowGap;
+  });
+
+  els.planSvg.appendChild(strip);
+}
+
+function planActionChip(action, label, title, x, y, width, height) {
+  const group = svgEl("g", {
+    class: "plan-action-chip",
+    "data-plan-action": action,
+    role: "button",
+    tabindex: "0",
+    transform: `translate(${formatNumber(x, 3)},${formatNumber(y, 3)})`
+  });
+  group.appendChild(svgEl("rect", {
+    x: 0,
+    y: 0,
+    width: formatNumber(width, 3),
+    height: formatNumber(height, 3),
+    rx: formatNumber(Math.min(height / 2, 0.7), 3)
+  }));
+  const text = svgEl("text", {
+    x: formatNumber(width / 2, 3),
+    y: formatNumber(height / 2 + 0.22, 3),
+    "text-anchor": "middle"
+  });
+  text.textContent = label;
+  group.appendChild(text);
+  const tooltip = svgEl("title");
+  tooltip.textContent = title;
+  group.appendChild(tooltip);
+  return group;
+}
+
+function planActionChipWidth(label) {
+  return clamp(2.6 + String(label || "").length * 0.46, 4.2, 10.8);
+}
+
+function shortPlanActionLabel(label) {
+  switch (label) {
+    case "More like this":
+      return "More";
+    case "Fewer like this":
+      return "Less";
+    case "Fit target area":
+      return "Fit";
+    case "Use as room minimum":
+      return "Room min";
+    case "Use as corridor width":
+      return "Corridor";
+    default:
+      return label;
+  }
 }
 
 function renderLegend(hasVariant) {

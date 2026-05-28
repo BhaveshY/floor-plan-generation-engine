@@ -124,6 +124,7 @@ namespace FloorPlanGeneration.Tests
             string handleCanvasAction = SliceFunction(app, "handleCanvasAction");
             string handlePlanPointerDown = SliceFunction(app, "handlePlanPointerDown");
             string renderInputEditHandles = SliceFunction(app, "renderInputEditHandles");
+            string renderSelectionConstraintHandles = SliceFunction(app, "renderSelectionConstraintHandles");
             string editHandle = SliceFunction(app, "editHandle");
 
             Assert.Contains("editMode: false", app, StringComparison.Ordinal);
@@ -137,9 +138,12 @@ namespace FloorPlanGeneration.Tests
             Assert.Contains("!state.editMode", handlePlanPointerDown, StringComparison.Ordinal);
             Assert.Contains("function applyCanvasEdit", app, StringComparison.Ordinal);
             Assert.Contains("state.editMode", renderInputEditHandles, StringComparison.Ordinal);
+            Assert.Contains("state.editMode", renderSelectionConstraintHandles, StringComparison.Ordinal);
+            Assert.Contains("detail.source !== \"generated\"", renderSelectionConstraintHandles, StringComparison.Ordinal);
             Assert.Contains("data-edit-action", editHandle, StringComparison.Ordinal);
             Assert.Contains(".edit-readout", styles, StringComparison.Ordinal);
             Assert.Contains(".edit-handle", styles, StringComparison.Ordinal);
+            Assert.Contains(".edit-selection-box", styles, StringComparison.Ordinal);
         }
 
         [Fact]
@@ -173,6 +177,47 @@ namespace FloorPlanGeneration.Tests
             Assert.Contains("data-inspector-action", inspectorMarkup, StringComparison.Ordinal);
             Assert.Contains(".selection-inspector", styles, StringComparison.Ordinal);
             Assert.Contains(".selected-element", styles, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void SelectedGeneratedGeometryCanvasEditsMutateInputConstraintsOnly()
+        {
+            string app = ReadWebFile("app.js");
+            string styles = ReadWebFile("styles.css");
+            string renderPreview = SliceFunction(app, "renderPreview");
+            string renderSelectionConstraintHandles = SliceFunction(app, "renderSelectionConstraintHandles");
+            string renderPlanQuickActions = SliceFunction(app, "renderPlanQuickActions");
+            string handlePlanClick = SliceFunction(app, "handlePlanClick");
+            string handlePlanPointerDown = SliceFunction(app, "handlePlanPointerDown");
+            string applyCanvasEdit = SliceFunction(app, "applyCanvasEdit");
+            string selectionEditSnapshot = SliceFunction(app, "selectionEditSnapshot");
+            string runSelectedPlanAction = SliceFunction(app, "runSelectedPlanAction");
+
+            Assert.Contains("renderSelectionConstraintHandles(group, output)", renderPreview, StringComparison.Ordinal);
+            Assert.Contains("renderPlanQuickActions(output, bounds)", renderPreview, StringComparison.Ordinal);
+            Assert.Contains("data-plan-action", handlePlanClick, StringComparison.Ordinal);
+            Assert.Contains("runSelectedPlanAction(planAction.dataset.planAction)", handlePlanClick, StringComparison.Ordinal);
+            Assert.Contains("selection: selectionEditSnapshot(detail)", handlePlanPointerDown, StringComparison.Ordinal);
+            Assert.Contains("unit-target-area", renderSelectionConstraintHandles, StringComparison.Ordinal);
+            Assert.Contains("room-min-size", renderSelectionConstraintHandles, StringComparison.Ordinal);
+            Assert.Contains("corridor-width", renderSelectionConstraintHandles, StringComparison.Ordinal);
+            Assert.Contains("unit-target-area", applyCanvasEdit, StringComparison.Ordinal);
+            Assert.Contains("ensureUnitTarget(input, edit.selection.unitType", applyCanvasEdit, StringComparison.Ordinal);
+            Assert.Contains("input.rules.minRoomWidth", applyCanvasEdit, StringComparison.Ordinal);
+            Assert.Contains("input.rules.minRoomDepth", applyCanvasEdit, StringComparison.Ordinal);
+            Assert.Contains("input.rules.minCorridorWidth", applyCanvasEdit, StringComparison.Ordinal);
+            Assert.Contains("refreshAccessFromCore(input)", applyCanvasEdit, StringComparison.Ordinal);
+            Assert.Contains("unitType", selectionEditSnapshot, StringComparison.Ordinal);
+            Assert.Contains("corridorWidth(detail)", selectionEditSnapshot, StringComparison.Ordinal);
+            Assert.Contains("planActionsForDetail(detail)", runSelectedPlanAction, StringComparison.Ordinal);
+            Assert.Contains(".plan-action-chip", styles, StringComparison.Ordinal);
+            Assert.Contains(".edit-unit-target-area", styles, StringComparison.Ordinal);
+            Assert.Contains(".edit-room-min-size", styles, StringComparison.Ordinal);
+            Assert.Contains(".edit-corridor-width", styles, StringComparison.Ordinal);
+            Assert.DoesNotContain("state.response =", applyCanvasEdit, StringComparison.Ordinal);
+            Assert.DoesNotContain("variant.units", applyCanvasEdit, StringComparison.Ordinal);
+            Assert.DoesNotContain("variant.rooms", applyCanvasEdit, StringComparison.Ordinal);
+            Assert.DoesNotContain("variant.topology", applyCanvasEdit, StringComparison.Ordinal);
         }
 
         [Fact]
@@ -233,15 +278,17 @@ namespace FloorPlanGeneration.Tests
         {
             string app = ReadWebFile("app.js");
             string handleInspectorAction = SliceFunction(app, "handleInspectorAction");
+            string runSelectedPlanAction = SliceFunction(app, "runSelectedPlanAction");
             string applyInputMutation = SliceFunction(app, "applyInputMutation");
             string adjustUnitTarget = SliceFunction(app, "adjustUnitTargetFromInspector");
 
             Assert.Contains("[data-inspector-action]", handleInspectorAction, StringComparison.Ordinal);
-            Assert.Contains("adjustFloorplateFromInspector(action)", handleInspectorAction, StringComparison.Ordinal);
-            Assert.Contains("adjustCoreFromInspector(action)", handleInspectorAction, StringComparison.Ordinal);
-            Assert.Contains("adjustUnitTargetFromInspector(action, detail)", handleInspectorAction, StringComparison.Ordinal);
-            Assert.Contains("applyRoomMinimumFromInspector(detail)", handleInspectorAction, StringComparison.Ordinal);
-            Assert.Contains("applyCorridorWidthFromInspector(detail)", handleInspectorAction, StringComparison.Ordinal);
+            Assert.Contains("runSelectedPlanAction(action)", handleInspectorAction, StringComparison.Ordinal);
+            Assert.Contains("adjustFloorplateFromInspector(action)", runSelectedPlanAction, StringComparison.Ordinal);
+            Assert.Contains("adjustCoreFromInspector(action)", runSelectedPlanAction, StringComparison.Ordinal);
+            Assert.Contains("adjustUnitTargetFromInspector(action, detail)", runSelectedPlanAction, StringComparison.Ordinal);
+            Assert.Contains("applyRoomMinimumFromInspector(detail)", runSelectedPlanAction, StringComparison.Ordinal);
+            Assert.Contains("applyCorridorWidthFromInspector(detail)", runSelectedPlanAction, StringComparison.Ordinal);
             Assert.Contains("const input = ensureInputShape(state.input || {})", applyInputMutation, StringComparison.Ordinal);
             Assert.Contains("state.input = input", applyInputMutation, StringComparison.Ordinal);
             Assert.Contains("syncFormFromInput(state.input)", applyInputMutation, StringComparison.Ordinal);

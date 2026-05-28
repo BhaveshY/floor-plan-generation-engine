@@ -864,6 +864,36 @@ textarea.dragging {
   stroke: var(--teal-strong);
 }
 
+.edit-selection-box {
+  fill: rgba(0, 125, 120, 0.04);
+  stroke: var(--teal-strong);
+  stroke-width: 0.16;
+  stroke-dasharray: 0.7 0.45;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+
+.edit-selection-handles .edit-handle {
+  fill: var(--teal-soft);
+  stroke: var(--teal-strong);
+}
+
+.edit-unit-target-area {
+  cursor: nwse-resize;
+}
+
+.edit-room-min-size {
+  cursor: nwse-resize;
+  fill: var(--amber-soft);
+  stroke: var(--amber);
+}
+
+.edit-corridor-width {
+  cursor: ns-resize;
+  fill: #fff3c4;
+  stroke: #a86b08;
+}
+
 .edit-core-move {
   fill: var(--teal);
   stroke: #fff;
@@ -875,6 +905,36 @@ textarea.dragging {
 .edit-floor-size,
 .edit-core-size {
   cursor: nwse-resize;
+}
+
+.plan-action-strip {
+  pointer-events: all;
+}
+
+.plan-action-chip {
+  cursor: pointer;
+  outline: none;
+}
+
+.plan-action-chip rect {
+  fill: rgba(255, 255, 255, 0.96);
+  stroke: rgba(0, 125, 120, 0.72);
+  stroke-width: 0.12;
+  vector-effect: non-scaling-stroke;
+  filter: drop-shadow(0 2px 4px rgba(15, 23, 42, 0.22));
+}
+
+.plan-action-chip text {
+  fill: var(--teal-strong);
+  font-size: 0.68px;
+  font-weight: 900;
+  pointer-events: none;
+}
+
+.plan-action-chip:hover rect,
+.plan-action-chip:focus rect {
+  fill: var(--teal-soft);
+  stroke: var(--teal-strong);
 }
 
 #planSvg .selected-element {
