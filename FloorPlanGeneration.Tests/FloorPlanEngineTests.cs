@@ -662,9 +662,11 @@ namespace FloorPlanGeneration.Tests
 
                 Assert.Equal(2, exitCode);
                 Assert.Contains("cli.output_write_failed", stderr.ToString());
+                Assert.DoesNotContain(blockingFile, stderr.ToString(), StringComparison.OrdinalIgnoreCase);
                 EngineOutput output = JsonSerializer.Deserialize<EngineOutput>(stdout.ToString(), JsonOptions());
                 Assert.Equal("failed", output.Status);
                 Assert.Contains(output.Diagnostics, d => d.Code == "cli.output_write_failed");
+                Assert.DoesNotContain(blockingFile, stdout.ToString(), StringComparison.OrdinalIgnoreCase);
             }
             finally
             {
@@ -960,6 +962,16 @@ namespace FloorPlanGeneration.Tests
             EngineOutput output = JsonSerializer.Deserialize<EngineOutput>(stdout.ToString(), JsonOptions());
             Assert.Equal("failed", output.Status);
             Assert.Contains(output.Diagnostics, d => d.Code == "cli.invalid_json" && d.Severity == "error");
+            Assert.DoesNotContain("unknownTopLevel", stdout.ToString(), StringComparison.OrdinalIgnoreCase);
+        }
+
+        [Fact]
+        public void CliFailureMessages_DoNotAppendRawExceptionMessages()
+        {
+            string program = File.ReadAllText(Path.Combine(RepositoryRoot(), "FloorPlanGeneration.Cli", "Program.cs"));
+
+            Assert.DoesNotContain(" + ex.Message", program, StringComparison.Ordinal);
+            Assert.DoesNotContain("ex.Message +", program, StringComparison.Ordinal);
         }
 
         [Fact]

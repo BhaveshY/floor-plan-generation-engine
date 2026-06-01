@@ -87,9 +87,9 @@ namespace FloorPlanGeneration.Cli
 
                     return 0;
                 }
-                catch (Exception ex)
+                catch (Exception)
                 {
-                    errorWriter.WriteLine("Schema artifact could not be read: " + ex.Message);
+                    errorWriter.WriteLine("Schema artifact could not be read. Rebuild the project or verify published artifacts.");
                     return 2;
                 }
             }
@@ -110,13 +110,17 @@ namespace FloorPlanGeneration.Cli
                     output = options.ValidateOnly ? engine.Validate(input) : engine.Generate(input);
                 }
             }
-            catch (JsonException ex)
+            catch (JsonException)
             {
-                output = FailedOutput("cli.invalid_json", "Input JSON could not be parsed: " + ex.Message);
+                output = FailedOutput(
+                    "cli.invalid_json",
+                    "Input JSON could not be parsed. Check the floor plan input schema and try again.");
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                output = FailedOutput("cli.exception", "CLI execution failed: " + ex.Message);
+                output = FailedOutput(
+                    "cli.exception",
+                    "CLI execution failed unexpectedly. Review input and command options, then try again.");
             }
 
             if (!TryWriteOutput(options.OutputPath, JsonSerializer.Serialize(output, JsonOptions()), outputWriter, errorWriter, true))
@@ -280,7 +284,7 @@ namespace FloorPlanGeneration.Cli
             }
             catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException || ex is NotSupportedException)
             {
-                string message = "Output could not be written: " + ex.Message;
+                string message = "Output could not be written. Check the destination path, parent directory, and permissions.";
                 errorWriter.WriteLine("cli.output_write_failed: " + message);
                 if (writeFailureJson)
                 {
