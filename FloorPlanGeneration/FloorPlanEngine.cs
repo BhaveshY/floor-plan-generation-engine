@@ -21,7 +21,7 @@ namespace FloorPlanGeneration
             {
                 return GenerateCore(input);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
                 return new EngineOutput
                 {
@@ -29,7 +29,9 @@ namespace FloorPlanGeneration
                     Status = "failed",
                     Diagnostics = new List<Diagnostic>
                     {
-                        Diagnostic.Error("engine.exception", "Floor plan generation failed unexpectedly: " + ex.Message)
+                        Diagnostic.Error(
+                            "engine.exception",
+                            "Floor plan generation failed unexpectedly. Review the input contract and try again.")
                     }
                 };
             }
@@ -46,7 +48,7 @@ namespace FloorPlanGeneration
             {
                 return ValidateCore(input);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
                 return new EngineOutput
                 {
@@ -54,7 +56,9 @@ namespace FloorPlanGeneration
                     Status = "failed",
                     Diagnostics = new List<Diagnostic>
                     {
-                        Diagnostic.Error("engine.exception", "Floor plan validation failed unexpectedly: " + ex.Message)
+                        Diagnostic.Error(
+                            "engine.exception",
+                            "Floor plan validation failed unexpectedly. Review the input contract and try again.")
                     }
                 };
             }

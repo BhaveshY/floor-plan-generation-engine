@@ -120,6 +120,22 @@ namespace FloorPlanGeneration.Tests
         }
 
         [Fact]
+        public void EngineUnexpectedFailureDiagnostics_DoNotAppendRawExceptionMessages()
+        {
+            string engine = File.ReadAllText(Path.Combine(RepositoryRoot(), "FloorPlanGeneration", "FloorPlanEngine.cs"));
+
+            Assert.Contains(
+                "Floor plan generation failed unexpectedly. Review the input contract and try again.",
+                engine,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "Floor plan validation failed unexpectedly. Review the input contract and try again.",
+                engine,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain("failed unexpectedly: \" + ex.Message", engine, StringComparison.Ordinal);
+        }
+
+        [Fact]
         public void GeneratedTopologyIncludesPortableHypergraphContract()
         {
             EngineOutput output = new FloorPlanEngine().Generate(RectangularInput(seed: 20260519, variantCount: 1));
@@ -803,6 +819,16 @@ namespace FloorPlanGeneration.Tests
                 Assert.Equal("Sample could not be found. Use a known bundled sample name.", message);
                 Assert.DoesNotContain(sampleName, message, StringComparison.OrdinalIgnoreCase);
             }
+        }
+
+        [Fact]
+        public void WebApiGenerationFailureResponse_DoesNotAppendRawExceptionMessages()
+        {
+            string program = File.ReadAllText(Path.Combine(RepositoryRoot(), "FloorPlanGeneration.Web", "Program.cs"));
+
+            Assert.Contains("GenerationFailedResult()", program, StringComparison.Ordinal);
+            Assert.Contains("The engine could not complete this request. Review diagnostics or adjust the input.", program, StringComparison.Ordinal);
+            Assert.DoesNotContain("The engine could not complete this request. \" + ex.Message", program, StringComparison.Ordinal);
         }
 
         [Fact]

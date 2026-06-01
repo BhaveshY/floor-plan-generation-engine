@@ -217,13 +217,9 @@ app.MapPost("/api/generate", async (HttpRequest httpRequest) =>
             ? engine.Validate(input)
             : engine.Generate(input);
     }
-    catch (Exception ex)
+    catch (Exception)
     {
-        return Results.Json(new
-        {
-            error = "generation_failed",
-            message = "The engine could not complete this request. " + ex.Message
-        }, statusCode: StatusCodes.Status500InternalServerError);
+        return GenerationFailedResult();
     }
 
     return Results.Json(BuildResponse(output, request != null && request.ValidateOnly));
@@ -369,6 +365,15 @@ static IResult SampleNotFoundResult()
         error = "sample_not_found",
         message = "Sample could not be found. Use a known bundled sample name."
     });
+}
+
+static IResult GenerationFailedResult()
+{
+    return Results.Json(new
+    {
+        error = "generation_failed",
+        message = "The engine could not complete this request. Review diagnostics or adjust the input."
+    }, statusCode: StatusCodes.Status500InternalServerError);
 }
 
 static EngineInput ResolveInput(GenerationRequest request, Dictionary<string, string> samples)
