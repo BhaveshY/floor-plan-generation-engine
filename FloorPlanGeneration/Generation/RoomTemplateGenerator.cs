@@ -76,7 +76,12 @@ namespace FloorPlanGeneration.Generation
                 yield return new WallLayout
                 {
                     Id = index == entryEdgeIndex ? "wall-entry-" + unit.Id : "wall-" + unit.Id + "-" + index.ToString(CultureInfo.InvariantCulture),
-                    Centerline = new LineInput { Id = "wall-" + unit.Id + "-" + index.ToString(CultureInfo.InvariantCulture), Start = edge.Start.Clone(), End = edge.End.Clone() },
+                    Centerline = new LineInput
+                    {
+                        Id = "wall-" + unit.Id + "-" + index.ToString(CultureInfo.InvariantCulture),
+                        Start = edge.Start.Clone(),
+                        End = edge.End.Clone()
+                    },
                     Thickness = 0.18,
                     LayerType = "unit_demising"
                 };
@@ -103,7 +108,12 @@ namespace FloorPlanGeneration.Generation
                     yield return new WallLayout
                     {
                         Id = "wall-" + room.Id + "-" + roomEdgeIndex.ToString(CultureInfo.InvariantCulture),
-                        Centerline = new LineInput { Id = "wall-" + room.Id + "-" + roomEdgeIndex.ToString(CultureInfo.InvariantCulture), Start = edge.Start.Clone(), End = edge.End.Clone() },
+                        Centerline = new LineInput
+                        {
+                            Id = "wall-" + room.Id + "-" + roomEdgeIndex.ToString(CultureInfo.InvariantCulture),
+                            Start = edge.Start.Clone(),
+                            End = edge.End.Clone()
+                        },
                         Thickness = 0.10,
                         LayerType = "room_partition"
                     };
@@ -232,7 +242,10 @@ namespace FloorPlanGeneration.Generation
                 return;
             }
 
-            double bedroomWidth = Clamp(width * 0.42, _input.Source.Rules.MinRoomWidth + 0.4, Math.Max(_input.Source.Rules.MinRoomWidth, width - _input.Source.Rules.MinRoomWidth));
+            double bedroomWidth = Clamp(
+                width * 0.42,
+                _input.Source.Rules.MinRoomWidth + 0.4,
+                Math.Max(_input.Source.Rules.MinRoomWidth, width - _input.Source.Rules.MinRoomWidth));
             AddRoom(unit, "bathroom", b.MinX, wetMinY, b.MinX + Math.Min(3.2, width * 0.38), wetMaxY, false);
             AddRoom(unit, "kitchen", b.MinX + Math.Min(3.2, width * 0.38), wetMinY, b.MaxX, wetMaxY, false);
             AddRoom(unit, "bedroom", b.MinX, facadeMinY, b.MinX + bedroomWidth, facadeMaxY, true);
@@ -278,7 +291,10 @@ namespace FloorPlanGeneration.Generation
                 return;
             }
 
-            double bedroomDepth = Clamp(depth * 0.42, _input.Source.Rules.MinRoomDepth + 0.4, Math.Max(_input.Source.Rules.MinRoomDepth, depth - _input.Source.Rules.MinRoomDepth));
+            double bedroomDepth = Clamp(
+                depth * 0.42,
+                _input.Source.Rules.MinRoomDepth + 0.4,
+                Math.Max(_input.Source.Rules.MinRoomDepth, depth - _input.Source.Rules.MinRoomDepth));
             AddRoom(unit, "bathroom", wetMinX, b.MinY, wetMaxX, b.MinY + Math.Min(3.2, depth * 0.38), false);
             AddRoom(unit, "kitchen", wetMinX, b.MinY + Math.Min(3.2, depth * 0.38), wetMaxX, b.MaxY, false);
             AddRoom(unit, "bedroom", facadeMinX, b.MinY, facadeMaxX, b.MinY + bedroomDepth, true);
@@ -287,7 +303,12 @@ namespace FloorPlanGeneration.Generation
 
         private void AddRoom(UnitLayout unit, string roomType, double minX, double minY, double maxX, double maxY, bool expectsDaylight)
         {
-            Polygon2 polygon = Polygon2.Rectangle(unit.Id + "-" + roomType + "-" + (unit.Rooms.Count + 1).ToString(CultureInfo.InvariantCulture), minX, minY, maxX, maxY);
+            Polygon2 polygon = Polygon2.Rectangle(
+                unit.Id + "-" + roomType + "-" + (unit.Rooms.Count + 1).ToString(CultureInfo.InvariantCulture),
+                minX,
+                minY,
+                maxX,
+                maxY);
             bool daylight = expectsDaylight && FacadeAnalyzer.HasDaylightExposure(polygon, _input.Floorplate, _input.Source.Facade, _tolerance);
             Bounds2 bounds = polygon.Bounds();
             RoomLayout room = new RoomLayout

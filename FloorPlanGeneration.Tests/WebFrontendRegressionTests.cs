@@ -32,6 +32,27 @@ namespace FloorPlanGeneration.Tests
         }
 
         [Fact]
+        public void SourceFilesAvoidVeryLongLines()
+        {
+            List<string> violations = new List<string>();
+            foreach (string path in EnumerateSourceFiles())
+            {
+                string[] lines = File.ReadAllLines(path);
+                for (int i = 0; i < lines.Length; i++)
+                {
+                    if (lines[i].Length > MaxWebSourceLineLength)
+                    {
+                        violations.Add(RelativePath(path) + ":" + (i + 1) + " has " + lines[i].Length + " characters");
+                    }
+                }
+            }
+
+            Assert.True(
+                violations.Count == 0,
+                "Source lines over " + MaxWebSourceLineLength + " characters:\n" + string.Join("\n", violations));
+        }
+
+        [Fact]
         public void WebAssetsAvoidInlineStylesSoCspCanStayStrict()
         {
             string app = ReadWebFile("app.js");
@@ -441,6 +462,39 @@ namespace FloorPlanGeneration.Tests
         private static string ReadWebFile(string fileName)
         {
             return File.ReadAllText(Path.Combine(RepositoryRoot(), "FloorPlanGeneration.Web", "wwwroot", fileName));
+        }
+
+        private static IEnumerable<string> EnumerateSourceFiles()
+        {
+            string root = RepositoryRoot();
+            foreach (string directory in new[]
+            {
+                "FloorPlanGeneration",
+                "FloorPlanGeneration.Cli",
+                "FloorPlanGeneration.Web",
+                "FloorPlanGeneration.Tests"
+            })
+            {
+                foreach (string path in Directory.EnumerateFiles(Path.Combine(root, directory), "*.*", SearchOption.AllDirectories))
+                {
+                    if (path.Contains(Path.DirectorySeparatorChar + "bin" + Path.DirectorySeparatorChar, StringComparison.Ordinal)
+                        || path.Contains(Path.DirectorySeparatorChar + "obj" + Path.DirectorySeparatorChar, StringComparison.Ordinal))
+                    {
+                        continue;
+                    }
+
+                    string extension = Path.GetExtension(path);
+                    if (extension == ".cs" || extension == ".js" || extension == ".css" || extension == ".html")
+                    {
+                        yield return path;
+                    }
+                }
+            }
+        }
+
+        private static string RelativePath(string path)
+        {
+            return Path.GetRelativePath(RepositoryRoot(), path);
         }
 
         private static string SliceFunction(string source, string functionName)

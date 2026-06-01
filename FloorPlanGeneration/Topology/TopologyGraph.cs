@@ -692,8 +692,10 @@ namespace FloorPlanGeneration.Topology
 
         private static void CheckSubdivisionHyperedgesAgainstDataTree(HypergraphDataNode root, List<Hyperedge> hyperedges, List<string> errors)
         {
-            Dictionary<string, List<Hyperedge>> subdivisionByParent = new Dictionary<string, List<Hyperedge>>(StringComparer.OrdinalIgnoreCase);
-            foreach (Hyperedge edge in (hyperedges ?? new List<Hyperedge>()).Where(e => string.Equals(e.Kind, "subdivision", StringComparison.OrdinalIgnoreCase)))
+            Dictionary<string, List<Hyperedge>> subdivisionByParent =
+                new Dictionary<string, List<Hyperedge>>(StringComparer.OrdinalIgnoreCase);
+            foreach (Hyperedge edge in (hyperedges ?? new List<Hyperedge>())
+                .Where(e => string.Equals(e.Kind, "subdivision", StringComparison.OrdinalIgnoreCase)))
             {
                 List<string> parents = (edge.Members ?? new List<HyperedgeMember>())
                     .Where(member => string.Equals(member.Role, "parent", StringComparison.OrdinalIgnoreCase))
@@ -809,7 +811,10 @@ namespace FloorPlanGeneration.Topology
             HashSet<string> expected = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (Hyperedge edge in hyperedges.Where(e => string.Equals(e.Kind, "subdivision", StringComparison.OrdinalIgnoreCase)))
             {
-                string parentId = edge.Members.Where(m => string.Equals(m.Role, "parent", StringComparison.OrdinalIgnoreCase)).Select(m => m.NodeId).FirstOrDefault();
+                string parentId = edge.Members
+                    .Where(m => string.Equals(m.Role, "parent", StringComparison.OrdinalIgnoreCase))
+                    .Select(m => m.NodeId)
+                    .FirstOrDefault();
                 if (string.IsNullOrWhiteSpace(parentId) || !nodeIndex.ContainsKey(parentId))
                 {
                     continue;
@@ -875,7 +880,10 @@ namespace FloorPlanGeneration.Topology
 
             foreach (Hyperedge edge in hyperedges.Where(e => string.Equals(e.Kind, "subdivision", StringComparison.OrdinalIgnoreCase)))
             {
-                string parentId = edge.Members.Where(m => string.Equals(m.Role, "parent", StringComparison.OrdinalIgnoreCase)).Select(m => m.NodeId).FirstOrDefault();
+                string parentId = edge.Members
+                    .Where(m => string.Equals(m.Role, "parent", StringComparison.OrdinalIgnoreCase))
+                    .Select(m => m.NodeId)
+                    .FirstOrDefault();
                 if (string.IsNullOrWhiteSpace(parentId) || !nodeIndex.ContainsKey(parentId))
                 {
                     continue;
@@ -928,7 +936,12 @@ namespace FloorPlanGeneration.Topology
             }
         }
 
-        private static void CheckWeightedSquareMatrix(string name, List<List<double>> matrix, List<string> order, Dictionary<string, double> expected, List<string> errors)
+        private static void CheckWeightedSquareMatrix(
+            string name,
+            List<List<double>> matrix,
+            List<string> order,
+            Dictionary<string, double> expected,
+            List<string> errors)
         {
             if (!TryBuildIndex(order, out Dictionary<string, int> index))
             {

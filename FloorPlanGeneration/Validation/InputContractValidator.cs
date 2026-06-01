@@ -119,7 +119,10 @@ namespace FloorPlanGeneration.Validation
             {
                 if (line == null || !IsFinitePoint(line.Start) || !IsFinitePoint(line.End))
                 {
-                    diagnostics.Add(Diagnostic.Error("input.invalid_corridor_centerline", "Corridor centerlines require finite start and end points.", line != null ? line.Id : string.Empty));
+                    diagnostics.Add(Diagnostic.Error(
+                        "input.invalid_corridor_centerline",
+                        "Corridor centerlines require finite start and end points.",
+                        line != null ? line.Id : string.Empty));
                 }
             }
         }
@@ -135,7 +138,10 @@ namespace FloorPlanGeneration.Validation
             {
                 if (segment == null || !IsFinitePoint(segment.Start) || !IsFinitePoint(segment.End))
                 {
-                    diagnostics.Add(Diagnostic.Error("input.invalid_facade_segment", "Facade segments require finite start and end points.", segment != null ? segment.Id : string.Empty));
+                    diagnostics.Add(Diagnostic.Error(
+                        "input.invalid_facade_segment",
+                        "Facade segments require finite start and end points.",
+                        segment != null ? segment.Id : string.Empty));
                 }
             }
         }
@@ -163,7 +169,10 @@ namespace FloorPlanGeneration.Validation
 
                 if (!IsPositiveFinite(target.MinArea) || !IsPositiveFinite(target.MaxArea) || target.MaxArea < target.MinArea)
                 {
-                    diagnostics.Add(Diagnostic.Error("input.invalid_unit_type_area_range", "Unit type target area range must be positive and maxArea must be greater than or equal to minArea.", target.Type));
+                    diagnostics.Add(Diagnostic.Error(
+                        "input.invalid_unit_type_area_range",
+                        "Unit type target area range must be positive and maxArea must be greater than or equal to minArea.",
+                        target.Type));
                 }
 
                 if (target.TargetCount < 0)
@@ -173,7 +182,10 @@ namespace FloorPlanGeneration.Validation
 
                 if (!IsFinite(target.TargetRatio) || target.TargetRatio < 0.0)
                 {
-                    diagnostics.Add(Diagnostic.Error("input.invalid_unit_type_target_ratio", "Unit type targetRatio cannot be negative or non-finite.", target.Type));
+                    diagnostics.Add(Diagnostic.Error(
+                        "input.invalid_unit_type_target_ratio",
+                        "Unit type targetRatio cannot be negative or non-finite.",
+                        target.Type));
                 }
 
                 if (!IsFinite(target.Weight) || target.Weight < 0.0)
@@ -191,7 +203,11 @@ namespace FloorPlanGeneration.Validation
                 return;
             }
 
-            ValidatePositiveRule(rules.MinCorridorWidth, "input.invalid_min_corridor_width", "Minimum corridor width must be positive and finite.", diagnostics);
+            ValidatePositiveRule(
+                rules.MinCorridorWidth,
+                "input.invalid_min_corridor_width",
+                "Minimum corridor width must be positive and finite.",
+                diagnostics);
             ValidatePositiveRule(rules.MinRoomWidth, "input.invalid_min_room_width", "Minimum room width must be positive and finite.", diagnostics);
             ValidatePositiveRule(rules.MinRoomDepth, "input.invalid_min_room_depth", "Minimum room depth must be positive and finite.", diagnostics);
             ValidatePositiveRule(rules.DoorWidth, "input.invalid_door_width", "Door width must be positive and finite.", diagnostics);

@@ -12,7 +12,10 @@ namespace FloorPlanGeneration.Cli
 {
     public static class CliApplication
     {
-        private const string Usage = "Usage: FloorPlanGeneration.Cli [--input path|--sample name] [--output path] [--seed n] [--variants n] [--validate-only] [--summary] [--fail-on-partial] [--list-samples|--write-sample name] [--print-input-schema|--print-output-schema|--ai-manifest]";
+        private const string Usage =
+            "Usage: FloorPlanGeneration.Cli [--input path|--sample name] [--output path] [--seed n] " +
+            "[--variants n] [--validate-only] [--summary] [--fail-on-partial] " +
+            "[--list-samples|--write-sample name] [--print-input-schema|--print-output-schema|--ai-manifest]";
 
         private static readonly Dictionary<string, string> Samples = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {

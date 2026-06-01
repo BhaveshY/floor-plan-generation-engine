@@ -136,7 +136,9 @@ namespace FloorPlanGeneration
             else if (validCount > 0)
             {
                 output.Status = "partial";
-                output.Diagnostics.Add(Diagnostic.Warning("validation.partial", "Some generated variants failed validation and were ranked after valid variants."));
+                output.Diagnostics.Add(Diagnostic.Warning(
+                    "validation.partial",
+                    "Some generated variants failed validation and were ranked after valid variants."));
             }
             else
             {
@@ -193,7 +195,10 @@ namespace FloorPlanGeneration
             }
 
             output.Status = "validated";
-            output.Diagnostics.Add(Diagnostic.Info("input.validated", "Input contract, geometry cleanup, and MVP feasibility checks passed.", output.ProjectId));
+            output.Diagnostics.Add(Diagnostic.Info(
+                "input.validated",
+                "Input contract, geometry cleanup, and MVP feasibility checks passed.",
+                output.ProjectId));
             return output;
         }
 
@@ -226,7 +231,10 @@ namespace FloorPlanGeneration
 
                 if (!GeometryPredicates.ContainsPolygon(cleaned.Floorplate, hole.Polygon, tolerance))
                 {
-                    cleaned.Diagnostics.Add(Diagnostic.Error("geometry.hole_outside_floorplate", "Floorplate hole is not contained by the outer boundary.", hole.Polygon.SourceId));
+                    cleaned.Diagnostics.Add(Diagnostic.Error(
+                        "geometry.hole_outside_floorplate",
+                        "Floorplate hole is not contained by the outer boundary.",
+                        hole.Polygon.SourceId));
                     continue;
                 }
 
@@ -250,19 +258,27 @@ namespace FloorPlanGeneration
 
                 if (!GeometryPredicates.ContainsPolygon(cleaned.Floorplate, fixedPolygon.Polygon, tolerance))
                 {
-                    cleaned.Diagnostics.Add(Diagnostic.Error("geometry.fixed_element_outside_floorplate", "Fixed element is not contained by the outer boundary.", fixedInput.Id));
+                    cleaned.Diagnostics.Add(Diagnostic.Error(
+                        "geometry.fixed_element_outside_floorplate",
+                        "Fixed element is not contained by the outer boundary.",
+                        fixedInput.Id));
                     continue;
                 }
 
                 if (cleaned.Holes.Any(h => GeometryPredicates.PolygonsOverlapArea(h, fixedPolygon.Polygon, tolerance)))
                 {
-                    cleaned.Diagnostics.Add(Diagnostic.Error("geometry.fixed_element_overlaps_hole", "Fixed element overlaps a floorplate hole.", fixedInput.Id));
+                    cleaned.Diagnostics.Add(Diagnostic.Error(
+                        "geometry.fixed_element_overlaps_hole",
+                        "Fixed element overlaps a floorplate hole.",
+                        fixedInput.Id));
                     continue;
                 }
 
                 cleaned.FixedElements.Add(new CleanedFixedElement
                 {
-                    Id = string.IsNullOrWhiteSpace(fixedInput.Id) ? "fixed-" + (cleaned.FixedElements.Count + 1).ToString("00", CultureInfo.InvariantCulture) : fixedInput.Id,
+                    Id = string.IsNullOrWhiteSpace(fixedInput.Id)
+                        ? "fixed-" + (cleaned.FixedElements.Count + 1).ToString("00", CultureInfo.InvariantCulture)
+                        : fixedInput.Id,
                     Type = string.IsNullOrWhiteSpace(fixedInput.Type) ? "fixed" : fixedInput.Type,
                     Polygon = fixedPolygon.Polygon,
                     BlocksGeneration = fixedInput.BlocksGeneration
@@ -271,7 +287,10 @@ namespace FloorPlanGeneration
 
             if (!cleaned.Floorplate.IsOrthogonal(tolerance))
             {
-                cleaned.Diagnostics.Add(Diagnostic.Warning("geometry.non_orthogonal_floorplate", "MVP generation approximates best on orthogonal floorplates.", cleaned.Floorplate.SourceId));
+                cleaned.Diagnostics.Add(Diagnostic.Warning(
+                    "geometry.non_orthogonal_floorplate",
+                    "MVP generation approximates best on orthogonal floorplates.",
+                    cleaned.Floorplate.SourceId));
             }
 
             return cleaned;
@@ -331,10 +350,36 @@ namespace FloorPlanGeneration
             {
                 Polygon2 corridorPolygon = ToPolygon(corridor.Polygon);
                 corridorPolygons.Add(corridorPolygon);
-                AddCheck(report, "corridor_width", corridor.Width + tolerance >= input.Source.Rules.MinCorridorWidth, "error", "Corridor width is below the configured minimum.", corridor.Id);
-                AddCheck(report, "corridor_inside_floorplate", GeometryPredicates.ContainsPolygon(input.Floorplate, corridorPolygon, tolerance), "error", "Corridor is not contained by the cleaned floorplate.", corridor.Id);
-                AddCheck(report, "corridor_avoids_holes", !input.Holes.Any(h => GeometryPredicates.PolygonsOverlapArea(corridorPolygon, h, tolerance)), "error", "Corridor overlaps a floorplate hole.", corridor.Id);
-                AddCheck(report, "corridor_avoids_fixed_elements", !input.FixedElements.Where(f => f.BlocksGeneration).Any(f => GeometryPredicates.PolygonsOverlapArea(corridorPolygon, f.Polygon, tolerance)), "error", "Corridor overlaps a blocking fixed element.", corridor.Id);
+                AddCheck(
+                    report,
+                    "corridor_width",
+                    corridor.Width + tolerance >= input.Source.Rules.MinCorridorWidth,
+                    "error",
+                    "Corridor width is below the configured minimum.",
+                    corridor.Id);
+                AddCheck(
+                    report,
+                    "corridor_inside_floorplate",
+                    GeometryPredicates.ContainsPolygon(input.Floorplate, corridorPolygon, tolerance),
+                    "error",
+                    "Corridor is not contained by the cleaned floorplate.",
+                    corridor.Id);
+                AddCheck(
+                    report,
+                    "corridor_avoids_holes",
+                    !input.Holes.Any(h => GeometryPredicates.PolygonsOverlapArea(corridorPolygon, h, tolerance)),
+                    "error",
+                    "Corridor overlaps a floorplate hole.",
+                    corridor.Id);
+                AddCheck(
+                    report,
+                    "corridor_avoids_fixed_elements",
+                    !input.FixedElements
+                        .Where(f => f.BlocksGeneration)
+                        .Any(f => GeometryPredicates.PolygonsOverlapArea(corridorPolygon, f.Polygon, tolerance)),
+                    "error",
+                    "Corridor overlaps a blocking fixed element.",
+                    corridor.Id);
             }
 
             Dictionary<string, Polygon2> unitPolygons = new Dictionary<string, Polygon2>(StringComparer.OrdinalIgnoreCase);
@@ -344,18 +389,64 @@ namespace FloorPlanGeneration
                 Polygon2 unitPolygon = ToPolygon(unit.Polygon);
                 unitPolygons[unit.Id] = unitPolygon;
                 UnitTypeTarget target = mixPlanner.FindTarget(unit.Type);
-                AddCheck(report, "unit_inside_floorplate", GeometryPredicates.ContainsPolygon(input.Floorplate, unitPolygon, tolerance), "error", "Unit is not contained by the cleaned floorplate.", unit.Id);
-                AddCheck(report, "unit_avoids_holes", !input.Holes.Any(h => GeometryPredicates.PolygonsOverlapArea(unitPolygon, h, tolerance) || GeometryPredicates.ContainsPoint(h, unitPolygon.Centroid(), tolerance, false)), "error", "Unit overlaps a floorplate hole.", unit.Id);
-                AddCheck(report, "unit_avoids_fixed_elements", !input.FixedElements.Where(f => f.BlocksGeneration).Any(f => GeometryPredicates.PolygonsOverlapArea(unitPolygon, f.Polygon, tolerance)), "error", "Unit overlaps a blocking fixed element.", unit.Id);
-                AddCheck(report, "unit_avoids_corridor", !corridorPolygons.Any(c => GeometryPredicates.PolygonsOverlapArea(unitPolygon, c, tolerance)), "error", "Unit overlaps corridor area.", unit.Id);
-                AddCheck(report, "unit_min_area", unit.Area + tolerance >= input.Source.Rules.MinUnitArea, "error", "Unit area is below the configured minimum.", unit.Id);
-                AddCheck(report, "unit_target_area", unit.Area + tolerance >= target.MinArea && unit.Area <= target.MaxArea + tolerance, IsStrict(input) ? "error" : "warning", "Unit area falls outside the target type range.", unit.Id);
+                AddCheck(
+                    report,
+                    "unit_inside_floorplate",
+                    GeometryPredicates.ContainsPolygon(input.Floorplate, unitPolygon, tolerance),
+                    "error",
+                    "Unit is not contained by the cleaned floorplate.",
+                    unit.Id);
+                AddCheck(
+                    report,
+                    "unit_avoids_holes",
+                    !input.Holes.Any(h =>
+                        GeometryPredicates.PolygonsOverlapArea(unitPolygon, h, tolerance) ||
+                        GeometryPredicates.ContainsPoint(h, unitPolygon.Centroid(), tolerance, false)),
+                    "error",
+                    "Unit overlaps a floorplate hole.",
+                    unit.Id);
+                AddCheck(
+                    report,
+                    "unit_avoids_fixed_elements",
+                    !input.FixedElements
+                        .Where(f => f.BlocksGeneration)
+                        .Any(f => GeometryPredicates.PolygonsOverlapArea(unitPolygon, f.Polygon, tolerance)),
+                    "error",
+                    "Unit overlaps a blocking fixed element.",
+                    unit.Id);
+                AddCheck(
+                    report,
+                    "unit_avoids_corridor",
+                    !corridorPolygons.Any(c => GeometryPredicates.PolygonsOverlapArea(unitPolygon, c, tolerance)),
+                    "error",
+                    "Unit overlaps corridor area.",
+                    unit.Id);
+                AddCheck(
+                    report,
+                    "unit_min_area",
+                    unit.Area + tolerance >= input.Source.Rules.MinUnitArea,
+                    "error",
+                    "Unit area is below the configured minimum.",
+                    unit.Id);
+                AddCheck(
+                    report,
+                    "unit_target_area",
+                    unit.Area + tolerance >= target.MinArea && unit.Area <= target.MaxArea + tolerance,
+                    IsStrict(input) ? "error" : "warning",
+                    "Unit area falls outside the target type range.",
+                    unit.Id);
 
                 for (int j = i + 1; j < variant.Units.Count; j++)
                 {
                     UnitLayout other = variant.Units[j];
                     Polygon2 otherPolygon = ToPolygon(other.Polygon);
-                    AddCheck(report, "unit_non_overlap", !GeometryPredicates.PolygonsOverlapArea(unitPolygon, otherPolygon, tolerance), "error", "Units overlap each other.", unit.Id + "/" + other.Id);
+                    AddCheck(
+                        report,
+                        "unit_non_overlap",
+                        !GeometryPredicates.PolygonsOverlapArea(unitPolygon, otherPolygon, tolerance),
+                        "error",
+                        "Units overlap each other.",
+                        unit.Id + "/" + other.Id);
                 }
             }
 
@@ -366,13 +457,25 @@ namespace FloorPlanGeneration
                 AddCheck(report, "room_has_unit", hasUnit, "error", "Room references an unknown unit.", room.Id);
                 if (hasUnit)
                 {
-                    AddCheck(report, "room_inside_unit", GeometryPredicates.ContainsPolygon(unitPolygons[room.UnitId], roomPolygon, tolerance), "error", "Room is not contained by its unit.", room.Id);
+                    AddCheck(
+                        report,
+                        "room_inside_unit",
+                        GeometryPredicates.ContainsPolygon(unitPolygons[room.UnitId], roomPolygon, tolerance),
+                        "error",
+                        "Room is not contained by its unit.",
+                        room.Id);
                 }
 
                 AddCheck(report, "room_area_positive", room.Area > tolerance, "error", "Room area must be positive.", room.Id);
                 if (RequiresDaylight(room, input.Source.Rules))
                 {
-                    AddCheck(report, "required_daylight", room.Daylight, "error", "Habitable room requiring daylight has no daylight facade exposure.", room.Id);
+                    AddCheck(
+                        report,
+                        "required_daylight",
+                        room.Daylight,
+                        "error",
+                        "Habitable room requiring daylight has no daylight facade exposure.",
+                        room.Id);
                 }
             }
 
@@ -403,13 +506,37 @@ namespace FloorPlanGeneration
                 AddCheck(report, "door_connects_known_spaces", connectsKnownSpaces, "error", "Door/opening must connect known spaces.", door.Id);
             }
 
-            AddCheck(report, "stable_external_ids", HasStableExternalIds(variant), "error", "Generated variants and elements must expose unique stable external ids.", variant.VariantId);
-            AddCheck(report, "generated_layers", HasExpectedGeneratedLayers(variant), "error", "Generated elements must use the published generated layer names.", variant.VariantId);
-            AddCheck(report, "hypergraph_contract", HasValidHypergraph(variant), "error", "Variant topology must expose a valid hypergraph contract.", variant.VariantId);
+            AddCheck(
+                report,
+                "stable_external_ids",
+                HasStableExternalIds(variant),
+                "error",
+                "Generated variants and elements must expose unique stable external ids.",
+                variant.VariantId);
+            AddCheck(
+                report,
+                "generated_layers",
+                HasExpectedGeneratedLayers(variant),
+                "error",
+                "Generated elements must use the published generated layer names.",
+                variant.VariantId);
+            AddCheck(
+                report,
+                "hypergraph_contract",
+                HasValidHypergraph(variant),
+                "error",
+                "Variant topology must expose a valid hypergraph contract.",
+                variant.VariantId);
 
             if (IsStrict(input))
             {
-                AddCheck(report, "strict_unit_mix", mixPlanner.StrictCountsSatisfied(variant.Units), "error", "Strict target unit counts were not met.", variant.VariantId);
+                AddCheck(
+                    report,
+                    "strict_unit_mix",
+                    mixPlanner.StrictCountsSatisfied(variant.Units),
+                    "error",
+                    "Strict target unit counts were not met.",
+                    variant.VariantId);
             }
 
             report.Passed = report.Checks.All(c => c.Passed || !IsError(c.Severity));
@@ -497,7 +624,10 @@ namespace FloorPlanGeneration
                     .ToList();
                 if (corridor.Connections.Count != before)
                 {
-                    variant.Diagnostics.Add(Diagnostic.Info("repair.corridor_connections_deduplicated", "Removed duplicate or empty corridor connections.", corridor.Id));
+                    variant.Diagnostics.Add(Diagnostic.Info(
+                        "repair.corridor_connections_deduplicated",
+                        "Removed duplicate or empty corridor connections.",
+                        corridor.Id));
                 }
             }
 
@@ -795,7 +925,11 @@ namespace FloorPlanGeneration
             if (input.GenerationSettings.VariantCount <= 0) input.GenerationSettings.VariantCount = 1;
             if (input.GenerationSettings.VariantCount > 20) input.GenerationSettings.VariantCount = 20;
             if (string.IsNullOrWhiteSpace(input.GenerationSettings.Strictness)) input.GenerationSettings.Strictness = "balanced";
-            if (input.GenerationSettings.ScoringWeights == null) input.GenerationSettings.ScoringWeights = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+            if (input.GenerationSettings.ScoringWeights == null)
+            {
+                input.GenerationSettings.ScoringWeights =
+                    new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+            }
         }
 
         private static void AddCheck(ValidationReport report, string name, bool passed, string severity, string reason, string sourceId)

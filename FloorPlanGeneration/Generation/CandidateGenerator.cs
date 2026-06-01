@@ -141,7 +141,9 @@ namespace FloorPlanGeneration.Generation
             double depth = bandMaxY - bandMinY;
             if (depth < Math.Max(5.0, _input.Source.Rules.MinRoomDepth * 1.8))
             {
-                variant.Diagnostics.Add(Diagnostic.Warning("generation.band_too_shallow", "Skipped " + side + " unit band because usable depth is below room minimums."));
+                variant.Diagnostics.Add(Diagnostic.Warning(
+                    "generation.band_too_shallow",
+                    "Skipped " + side + " unit band because usable depth is below room minimums."));
                 return;
             }
 
@@ -172,7 +174,9 @@ namespace FloorPlanGeneration.Generation
             double depth = bandMaxX - bandMinX;
             if (depth < Math.Max(5.0, _input.Source.Rules.MinRoomWidth * 1.8))
             {
-                variant.Diagnostics.Add(Diagnostic.Warning("generation.band_too_shallow", "Skipped " + side + " unit band because usable depth is below room minimums."));
+                variant.Diagnostics.Add(Diagnostic.Warning(
+                    "generation.band_too_shallow",
+                    "Skipped " + side + " unit band because usable depth is below room minimums."));
                 return;
             }
 
@@ -218,7 +222,12 @@ namespace FloorPlanGeneration.Generation
                     desiredWidth = remaining;
                 }
 
-                Polygon2 unitPolygon = Polygon2.Rectangle("unit-" + side + "-" + (variant.Units.Count + 1).ToString("00", CultureInfo.InvariantCulture), x, minY, x + desiredWidth, maxY);
+                Polygon2 unitPolygon = Polygon2.Rectangle(
+                    "unit-" + side + "-" + (variant.Units.Count + 1).ToString("00", CultureInfo.InvariantCulture),
+                    x,
+                    minY,
+                    x + desiredWidth,
+                    maxY);
                 if (TryAddUnit(variant, unitPolygon, type, placedUnits, corridor))
                 {
                     if (!currentCounts.ContainsKey(type))
@@ -230,7 +239,11 @@ namespace FloorPlanGeneration.Generation
                 }
                 else
                 {
-                    variant.Diagnostics.Add(Diagnostic.Warning("generation.unit_bay_rejected", "Rejected " + unitPolygon.SourceId + " because it was outside the usable floorplate or conflicted with fixed elements.", unitPolygon.SourceId));
+                    variant.Diagnostics.Add(Diagnostic.Warning(
+                        "generation.unit_bay_rejected",
+                        "Rejected " + unitPolygon.SourceId +
+                        " because it was outside the usable floorplate or conflicted with fixed elements.",
+                        unitPolygon.SourceId));
                 }
 
                 x += desiredWidth;
@@ -265,7 +278,12 @@ namespace FloorPlanGeneration.Generation
                     desiredHeight = remaining;
                 }
 
-                Polygon2 unitPolygon = Polygon2.Rectangle("unit-" + side + "-" + (variant.Units.Count + 1).ToString("00", CultureInfo.InvariantCulture), minX, y, maxX, y + desiredHeight);
+                Polygon2 unitPolygon = Polygon2.Rectangle(
+                    "unit-" + side + "-" + (variant.Units.Count + 1).ToString("00", CultureInfo.InvariantCulture),
+                    minX,
+                    y,
+                    maxX,
+                    y + desiredHeight);
                 if (TryAddUnit(variant, unitPolygon, type, placedUnits, corridor))
                 {
                     if (!currentCounts.ContainsKey(type))
@@ -277,7 +295,11 @@ namespace FloorPlanGeneration.Generation
                 }
                 else
                 {
-                    variant.Diagnostics.Add(Diagnostic.Warning("generation.unit_bay_rejected", "Rejected " + unitPolygon.SourceId + " because it was outside the usable floorplate or conflicted with fixed elements.", unitPolygon.SourceId));
+                    variant.Diagnostics.Add(Diagnostic.Warning(
+                        "generation.unit_bay_rejected",
+                        "Rejected " + unitPolygon.SourceId +
+                        " because it was outside the usable floorplate or conflicted with fixed elements.",
+                        unitPolygon.SourceId));
                 }
 
                 y += desiredHeight;
@@ -369,7 +391,10 @@ namespace FloorPlanGeneration.Generation
                 return strategy;
             }
 
-            strategy = TryCoreAdjacentCorridor(primary == CorridorOrientation.Horizontal ? CorridorOrientation.Vertical : CorridorOrientation.Horizontal, width, diagnostics);
+            strategy = TryCoreAdjacentCorridor(
+                primary == CorridorOrientation.Horizontal ? CorridorOrientation.Vertical : CorridorOrientation.Horizontal,
+                width,
+                diagnostics);
             if (strategy != null)
             {
                 return strategy;
@@ -395,7 +420,9 @@ namespace FloorPlanGeneration.Generation
                 strategy = TryCorridorAtFraction(secondary, fraction, width, diagnostics);
                 if (strategy != null)
                 {
-                    diagnostics.Add(Diagnostic.Warning("generation.corridor_secondary_axis", "Primary corridor axis failed; derived corridor on secondary axis."));
+                    diagnostics.Add(Diagnostic.Warning(
+                        "generation.corridor_secondary_axis",
+                        "Primary corridor axis failed; derived corridor on secondary axis."));
                     return strategy;
                 }
             }
@@ -510,7 +537,10 @@ namespace FloorPlanGeneration.Generation
             List<Interval1D> lower = GeometryPredicates.HorizontalInsideIntervals(_input.Floorplate, lowY, _tolerance);
             List<Interval1D> center = GeometryPredicates.HorizontalInsideIntervals(_input.Floorplate, midY, _tolerance);
             List<Interval1D> upper = GeometryPredicates.HorizontalInsideIntervals(_input.Floorplate, highY, _tolerance);
-            List<Interval1D> shared = GeometryPredicates.IntersectIntervals(GeometryPredicates.IntersectIntervals(lower, center, _tolerance), upper, _tolerance);
+            List<Interval1D> shared = GeometryPredicates.IntersectIntervals(
+                GeometryPredicates.IntersectIntervals(lower, center, _tolerance),
+                upper,
+                _tolerance);
             List<Interval1D> candidateIntervals = shared
                 .SelectMany(i => SubtractBlockingIntervals(i, minY, maxY, CorridorOrientation.Horizontal))
                 .ToList();
@@ -820,11 +850,19 @@ namespace FloorPlanGeneration.Generation
                 null);
             foreach (CorridorLayout corridor in variant.Corridors)
             {
-                HypergraphDataNode corridorNode = NewDataNode(corridor.Id, PolygonArea(corridor.Polygon), CorridorAngle(corridor.Centerline), "corridor", true, corridor.Polygon);
+                HypergraphDataNode corridorNode = NewDataNode(
+                    corridor.Id,
+                    PolygonArea(corridor.Polygon),
+                    CorridorAngle(corridor.Centerline),
+                    "corridor",
+                    true,
+                    corridor.Polygon);
                 corridorNode.Connected = variant.Units
                     .Where(unit => variant.DoorsOpenings.Any(door => door.ConnectsSpaces.Contains(unit.Id) && door.ConnectsSpaces.Contains(corridor.Id)))
                     .Select(unit => unit.Id)
-                    .Concat(_input.FixedElements.Where(f => graph.Edges.Any(e => e.From == f.Id && e.To == corridor.Id)).Select(f => f.Id))
+                    .Concat(_input.FixedElements
+                        .Where(f => graph.Edges.Any(e => e.From == f.Id && e.To == corridor.Id))
+                        .Select(f => f.Id))
                     .Distinct(StringComparer.OrdinalIgnoreCase)
                     .OrderBy(id => id, StringComparer.OrdinalIgnoreCase)
                     .ToList();
@@ -837,7 +875,13 @@ namespace FloorPlanGeneration.Generation
                 HypergraphDataNode unitNode = NewDataNode(unit.Id, unit.Area, 0.0, unit.Type, false, unit.Polygon);
                 foreach (RoomLayout room in unit.Rooms)
                 {
-                    HypergraphDataNode roomNode = NewDataNode(room.Id, room.Area, RoomSplitAngle(room), NormalizeRoomMergeId(room.RoomType), true, room.Polygon);
+                    HypergraphDataNode roomNode = NewDataNode(
+                        room.Id,
+                        room.Area,
+                        RoomSplitAngle(room),
+                        NormalizeRoomMergeId(room.RoomType),
+                        true,
+                        room.Polygon);
                     roomNode.Connected = RoomConnections(room, variant);
                     unitNode.Children.Add(roomNode);
                 }
@@ -871,9 +915,17 @@ namespace FloorPlanGeneration.Generation
                     null);
                 foreach (CleanedFixedElement fixedElement in _input.FixedElements)
                 {
-                    HypergraphDataNode fixedNode = NewDataNode(fixedElement.Id, fixedElement.Polygon.Area(), fixedElement.Polygon.Bounds().Width >= fixedElement.Polygon.Bounds().Height ? 0.0 : Math.PI * 0.5, fixedElement.Type, true, GeometryCleaner.ToPolygonInput(fixedElement.Polygon));
+                    HypergraphDataNode fixedNode = NewDataNode(
+                        fixedElement.Id,
+                        fixedElement.Polygon.Area(),
+                        fixedElement.Polygon.Bounds().Width >= fixedElement.Polygon.Bounds().Height ? 0.0 : Math.PI * 0.5,
+                        fixedElement.Type,
+                        true,
+                        GeometryCleaner.ToPolygonInput(fixedElement.Polygon));
                     fixedNode.Connected = graph.Edges
-                        .Where(e => string.Equals(e.From, fixedElement.Id, StringComparison.OrdinalIgnoreCase) && string.Equals(e.Kind, "connects_to_corridor", StringComparison.OrdinalIgnoreCase))
+                        .Where(e =>
+                            string.Equals(e.From, fixedElement.Id, StringComparison.OrdinalIgnoreCase) &&
+                            string.Equals(e.Kind, "connects_to_corridor", StringComparison.OrdinalIgnoreCase))
                         .Select(e => e.To)
                         .Distinct(StringComparer.OrdinalIgnoreCase)
                         .ToList();
@@ -938,7 +990,13 @@ namespace FloorPlanGeneration.Generation
             return nodes;
         }
 
-        private void AddHypergraphNodeRecursive(HypergraphDataNode dataNode, string parentId, int level, LayoutVariant variant, TopologyGraph graph, List<HypergraphNode> nodes)
+        private void AddHypergraphNodeRecursive(
+            HypergraphDataNode dataNode,
+            string parentId,
+            int level,
+            LayoutVariant variant,
+            TopologyGraph graph,
+            List<HypergraphNode> nodes)
         {
             nodes.Add(new HypergraphNode
             {
@@ -1003,7 +1061,8 @@ namespace FloorPlanGeneration.Generation
                     Id = topologyNode.Id,
                     Kind = topologyNode.Kind,
                     ReferenceId = topologyNode.ReferenceId,
-                    ParentId = string.IsNullOrWhiteSpace(topologyNode.ParentId) && string.Equals(topologyNode.Id, "floorplate", StringComparison.OrdinalIgnoreCase)
+                    ParentId = string.IsNullOrWhiteSpace(topologyNode.ParentId) &&
+                        string.Equals(topologyNode.Id, "floorplate", StringComparison.OrdinalIgnoreCase)
                         ? "root"
                         : topologyNode.ParentId,
                     MergeId = string.IsNullOrWhiteSpace(topologyNode.Kind) ? topologyNode.Id : topologyNode.Kind,
@@ -1021,7 +1080,9 @@ namespace FloorPlanGeneration.Generation
                     }
                 };
 
-                if (string.Equals(topologyNode.Id, "floorplate", StringComparison.OrdinalIgnoreCase) && hypergraph.Root != null && hypergraph.Root.TreeNodeMesh != null)
+                if (string.Equals(topologyNode.Id, "floorplate", StringComparison.OrdinalIgnoreCase) &&
+                    hypergraph.Root != null &&
+                    hypergraph.Root.TreeNodeMesh != null)
                 {
                     node.Area = hypergraph.Root.Area;
                     if (hypergraph.Root.TreeNodeMesh.Centroid != null)
@@ -1036,7 +1097,9 @@ namespace FloorPlanGeneration.Generation
 
         private static void AddOutsideNodeIfNeeded(FloorPlanHypergraph hypergraph, TopologyGraph graph)
         {
-            if (!graph.Edges.Any(e => string.Equals(e.To, "outside", StringComparison.OrdinalIgnoreCase) || string.Equals(e.From, "outside", StringComparison.OrdinalIgnoreCase)))
+            if (!graph.Edges.Any(e =>
+                string.Equals(e.To, "outside", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(e.From, "outside", StringComparison.OrdinalIgnoreCase)))
             {
                 return;
             }
@@ -1196,7 +1259,10 @@ namespace FloorPlanGeneration.Generation
                 index++;
                 Hyperedge edge = new Hyperedge
                 {
-                    Id = "topology-" + index.ToString("000", CultureInfo.InvariantCulture) + "-" + simpleEdge.Kind + "-" + simpleEdge.From + "-" + simpleEdge.To,
+                    Id = "topology-" + index.ToString("000", CultureInfo.InvariantCulture) +
+                        "-" + simpleEdge.Kind +
+                        "-" + simpleEdge.From +
+                        "-" + simpleEdge.To,
                     Kind = HyperedgeKind(simpleEdge.Kind),
                     Weight = 1.0,
                     Attributes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
@@ -1273,10 +1339,22 @@ namespace FloorPlanGeneration.Generation
         private static HypergraphMatrices BuildMatrices(FloorPlanHypergraph hypergraph)
         {
             HypergraphMatrices matrices = new HypergraphMatrices();
-            matrices.NodeOrder = hypergraph.Nodes.Select(n => n.Id).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(id => id, StringComparer.OrdinalIgnoreCase).ToList();
-            matrices.HyperedgeOrder = hypergraph.Hyperedges.Select(e => e.Id).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(id => id, StringComparer.OrdinalIgnoreCase).ToList();
-            Dictionary<string, int> nodeIndex = matrices.NodeOrder.Select((id, index) => new { id, index }).ToDictionary(x => x.id, x => x.index, StringComparer.OrdinalIgnoreCase);
-            Dictionary<string, int> edgeIndex = matrices.HyperedgeOrder.Select((id, index) => new { id, index }).ToDictionary(x => x.id, x => x.index, StringComparer.OrdinalIgnoreCase);
+            matrices.NodeOrder = hypergraph.Nodes
+                .Select(n => n.Id)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(id => id, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            matrices.HyperedgeOrder = hypergraph.Hyperedges
+                .Select(e => e.Id)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(id => id, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            Dictionary<string, int> nodeIndex = matrices.NodeOrder
+                .Select((id, index) => new { id, index })
+                .ToDictionary(x => x.id, x => x.index, StringComparer.OrdinalIgnoreCase);
+            Dictionary<string, int> edgeIndex = matrices.HyperedgeOrder
+                .Select((id, index) => new { id, index })
+                .ToDictionary(x => x.id, x => x.index, StringComparer.OrdinalIgnoreCase);
 
             matrices.SubdivisionConnectivity = ZeroMatrix(matrices.NodeOrder.Count, matrices.NodeOrder.Count);
             matrices.AdjacencyConnectivity = ZeroMatrix(matrices.NodeOrder.Count, matrices.NodeOrder.Count);
@@ -1309,7 +1387,11 @@ namespace FloorPlanGeneration.Generation
 
                 if (IsAdjacencyMatrixKind(edge.Kind))
                 {
-                    List<string> memberIds = edge.Members.Select(m => m.NodeId).Where(id => nodeIndex.ContainsKey(id)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                    List<string> memberIds = edge.Members
+                        .Select(m => m.NodeId)
+                        .Where(id => nodeIndex.ContainsKey(id))
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .ToList();
                     for (int i = 0; i < memberIds.Count; i++)
                     {
                         for (int j = i + 1; j < memberIds.Count; j++)
@@ -1404,8 +1486,10 @@ namespace FloorPlanGeneration.Generation
             if (value.IndexOf("kitchen", StringComparison.OrdinalIgnoreCase) >= 0) return "kitchen";
             if (value.IndexOf("living", StringComparison.OrdinalIgnoreCase) >= 0) return "living";
             if (value.IndexOf("bed", StringComparison.OrdinalIgnoreCase) >= 0) return "bed";
-            if (value.IndexOf("foyer", StringComparison.OrdinalIgnoreCase) >= 0 || value.IndexOf("entry", StringComparison.OrdinalIgnoreCase) >= 0) return "foyer";
-            if (value.IndexOf("extra", StringComparison.OrdinalIgnoreCase) >= 0 || value.IndexOf("storage", StringComparison.OrdinalIgnoreCase) >= 0) return "extra";
+            if (value.IndexOf("foyer", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                value.IndexOf("entry", StringComparison.OrdinalIgnoreCase) >= 0) return "foyer";
+            if (value.IndexOf("extra", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                value.IndexOf("storage", StringComparison.OrdinalIgnoreCase) >= 0) return "extra";
             return string.IsNullOrWhiteSpace(value) ? "room" : value;
         }
 

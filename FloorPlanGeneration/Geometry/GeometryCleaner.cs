@@ -45,7 +45,10 @@ namespace FloorPlanGeneration.Geometry
 
                 if (sanitized.Count > 0 && point.EqualsWithin(sanitized[sanitized.Count - 1], tolerance))
                 {
-                    result.Diagnostics.Add(Diagnostic.Warning("geometry.duplicate_consecutive_point", "Removed duplicate consecutive polygon point.", sourceId));
+                    result.Diagnostics.Add(Diagnostic.Warning(
+                        "geometry.duplicate_consecutive_point",
+                        "Removed duplicate consecutive polygon point.",
+                        sourceId));
                     continue;
                 }
 
@@ -55,7 +58,10 @@ namespace FloorPlanGeneration.Geometry
                     bool closesPolygon = duplicateIndex == 0 && input.Points.IndexOf(raw) == input.Points.Count - 1;
                     if (closesPolygon)
                     {
-                        result.Diagnostics.Add(Diagnostic.Info("geometry.closed_ring", "Input ring already included a closing point; internal polygon stores unique vertices.", sourceId));
+                        result.Diagnostics.Add(Diagnostic.Info(
+                            "geometry.closed_ring",
+                            "Input ring already included a closing point; internal polygon stores unique vertices.",
+                            sourceId));
                     }
                     else
                     {
@@ -74,7 +80,10 @@ namespace FloorPlanGeneration.Geometry
                 Point2 lastInput = input.Points[input.Points.Count - 1];
                 if (!first.EqualsWithin(lastInput, tolerance))
                 {
-                    result.Diagnostics.Add(Diagnostic.Warning("geometry.implicit_close", "Input polygon was not explicitly closed; engine closed the ring between last and first vertices.", sourceId));
+                    result.Diagnostics.Add(Diagnostic.Warning(
+                        "geometry.implicit_close",
+                        "Input polygon was not explicitly closed; engine closed the ring between last and first vertices.",
+                        sourceId));
                 }
             }
 
@@ -104,7 +113,12 @@ namespace FloorPlanGeneration.Geometry
             if (isClockwise != clockwise)
             {
                 polygon = polygon.Reversed();
-                result.Diagnostics.Add(Diagnostic.Info("geometry.normalized_winding", clockwise ? "Normalized polygon winding to clockwise." : "Normalized polygon winding to counter-clockwise.", sourceId));
+                result.Diagnostics.Add(Diagnostic.Info(
+                    "geometry.normalized_winding",
+                    clockwise
+                        ? "Normalized polygon winding to clockwise."
+                        : "Normalized polygon winding to counter-clockwise.",
+                    sourceId));
             }
 
             result.Polygon = polygon;
