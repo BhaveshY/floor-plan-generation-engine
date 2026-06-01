@@ -173,6 +173,7 @@ namespace FloorPlanGeneration.Tests
             string setInput = SliceFunction(app, "setInput");
             string runEngine = SliceFunction(app, "runEngine");
             string renderAll = SliceFunction(app, "renderAll");
+            string currentVisualOutput = SliceFunction(app, "currentVisualOutput");
             string updateDirtyState = SliceFunction(app, "updateDirtyState");
             string renderError = SliceFunction(app, "renderError");
             string previewOutput = SliceFunction(app, "previewOutput");
@@ -184,7 +185,8 @@ namespace FloorPlanGeneration.Tests
             Assert.Contains("const hasPreview = hasGeneratedVariant(response.output)", runEngine, StringComparison.Ordinal);
             Assert.Contains("state.lastPreviewResponse = response", runEngine, StringComparison.Ordinal);
             Assert.Contains("state.previewStale = !hasPreview && Boolean(state.lastPreviewResponse)", runEngine, StringComparison.Ordinal);
-            Assert.Contains("const visualOutput = previewOutput(output)", renderAll, StringComparison.Ordinal);
+            Assert.Contains("const visualOutput = currentVisualOutput()", renderAll, StringComparison.Ordinal);
+            Assert.Contains("return previewOutput(output)", currentVisualOutput, StringComparison.Ordinal);
             Assert.Contains("renderPreview(visualOutput)", renderAll, StringComparison.Ordinal);
             Assert.Contains("renderDiagnostics(output)", renderAll, StringComparison.Ordinal);
             Assert.Contains("renderExportSummary(output)", renderAll, StringComparison.Ordinal);
@@ -193,6 +195,19 @@ namespace FloorPlanGeneration.Tests
             Assert.Contains("state.previewStale = Boolean(state.lastPreviewResponse)", renderError, StringComparison.Ordinal);
             Assert.Contains("return state.lastPreviewResponse ? state.lastPreviewResponse.output : output", previewOutput, StringComparison.Ordinal);
             Assert.Contains("action === \"save-svg\" && state.previewStale", app, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void FailedVariantsWithoutGeneratedUnitsDoNotReplaceLastGeneratedPreview()
+        {
+            string app = ReadWebFile("app.js");
+            string hasGeneratedVariant = SliceFunction(app, "hasGeneratedVariant");
+
+            Assert.Contains("variants.some(hasUsableVariantGeometry)", hasGeneratedVariant, StringComparison.Ordinal);
+            Assert.Contains("function hasUsableVariantGeometry", app, StringComparison.Ordinal);
+            Assert.Contains("(variant.units || []).length > 0", app, StringComparison.Ordinal);
+            Assert.Contains("(variant.rooms || []).length > 0", app, StringComparison.Ordinal);
+            Assert.DoesNotContain("output.variants.length > 0", hasGeneratedVariant, StringComparison.Ordinal);
         }
 
         [Fact]
@@ -457,6 +472,26 @@ namespace FloorPlanGeneration.Tests
             Assert.DoesNotMatch(@"state\.response\s*=(?!=)", applyInputMutation);
             Assert.DoesNotContain("state.selectedVariantId = \"\"", applyInputMutation, StringComparison.Ordinal);
             Assert.DoesNotContain("els.outputJson.textContent =", applyInputMutation, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void GeneratedPreviewActionsUsePreservedVisualOutputAfterFailedRegeneration()
+        {
+            string app = ReadWebFile("app.js");
+            string runSelectedPlanAction = SliceFunction(app, "runSelectedPlanAction");
+            string handlePlanPointerDown = SliceFunction(app, "handlePlanPointerDown");
+
+            Assert.Contains("function currentVisualOutput", app, StringComparison.Ordinal);
+            Assert.Contains("selectedElementDetails(currentVisualOutput())", runSelectedPlanAction, StringComparison.Ordinal);
+            Assert.Contains("selectedElementDetails(currentVisualOutput())", handlePlanPointerDown, StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "selectedElementDetails(state.response ? state.response.output : null)",
+                runSelectedPlanAction,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "selectedElementDetails(state.response ? state.response.output : null)",
+                handlePlanPointerDown,
+                StringComparison.Ordinal);
         }
 
         private static string ReadWebFile(string fileName)

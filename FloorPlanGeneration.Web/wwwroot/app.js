@@ -519,7 +519,7 @@ async function runEngine(validateOnly) {
 
 function renderAll() {
   const output = state.response ? state.response.output : null;
-  const visualOutput = previewOutput(output);
+  const visualOutput = currentVisualOutput();
   syncSelection(visualOutput);
   renderSetupGuide(output);
   renderVariantSelect(visualOutput);
@@ -541,6 +541,11 @@ function renderAll() {
   updateExportActions(output);
 }
 
+function currentVisualOutput() {
+  const output = state.response ? state.response.output : null;
+  return previewOutput(output);
+}
+
 function previewOutput(output) {
   if (hasGeneratedVariant(output)) {
     return output;
@@ -550,7 +555,16 @@ function previewOutput(output) {
 }
 
 function hasGeneratedVariant(output) {
-  return Boolean(output && Array.isArray(output.variants) && output.variants.length > 0);
+  const variants = output && Array.isArray(output.variants) ? output.variants : [];
+  return variants.some(hasUsableVariantGeometry);
+}
+
+function hasUsableVariantGeometry(variant) {
+  return Boolean(
+    variant &&
+    (variant.units || []).length > 0 &&
+    (variant.rooms || []).length > 0
+  );
 }
 
 function updateExportActions(output) {
@@ -1332,7 +1346,7 @@ function handleInspectorAction(event) {
 }
 
 function runSelectedPlanAction(action) {
-  const detail = selectedElementDetails(state.response ? state.response.output : null);
+  const detail = selectedElementDetails(currentVisualOutput());
   if (!detail) {
     setStatus("Select a plan element first");
     return;
@@ -1474,7 +1488,7 @@ function handlePlanPointerDown(event) {
   }
 
   event.preventDefault();
-  const detail = selectedElementDetails(state.response ? state.response.output : null);
+  const detail = selectedElementDetails(currentVisualOutput());
   state.dragEdit = {
     action: handle.dataset.editAction,
     startPoint: point,
