@@ -788,6 +788,24 @@ namespace FloorPlanGeneration.Tests
         }
 
         [Fact]
+        public async Task WebApiSampleUnknownName_ReturnsGenericNotFoundError()
+        {
+            const string sampleName = "missing-sample-reflection-check";
+            using (WebApplicationFactory<global::Program> factory = new WebApplicationFactory<global::Program>())
+            using (HttpClient client = factory.CreateClient())
+            {
+                HttpResponseMessage response = await client.GetAsync("/api/samples/" + sampleName);
+
+                Assert.Equal(System.Net.HttpStatusCode.NotFound, response.StatusCode);
+                using JsonDocument body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+                Assert.Equal("sample_not_found", body.RootElement.GetProperty("error").GetString());
+                string message = body.RootElement.GetProperty("message").GetString();
+                Assert.Equal("Sample could not be found. Use a known bundled sample name.", message);
+                Assert.DoesNotContain(sampleName, message, StringComparison.OrdinalIgnoreCase);
+            }
+        }
+
+        [Fact]
         public async Task WebApiGenerateSample_ReturnsSuccessfulEngineOutput()
         {
             using (WebApplicationFactory<global::Program> factory = new WebApplicationFactory<global::Program>())

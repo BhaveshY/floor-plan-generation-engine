@@ -147,7 +147,7 @@ app.MapGet("/api/samples/{name}", (string name) =>
 {
     if (!TryReadSample(name, samples, out string json))
     {
-        return Results.NotFound(new { error = "sample_not_found", message = "Unknown sample '" + name + "'." });
+        return SampleNotFoundResult();
     }
 
     return Results.Content(json, "application/json");
@@ -359,6 +359,15 @@ static IResult InvalidInputResult()
     {
         error = "invalid_input",
         message = "Input could not be resolved. Use a known sample or provide a valid input object."
+    });
+}
+
+static IResult SampleNotFoundResult()
+{
+    return Results.NotFound(new
+    {
+        error = "sample_not_found",
+        message = "Sample could not be found. Use a known bundled sample name."
     });
 }
 
