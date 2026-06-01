@@ -2048,7 +2048,7 @@ function renderDiagnostics(output) {
     return;
   }
 
-  els.diagnosticList.innerHTML = diagnostics.slice(0, 10).map((diagnostic) => `
+  const diagnosticMarkup = diagnostics.slice(0, 10).map((diagnostic) => `
     <div class="diagnostic-item ${escapeHtml(diagnostic.severity || "info")}">
       <div class="diagnostic-title">
         <span>${escapeHtml(humanizeCode(diagnostic.code || diagnostic.name || "diagnostic"))}</span>
@@ -2060,13 +2060,14 @@ function renderDiagnostics(output) {
   `).join("");
 
   const hiddenDiagnosticCount = diagnostics.length - 10;
-  if (hiddenDiagnosticCount > 0) {
-    els.diagnosticList.innerHTML += `
+  const hiddenDiagnosticMarkup = hiddenDiagnosticCount > 0
+    ? `
       <div class="empty-list">
         ${hiddenDiagnosticCount} more review note${hiddenDiagnosticCount === 1 ? "" : "s"} in Output JSON
       </div>
-    `;
-  }
+    `
+    : "";
+  els.diagnosticList.innerHTML = diagnosticMarkup + hiddenDiagnosticMarkup;
 }
 
 function renderSchedule(output) {

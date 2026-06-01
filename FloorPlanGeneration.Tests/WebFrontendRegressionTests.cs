@@ -181,6 +181,17 @@ namespace FloorPlanGeneration.Tests
         }
 
         [Fact]
+        public void DiagnosticsRendererBuildsMarkupBeforeSingleAssignment()
+        {
+            string app = ReadWebFile("app.js");
+            string renderDiagnostics = SliceFunction(app, "renderDiagnostics");
+
+            Assert.DoesNotContain("innerHTML +=", renderDiagnostics, StringComparison.Ordinal);
+            Assert.Contains("const hiddenDiagnosticMarkup = hiddenDiagnosticCount > 0", renderDiagnostics, StringComparison.Ordinal);
+            Assert.Contains("els.diagnosticList.innerHTML = diagnosticMarkup + hiddenDiagnosticMarkup", renderDiagnostics, StringComparison.Ordinal);
+        }
+
+        [Fact]
         public void FailedRegenerationKeepsLastGeneratedPreviewVisible()
         {
             string app = ReadWebFile("app.js");
