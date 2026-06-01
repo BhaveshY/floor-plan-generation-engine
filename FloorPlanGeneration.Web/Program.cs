@@ -272,10 +272,15 @@ static void ApplyBrowserSecurityHeaders(HttpResponse response)
         "frame-ancestors 'none'";
 
     response.Headers["Content-Security-Policy"] = contentSecurityPolicy;
+    response.Headers["Cross-Origin-Opener-Policy"] = "same-origin";
+    response.Headers["Cross-Origin-Resource-Policy"] = "same-origin";
     response.Headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=(), clipboard-write=(self)";
     response.Headers["Referrer-Policy"] = "no-referrer";
     response.Headers["X-Content-Type-Options"] = "nosniff";
+    response.Headers["X-DNS-Prefetch-Control"] = "off";
+    response.Headers["X-Download-Options"] = "noopen";
     response.Headers["X-Frame-Options"] = "DENY";
+    response.Headers["X-Permitted-Cross-Domain-Policies"] = "none";
 }
 
 static bool IsJsonRequest(HttpRequest httpRequest)

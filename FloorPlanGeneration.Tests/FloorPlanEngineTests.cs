@@ -655,8 +655,13 @@ namespace FloorPlanGeneration.Tests
                 response.EnsureSuccessStatusCode();
 
                 AssertHeader(response, "X-Content-Type-Options", "nosniff");
+                AssertHeader(response, "Cross-Origin-Opener-Policy", "same-origin");
+                AssertHeader(response, "Cross-Origin-Resource-Policy", "same-origin");
                 AssertHeader(response, "Referrer-Policy", "no-referrer");
                 AssertHeader(response, "X-Frame-Options", "DENY");
+                AssertHeader(response, "X-DNS-Prefetch-Control", "off");
+                AssertHeader(response, "X-Download-Options", "noopen");
+                AssertHeader(response, "X-Permitted-Cross-Domain-Policies", "none");
                 AssertHeader(
                     response,
                     "Permissions-Policy",
