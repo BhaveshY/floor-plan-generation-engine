@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using Xunit;
 
@@ -6,6 +7,30 @@ namespace FloorPlanGeneration.Tests
 {
     public sealed class WebFrontendRegressionTests
     {
+        private const int MaxWebSourceLineLength = 160;
+
+        [Fact]
+        public void WebAssetsAvoidVeryLongSourceLines()
+        {
+            List<string> violations = new List<string>();
+            foreach (string fileName in new[] { "app.js", "index.html", "styles.css" })
+            {
+                string path = Path.Combine(RepositoryRoot(), "FloorPlanGeneration.Web", "wwwroot", fileName);
+                string[] lines = File.ReadAllLines(path);
+                for (int i = 0; i < lines.Length; i++)
+                {
+                    if (lines[i].Length > MaxWebSourceLineLength)
+                    {
+                        violations.Add(fileName + ":" + (i + 1) + " has " + lines[i].Length + " characters");
+                    }
+                }
+            }
+
+            Assert.True(
+                violations.Count == 0,
+                "Web source lines over " + MaxWebSourceLineLength + " characters:\n" + string.Join("\n", violations));
+        }
+
         [Fact]
         public void SetupEditsPreserveGeneratedResponseUntilRegeneration()
         {
@@ -15,7 +40,11 @@ namespace FloorPlanGeneration.Tests
             Assert.DoesNotContain("state.response = null", handler, StringComparison.Ordinal);
             Assert.DoesNotContain("state.selectedVariantId = \"\"", handler, StringComparison.Ordinal);
             Assert.Contains("markInputDirty(\"Updating plan\", 650)", handler, StringComparison.Ordinal);
-            AssertBefore(handler, "markInputDirty", "renderAll()", "The stale state should be marked before renderAll so the generated preview is visibly preserved as stale.");
+            AssertBefore(
+                handler,
+                "markInputDirty",
+                "renderAll()",
+                "The stale state should be marked before renderAll so the generated preview is visibly preserved as stale.");
         }
 
         [Fact]
@@ -47,9 +76,16 @@ namespace FloorPlanGeneration.Tests
             Assert.Contains("download-json", updateExportActions, StringComparison.Ordinal);
             Assert.Contains("copy-json", updateExportActions, StringComparison.Ordinal);
             Assert.Contains("save-svg", updateExportActions, StringComparison.Ordinal);
+            Assert.Contains("const staleGeneratedPreview = Boolean(state.previewStale)", updateExportActions, StringComparison.Ordinal);
             Assert.Contains("button.disabled = !exportReady ||", updateExportActions, StringComparison.Ordinal);
-            Assert.Contains("els.saveSvgBtn.disabled = !exportReady || !hasPreview", updateExportActions, StringComparison.Ordinal);
-            Assert.Contains("const stalePreview = Boolean(state.inputDirty && state.response)", updateDirtyState, StringComparison.Ordinal);
+            Assert.Contains(
+                "els.saveSvgBtn.disabled = !exportReady || !hasPreview || staleGeneratedPreview",
+                updateExportActions,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "const stalePreview = Boolean((state.inputDirty && state.response) || state.previewStale)",
+                updateDirtyState,
+                StringComparison.Ordinal);
             Assert.Contains("els.previewFrame.classList.toggle(\"is-stale\", stalePreview)", updateDirtyState, StringComparison.Ordinal);
             Assert.Contains("els.planSvg.classList.toggle(\"stale-preview\", stalePreview)", updateDirtyState, StringComparison.Ordinal);
         }
@@ -69,6 +105,56 @@ namespace FloorPlanGeneration.Tests
             Assert.Contains("!hasVariant", updateExportActions, StringComparison.Ordinal);
             Assert.Contains("variantRequiredActions.has(action) && !selectedVariant(output)", handleExportAction, StringComparison.Ordinal);
             Assert.Contains("Generate a variant before exporting adapter payloads", handleExportAction, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void NonBlockingDiagnosticsUseReviewNoteLanguage()
+        {
+            string app = ReadWebFile("app.js");
+            string index = ReadWebFile("index.html");
+            string renderSubtitles = SliceFunction(app, "renderSubtitles");
+            string renderDiagnostics = SliceFunction(app, "renderDiagnostics");
+            string diagnosticSummary = SliceFunction(app, "diagnosticSummary");
+            string diagnosticSubtitleText = SliceFunction(app, "diagnosticSubtitleText");
+
+            Assert.Contains("<h3>Review Notes</h3>", index, StringComparison.Ordinal);
+            Assert.Contains("diagnosticSummary(output)", renderSubtitles, StringComparison.Ordinal);
+            Assert.Contains("diagnosticSubtitleText(summary)", renderSubtitles, StringComparison.Ordinal);
+            Assert.DoesNotContain("issue${issueCount", renderSubtitles, StringComparison.Ordinal);
+
+            Assert.Contains("summary.errorCount", renderDiagnostics, StringComparison.Ordinal);
+            Assert.Contains("review note", renderDiagnostics, StringComparison.Ordinal);
+            Assert.Contains("const diagnostics = collectDiagnostics(output)", diagnosticSummary, StringComparison.Ordinal);
+            Assert.Contains("review note", diagnosticSubtitleText, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void FailedRegenerationKeepsLastGeneratedPreviewVisible()
+        {
+            string app = ReadWebFile("app.js");
+            string setInput = SliceFunction(app, "setInput");
+            string runEngine = SliceFunction(app, "runEngine");
+            string renderAll = SliceFunction(app, "renderAll");
+            string updateDirtyState = SliceFunction(app, "updateDirtyState");
+            string renderError = SliceFunction(app, "renderError");
+            string previewOutput = SliceFunction(app, "previewOutput");
+
+            Assert.Contains("lastPreviewResponse: null", app, StringComparison.Ordinal);
+            Assert.Contains("previewStale: false", app, StringComparison.Ordinal);
+            Assert.Contains("state.lastPreviewResponse = null", setInput, StringComparison.Ordinal);
+            Assert.Contains("state.previewStale = false", setInput, StringComparison.Ordinal);
+            Assert.Contains("const hasPreview = hasGeneratedVariant(response.output)", runEngine, StringComparison.Ordinal);
+            Assert.Contains("state.lastPreviewResponse = response", runEngine, StringComparison.Ordinal);
+            Assert.Contains("state.previewStale = !hasPreview && Boolean(state.lastPreviewResponse)", runEngine, StringComparison.Ordinal);
+            Assert.Contains("const visualOutput = previewOutput(output)", renderAll, StringComparison.Ordinal);
+            Assert.Contains("renderPreview(visualOutput)", renderAll, StringComparison.Ordinal);
+            Assert.Contains("renderDiagnostics(output)", renderAll, StringComparison.Ordinal);
+            Assert.Contains("renderExportSummary(output)", renderAll, StringComparison.Ordinal);
+            Assert.Contains("updateExportActions(output)", renderAll, StringComparison.Ordinal);
+            Assert.Contains("state.previewStale", updateDirtyState, StringComparison.Ordinal);
+            Assert.Contains("state.previewStale = Boolean(state.lastPreviewResponse)", renderError, StringComparison.Ordinal);
+            Assert.Contains("return state.lastPreviewResponse ? state.lastPreviewResponse.output : output", previewOutput, StringComparison.Ordinal);
+            Assert.Contains("action === \"save-svg\" && state.previewStale", app, StringComparison.Ordinal);
         }
 
         [Fact]
@@ -192,7 +278,7 @@ namespace FloorPlanGeneration.Tests
             Assert.Contains("Plan Inspector", index, StringComparison.Ordinal);
             Assert.Contains("id=\"selectionInspector\"", index, StringComparison.Ordinal);
             Assert.Contains("els.selectionInspector.addEventListener(\"click\", handleInspectorAction)", app, StringComparison.Ordinal);
-            Assert.Contains("renderSelectionInspector(output)", renderAll, StringComparison.Ordinal);
+            Assert.Contains("renderSelectionInspector(visualOutput)", renderAll, StringComparison.Ordinal);
             Assert.Contains("data-select-kind", selectableAttributes, StringComparison.Ordinal);
             Assert.Contains("data-select-id", selectableAttributes, StringComparison.Ordinal);
             Assert.Contains("selected-element", app, StringComparison.Ordinal);

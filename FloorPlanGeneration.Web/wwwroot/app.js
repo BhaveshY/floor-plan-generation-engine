@@ -2,6 +2,7 @@ const state = {
   samples: [],
   input: null,
   response: null,
+  lastPreviewResponse: null,
   selectedVariantId: "",
   viewMode: "plan",
   zoom: 1,
@@ -9,6 +10,7 @@ const state = {
   editReadout: "",
   setupStep: "floorplate",
   inputDirty: false,
+  previewStale: false,
   autoGenerateTimer: 0,
   runSerial: 0,
   busy: false,
@@ -218,7 +220,9 @@ function setInput(input, options = {}) {
   clearAutoGenerate();
   if (!options.preserveResponse) {
     state.response = null;
+    state.lastPreviewResponse = null;
     state.selectedVariantId = "";
+    state.previewStale = false;
   }
   syncFormFromInput(state.input);
   setEditorFromInput(state.input);
@@ -489,8 +493,15 @@ async function runEngine(validateOnly) {
     if (runId !== state.runSerial) {
       return;
     }
+    const hasPreview = hasGeneratedVariant(response.output);
     state.response = response;
-    state.selectedVariantId = response.bestVariantId || firstVariantId(response.output);
+    if (hasPreview) {
+      state.lastPreviewResponse = response;
+      state.selectedVariantId = response.bestVariantId || firstVariantId(response.output);
+    } else if (!state.lastPreviewResponse) {
+      state.selectedVariantId = "";
+    }
+    state.previewStale = !hasPreview && Boolean(state.lastPreviewResponse);
     state.inputDirty = false;
     setStatus(`${friendlyStatus(response.status)} - ${response.validVariantCount}/${response.variantCount} valid variants`);
     renderAll();
@@ -508,31 +519,45 @@ async function runEngine(validateOnly) {
 
 function renderAll() {
   const output = state.response ? state.response.output : null;
-  syncSelection(output);
+  const visualOutput = previewOutput(output);
+  syncSelection(visualOutput);
   renderSetupGuide(output);
-  renderVariantSelect(output);
-  renderPreview(output);
-  renderMetrics(output);
-  renderVariants(output);
+  renderVariantSelect(visualOutput);
+  renderPreview(visualOutput);
+  renderMetrics(visualOutput);
+  renderVariants(visualOutput);
   renderDiagnostics(output);
   renderExportSummary(output);
-  renderHypergraphPreview(output);
-  renderSchedule(output);
+  renderHypergraphPreview(visualOutput);
+  renderSchedule(visualOutput);
   renderValidation(output);
-  renderSelectionInspector(output);
-  renderSubtitles(output);
+  renderSelectionInspector(visualOutput);
+  renderSubtitles(output, visualOutput);
   updateDirtyState();
-  updateCanvasUi(output);
+  updateCanvasUi(visualOutput);
 
   els.outputJson.textContent = output ? JSON.stringify(output, null, 2) : "";
   els.cliCommand.textContent = buildCliCommand();
   updateExportActions(output);
 }
 
+function previewOutput(output) {
+  if (hasGeneratedVariant(output)) {
+    return output;
+  }
+
+  return state.lastPreviewResponse ? state.lastPreviewResponse.output : output;
+}
+
+function hasGeneratedVariant(output) {
+  return Boolean(output && Array.isArray(output.variants) && output.variants.length > 0);
+}
+
 function updateExportActions(output) {
   const exportReady = Boolean(output && !state.inputDirty && !state.busy);
   const hasVariant = Boolean(selectedVariant(output));
   const hasPreview = Boolean(els.planSvg.childElementCount);
+  const staleGeneratedPreview = Boolean(state.previewStale);
   const rawOutputActions = new Set([
     "download-json",
     "copy-json",
@@ -552,7 +577,8 @@ function updateExportActions(output) {
     }
 
     if (rawOutputActions.has(action)) {
-      button.disabled = !exportReady || (action === "save-svg" && !hasPreview);
+      const needsCurrentPreview = action === "save-svg";
+      button.disabled = !exportReady || (needsCurrentPreview && (!hasPreview || staleGeneratedPreview));
       return;
     }
 
@@ -560,7 +586,7 @@ function updateExportActions(output) {
       button.disabled = !exportReady || !hasVariant;
     }
   });
-  els.saveSvgBtn.disabled = !exportReady || !hasPreview;
+  els.saveSvgBtn.disabled = !exportReady || !hasPreview || staleGeneratedPreview;
 }
 
 function setSetupStep(step) {
@@ -638,6 +664,9 @@ function buildSetupReview(output) {
   const variant = selectedVariant(output);
   const checks = variant && variant.validation && Array.isArray(variant.validation.checks) ? variant.validation.checks : [];
   const failedChecks = checks.filter((check) => !check.passed);
+  const reviewText = failedChecks.length
+    ? `${failedChecks.length} review item${failedChecks.length === 1 ? "" : "s"}`
+    : "Inputs are ready for a ranked variant run";
   const readiness = state.inputDirty
     ? "Edits pending"
     : output && variant
@@ -646,8 +675,19 @@ function buildSetupReview(output) {
 
   const rows = [
     ["Project", input.project ? input.project.name : "Floor Plan Project"],
-    ["Floorplate", floorBounds ? `${formatNumber(floorBounds.width, 1)} x ${formatNumber(floorBounds.height, 1)} m` : "Not set"],
-    ["Core", coreBounds ? `${formatNumber(coreBounds.width, 1)} x ${formatNumber(coreBounds.height, 1)} m at ${formatNumber(coreBounds.minX, 1)}, ${formatNumber(coreBounds.minY, 1)}` : "No core"],
+    [
+      "Floorplate",
+      floorBounds
+        ? `${formatNumber(floorBounds.width, 1)} x ${formatNumber(floorBounds.height, 1)} m`
+        : "Not set"
+    ],
+    [
+      "Core",
+      coreBounds
+        ? `${formatNumber(coreBounds.width, 1)} x ${formatNumber(coreBounds.height, 1)} m at ` +
+          `${formatNumber(coreBounds.minX, 1)}, ${formatNumber(coreBounds.minY, 1)}`
+        : "No core"
+    ],
     ["Rules", `Corridor ${formatNumber(rules.minCorridorWidth, 1)} m, min unit ${formatNumber(rules.minUnitArea, 0)} m2`],
     ["Unit mix", mix || "No target mix"],
     ["Readiness", readiness]
@@ -656,7 +696,7 @@ function buildSetupReview(output) {
   return `
     <div class="setup-review-status ${failedChecks.length ? "warning" : "good"}">
       <strong>${escapeHtml(readiness)}</strong>
-      <span>${failedChecks.length ? `${failedChecks.length} review item${failedChecks.length === 1 ? "" : "s"}` : "Inputs are ready for a ranked variant run"}</span>
+      <span>${reviewText}</span>
     </div>
     <div class="setup-review-grid">
       ${rows.map(([label, value]) => `
@@ -670,25 +710,28 @@ function buildSetupReview(output) {
 }
 
 function updateDirtyState() {
-  const stalePreview = Boolean(state.inputDirty && state.response);
+  const stalePreview = Boolean((state.inputDirty && state.response) || state.previewStale);
   els.previewFrame.classList.toggle("is-stale", stalePreview);
   els.previewFrame.classList.toggle("is-dragging", Boolean(state.dragEdit));
   els.previewFrame.classList.toggle("is-edit-mode", Boolean(state.editMode && state.viewMode !== "axon"));
   els.planSvg.classList.toggle("stale-preview", stalePreview);
 
-  if (!state.inputDirty) {
+  if (!state.inputDirty && !state.previewStale) {
     return;
   }
 
-  if (state.response) {
+  if (state.inputDirty && state.response) {
     els.planSubtitle.textContent = `${els.planSubtitle.textContent} - regenerating from edits`;
     els.resultSubtitle.textContent = "Edits pending - last generated plan stays visible until the engine refreshes it";
+  } else if (state.previewStale) {
+    els.planSubtitle.textContent = `${els.planSubtitle.textContent} - previous generated plan shown`;
+    els.resultSubtitle.textContent = `${els.resultSubtitle.textContent} - previous plan kept visible`;
   } else {
     els.resultSubtitle.textContent = "Edits pending - generate to produce variants";
   }
 }
 
-function renderSubtitles(output) {
+function renderSubtitles(output, visualOutput = output) {
   const projectName = state.input && state.input.project ? state.input.project.name : "Project";
   const floorBounds = state.input && state.input.floorplate && state.input.floorplate.outer
     ? boundsOfPoints(state.input.floorplate.outer.points)
@@ -711,10 +754,15 @@ function renderSubtitles(output) {
     return;
   }
 
-  const variant = selectedVariant(output);
+  const variant = selectedVariant(visualOutput);
   const valid = output.variants ? output.variants.filter((v) => v.validation && v.validation.passed).length : 0;
-  const issueCount = collectDiagnostics(output).length;
-  els.resultSubtitle.textContent = `${friendlyStatus(output.status)} - ${valid}/${output.variants ? output.variants.length : 0} valid${issueCount ? `, ${issueCount} issue${issueCount === 1 ? "" : "s"}` : ""}`;
+  const summary = diagnosticSummary(output);
+  const diagnosticText = diagnosticSubtitleText(summary);
+  const totalVariants = output.variants ? output.variants.length : 0;
+  const resultStatus = `${friendlyStatus(output.status)} - ${valid}/${totalVariants} valid`;
+  els.resultSubtitle.textContent = diagnosticText
+    ? `${resultStatus}, ${diagnosticText}`
+    : resultStatus;
   if (!variant) {
     els.planSubtitle.textContent = output.status === "validated" ? "Input passed validation. Generate variants when ready." : "No generated variant";
     els.scheduleSubtitle.textContent = targetMix ? `Target mix: ${targetMix}` : "No generated units";
@@ -724,7 +772,8 @@ function renderSubtitles(output) {
   const metrics = variant.metrics || {};
   const mix = unitMixSummary(variant.units || []);
   els.planSubtitle.textContent = `${variant.variantId} - score ${formatNumber(metrics.score, 3)} - net/gross ${formatNumber(metrics.netGrossRatio, 3)}`;
-  els.scheduleSubtitle.textContent = `${variant.units.length} units${mix ? ` (${mix})` : ""}, ${variant.rooms.length} rooms, ${variant.doorsOpenings.length} doors`;
+  const unitSummary = `${variant.units.length} units${mix ? ` (${mix})` : ""}`;
+  els.scheduleSubtitle.textContent = `${unitSummary}, ${variant.rooms.length} rooms, ${variant.doorsOpenings.length} doors`;
 }
 
 function renderVariantSelect(output) {
@@ -793,12 +842,27 @@ function renderPreview(output) {
   }
 
   if (variant) {
-    (variant.units || []).forEach((unit) => group.appendChild(polygonEl(unit.polygon.points, selectableClass(`unit unit-${unit.type || "standard"}`, "unit", unit.id), selectableAttributes("unit", unit.id))));
-    (variant.rooms || []).forEach((room) => group.appendChild(polygonEl(room.polygon.points, selectableClass("room", "room", room.id), selectableAttributes("room", room.id))));
-    (variant.corridors || []).forEach((corridor) => group.appendChild(polygonEl(corridor.polygon.points, selectableClass("corridor", "corridor", corridor.id), selectableAttributes("corridor", corridor.id))));
+    (variant.units || []).forEach((unit) => {
+      const className = selectableClass(`unit unit-${unit.type || "standard"}`, "unit", unit.id);
+      group.appendChild(polygonEl(unit.polygon.points, className, selectableAttributes("unit", unit.id)));
+    });
+    (variant.rooms || []).forEach((room) => {
+      const className = selectableClass("room", "room", room.id);
+      group.appendChild(polygonEl(room.polygon.points, className, selectableAttributes("room", room.id)));
+    });
+    (variant.corridors || []).forEach((corridor) => {
+      const className = selectableClass("corridor", "corridor", corridor.id);
+      const attributes = selectableAttributes("corridor", corridor.id);
+      group.appendChild(polygonEl(corridor.polygon.points, className, attributes));
+    });
     (variant.walls || []).forEach((wall) => {
       if (wall.centerline && wall.centerline.start && wall.centerline.end) {
-        group.appendChild(lineEl(wall.centerline.start, wall.centerline.end, selectableClass(`wall wall-${wall.layerType || "partition"}`, "wall", wall.id), selectableAttributes("wall", wall.id)));
+        const className = selectableClass(`wall wall-${wall.layerType || "partition"}`, "wall", wall.id);
+        group.appendChild(lineEl(
+          wall.centerline.start,
+          wall.centerline.end,
+          className,
+          selectableAttributes("wall", wall.id)));
       }
     });
     (variant.doorsOpenings || []).forEach((door) => {
@@ -1660,7 +1724,8 @@ function editSummary(input) {
     ? `Floor ${formatNumber(floorBounds.width, 1)} x ${formatNumber(floorBounds.height, 1)} m`
     : "Floor outline";
   const coreText = coreBounds
-    ? `Core ${formatNumber(coreBounds.width, 1)} x ${formatNumber(coreBounds.height, 1)} m at ${formatNumber(coreBounds.minX, 1)}, ${formatNumber(coreBounds.minY, 1)}`
+    ? `Core ${formatNumber(coreBounds.width, 1)} x ${formatNumber(coreBounds.height, 1)} m at ` +
+      `${formatNumber(coreBounds.minX, 1)}, ${formatNumber(coreBounds.minY, 1)}`
     : "No core";
   return `${floorText} - ${coreText}`;
 }
@@ -1686,7 +1751,12 @@ function renderInputEditHandles(group, input) {
   const core = firstCore(input);
   const coreBounds = core && core.polygon ? boundsOfPoints(core.polygon.points) : null;
   if (coreBounds) {
-    floorGroup.appendChild(editHandle("core-move", coreBounds.minX + coreBounds.width / 2, coreBounds.minY + coreBounds.height / 2, handleRadius * 1.2, "Move core"));
+    floorGroup.appendChild(editHandle(
+      "core-move",
+      coreBounds.minX + coreBounds.width / 2,
+      coreBounds.minY + coreBounds.height / 2,
+      handleRadius * 1.2,
+      "Move core"));
     floorGroup.appendChild(editHandle("core-size", coreBounds.maxX, coreBounds.maxY, handleRadius, "Resize core"));
   }
 
@@ -1867,12 +1937,17 @@ function renderMetrics(output) {
   const floorplate = metadata ? metadata.floorplate : null;
   const checks = variant && variant.validation && Array.isArray(variant.validation.checks) ? variant.validation.checks : [];
   const failed = checks.filter((check) => !check.passed);
+  const netGross = metrics
+    ? formatNumber(metrics.netGrossRatio, 3)
+    : floorplate
+      ? formatNumber(floorplate.usableArea / Math.max(1, floorplate.grossArea), 3)
+      : "-";
   const rows = [
     ["Status", output ? friendlyStatus(output.status) : "Ready"],
     ["Units", variant ? String(variant.units.length) : "-"],
     ["Sellable", metrics ? `${formatNumber(metrics.sellableArea, 1)} m2` : "-"],
     ["Circulation", metrics ? `${formatNumber(metrics.corridorArea, 1)} m2` : "-"],
-    ["Net/Gross", metrics ? formatNumber(metrics.netGrossRatio, 3) : floorplate ? formatNumber(floorplate.usableArea / Math.max(1, floorplate.grossArea), 3) : "-"],
+    ["Net/Gross", netGross],
     ["Checks", checks.length ? (failed.length ? `${failed.length} open` : `${checks.length} passed`) : "-"]
   ];
 
@@ -1903,11 +1978,15 @@ function renderVariants(output) {
     const hypergraph = variant.topology ? variant.topology.hypergraph : null;
     const scoreWidth = Math.round(clamp(metrics.score || 0, 0, 1) * 100);
     const mix = unitMixSummary(units);
+    const errorText = errors ? `${errors} fail${errors === 1 ? "" : "s"}` : "";
+    const warningText = warnings.length
+      ? `${warnings.length} warning${warnings.length === 1 ? "" : "s"}`
+      : "";
     const checkText = checks.length === 0
       ? "No checks"
       : failedChecks.length === 0
         ? `${checks.length} checks passed`
-        : `${errors ? `${errors} fail${errors === 1 ? "" : "s"}` : ""}${errors && warnings.length ? ", " : ""}${warnings.length ? `${warnings.length} warning${warnings.length === 1 ? "" : "s"}` : ""}`;
+        : `${errorText}${errors && warnings.length ? ", " : ""}${warningText}`;
     const item = document.createElement("button");
     item.type = "button";
     item.className = `variant-item${variant.variantId === state.selectedVariantId ? " active" : ""}`;
@@ -1943,14 +2022,13 @@ function renderVariants(output) {
 }
 
 function renderDiagnostics(output) {
-  const diagnostics = collectDiagnostics(output);
-  const warningCount = diagnostics.filter((item) => String(item.severity || "").toLowerCase() !== "error").length;
-  const errorCount = diagnostics.length - warningCount;
+  const summary = diagnosticSummary(output);
+  const diagnostics = summary.diagnostics;
   els.issueCountLabel.textContent = diagnostics.length === 0
     ? "0"
-    : errorCount
-      ? `${errorCount} fail${errorCount === 1 ? "" : "s"}`
-      : `${warningCount} warning${warningCount === 1 ? "" : "s"}`;
+    : summary.errorCount
+      ? `${summary.errorCount} fail${summary.errorCount === 1 ? "" : "s"}`
+      : `${summary.reviewNoteCount} note${summary.reviewNoteCount === 1 ? "" : "s"}`;
   if (diagnostics.length === 0) {
     els.diagnosticList.innerHTML = `<div class="empty-list good">No blocking issues found. This variant is ready to review or export.</div>`;
     return;
@@ -1965,7 +2043,16 @@ function renderDiagnostics(output) {
       <div class="diagnostic-message">${escapeHtml(friendlyDiagnosticMessage(diagnostic))}</div>
       ${diagnostic.sourceId ? `<div class="diagnostic-source">${escapeHtml(diagnostic.sourceId)}</div>` : ""}
     </div>
-  `).join("") + (diagnostics.length > 10 ? `<div class="empty-list">${diagnostics.length - 10} more issue${diagnostics.length - 10 === 1 ? "" : "s"} in Output JSON</div>` : "");
+  `).join("");
+
+  const hiddenDiagnosticCount = diagnostics.length - 10;
+  if (hiddenDiagnosticCount > 0) {
+    els.diagnosticList.innerHTML += `
+      <div class="empty-list">
+        ${hiddenDiagnosticCount} more review note${hiddenDiagnosticCount === 1 ? "" : "s"} in Output JSON
+      </div>
+    `;
+  }
 }
 
 function renderSchedule(output) {
@@ -2063,11 +2150,16 @@ function renderValidation(output) {
   }
 
   const passed = checks.length - notPassed.length;
+  const validationMessage = errors.length
+    ? "Resolve blocking checks before export."
+    : warnings.length
+      ? "Warnings are review items; the generated plan is still inspectable."
+      : "Validation is clear for the selected variant.";
   const summary = `
     <div class="check-item ${errors.length ? "failed" : warnings.length ? "warning" : "passed"}">
       <span>${errors.length ? "Fail" : warnings.length ? "Warn" : "Pass"}</span>
       <strong>${passed}/${checks.length} checks passed</strong>
-      <em>${errors.length ? "Resolve blocking checks before export." : warnings.length ? "Warnings are review items; the generated plan is still inspectable." : "Validation is clear for the selected variant."}</em>
+      <em>${validationMessage}</em>
     </div>
   `;
 
@@ -2116,6 +2208,9 @@ function renderExportSummary(output) {
   const validation = summarizeValidation(variant);
   const schema = output.metadata ? output.metadata.schemaVersion : "-";
   const layers = output.metadata && output.metadata.layers ? Object.keys(output.metadata.layers).length : 0;
+  const rhinoSummary = variant
+    ? `${countOf(variant.units)} units, ${countOf(variant.rooms)} rooms, ${countOf(variant.walls)} walls`
+    : "Generate a variant first";
 
   els.exportSummary.innerHTML = `
     <div>
@@ -2128,7 +2223,7 @@ function renderExportSummary(output) {
     </div>
     <div>
       <span>Rhino / Grasshopper</span>
-      <strong>${escapeHtml(variant ? `${countOf(variant.units)} units, ${countOf(variant.rooms)} rooms, ${countOf(variant.walls)} walls` : "Generate a variant first")}</strong>
+      <strong>${escapeHtml(rhinoSummary)}</strong>
       <button type="button" data-export-action="copy-rhino">Copy Rhino</button>
     </div>
     <div>
@@ -2250,7 +2345,7 @@ function handleExportAction(event) {
   const rawOutputActions = new Set(["download-json", "copy-json", "save-svg"]);
   const variantRequiredActions = new Set(["copy-rhino", "copy-ifc", "copy-hypergraph", "download-hypergraph"]);
   const generatedAction = rawOutputActions.has(action) || variantRequiredActions.has(action);
-  if (generatedAction && (!state.response || state.inputDirty)) {
+  if (generatedAction && (!state.response || state.inputDirty || (action === "save-svg" && state.previewStale))) {
     setStatus("Regenerate before exporting generated output");
     return;
   }
@@ -2436,7 +2531,9 @@ function hypergraphDiagramSvg(hypergraph) {
     edge.members.forEach((member) => {
       const nodePosition = nodePositions.get(member.nodeId);
       if (nodePosition && edgePosition) {
-        lines.push(`<line class="hypergraph-link" x1="${nodePosition.x + 86}" y1="${nodePosition.y}" x2="${edgePosition.x - 86}" y2="${edgePosition.y}"></line>`);
+        lines.push(
+          `<line class="hypergraph-link" x1="${nodePosition.x + 86}" y1="${nodePosition.y}" ` +
+          `x2="${edgePosition.x - 86}" y2="${edgePosition.y}"></line>`);
       }
     });
   });
@@ -2481,6 +2578,11 @@ function incidencePreview(hypergraph) {
     return `<div class="empty-list">Matrix preview unavailable</div>`;
   }
 
+  const caption =
+    `Showing ${rows.length} of ${countOf(matrices.nodeOrder)} nodes and ` +
+    `${edgeOrder.length} of ${countOf(matrices.hyperedgeOrder)} hyperedges. ` +
+    "Nonzero cells show weighted incidence values.";
+
   return `
     <table class="matrix-preview">
       <thead>
@@ -2502,7 +2604,7 @@ function incidencePreview(hypergraph) {
         `).join("")}
       </tbody>
     </table>
-    <div class="matrix-caption">Showing ${rows.length} of ${countOf(matrices.nodeOrder)} nodes and ${edgeOrder.length} of ${countOf(matrices.hyperedgeOrder)} hyperedges. Nonzero cells show weighted incidence values.</div>
+    <div class="matrix-caption">${caption}</div>
   `;
 }
 
@@ -2545,6 +2647,31 @@ function collectDiagnostics(output) {
     .filter((diagnostic) => diagnostic && diagnostic.severity !== "info");
 }
 
+function diagnosticSummary(output) {
+  const diagnostics = collectDiagnostics(output);
+  const errorCount = diagnostics
+    .filter((item) => String(item.severity || "").toLowerCase() === "error")
+    .length;
+
+  return {
+    diagnostics,
+    errorCount,
+    reviewNoteCount: diagnostics.length - errorCount
+  };
+}
+
+function diagnosticSubtitleText(summary) {
+  if (!summary || summary.diagnostics.length === 0) {
+    return "";
+  }
+
+  if (summary.errorCount) {
+    return `${summary.errorCount} blocking issue${summary.errorCount === 1 ? "" : "s"}`;
+  }
+
+  return `${summary.reviewNoteCount} review note${summary.reviewNoteCount === 1 ? "" : "s"}`;
+}
+
 function renderError(code, message) {
   const output = {
     status: "failed",
@@ -2556,7 +2683,10 @@ function renderError(code, message) {
     }
   };
   state.response = { output, status: "failed", variantCount: 0, validVariantCount: 0 };
-  state.selectedVariantId = "";
+  if (!state.lastPreviewResponse) {
+    state.selectedVariantId = "";
+  }
+  state.previewStale = Boolean(state.lastPreviewResponse);
   renderAll();
 }
 

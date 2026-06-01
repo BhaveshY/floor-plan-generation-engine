@@ -4,11 +4,16 @@ using System.IO;
 using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Threading.Tasks;
 using FloorPlanGeneration;
 using FloorPlanGeneration.Schema;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
+
+const int MaxGenerateRequestBodyKilobytes = 256;
+const long MaxGenerateRequestBodyBytes = MaxGenerateRequestBodyKilobytes * 1024L;
+const int RequestReadBufferBytes = 16 * 1024;
 
 Dictionary<string, string> samples = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
 {
@@ -42,6 +47,8 @@ app.Use(async (context, next) =>
 {
     context.Response.OnStarting(() =>
     {
+        ApplyBrowserSecurityHeaders(context.Response);
+
         if (ShouldDisableFrontendCache(context.Request.Path))
         {
             DisableFrontendCache(context.Response);
@@ -111,7 +118,8 @@ app.MapGet("/api/manifest", () => Results.Json(new
     limits = new
     {
         variantsMin = 1,
-        variantsMax = 20
+        variantsMax = 20,
+        requestBodyMaxKb = MaxGenerateRequestBodyKilobytes
     },
     automationNotes = new[]
     {
@@ -171,14 +179,19 @@ app.MapGet("/api/schemas/{kind}", (string kind) =>
 
 app.MapPost("/api/generate", async (HttpRequest httpRequest) =>
 {
+    if (!IsJsonRequest(httpRequest))
+    {
+        return UnsupportedMediaTypeResult();
+    }
+
     GenerationRequest request;
     try
     {
-        request = await JsonSerializer.DeserializeAsync<GenerationRequest>(httpRequest.Body, EngineJsonOptions());
-        if (request == null)
-        {
-            throw new ArgumentException("Request body is required.");
-        }
+        request = await ReadGenerationRequestAsync(httpRequest);
+    }
+    catch (PayloadTooLargeException)
+    {
+        return PayloadTooLargeResult();
     }
     catch (Exception ex) when (ex is ArgumentException || ex is JsonException || ex is IOException)
     {
@@ -243,6 +256,94 @@ static void DisableFrontendCache(HttpResponse response)
     response.Headers.CacheControl = "no-store, no-cache, must-revalidate";
     response.Headers.Pragma = "no-cache";
     response.Headers.Expires = "0";
+}
+
+static void ApplyBrowserSecurityHeaders(HttpResponse response)
+{
+    const string contentSecurityPolicy =
+        "default-src 'self'; " +
+        "script-src 'self'; " +
+        "style-src 'self' 'unsafe-inline'; " +
+        "img-src 'self' data: blob:; " +
+        "connect-src 'self'; " +
+        "object-src 'none'; " +
+        "base-uri 'self'; " +
+        "form-action 'self'; " +
+        "frame-ancestors 'none'";
+
+    response.Headers["Content-Security-Policy"] = contentSecurityPolicy;
+    response.Headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=(), clipboard-write=(self)";
+    response.Headers["Referrer-Policy"] = "no-referrer";
+    response.Headers["X-Content-Type-Options"] = "nosniff";
+    response.Headers["X-Frame-Options"] = "DENY";
+}
+
+static bool IsJsonRequest(HttpRequest httpRequest)
+{
+    string contentType = httpRequest.ContentType ?? string.Empty;
+    int parameterStart = contentType.IndexOf(';');
+    string mediaType = parameterStart >= 0
+        ? contentType.Substring(0, parameterStart).Trim()
+        : contentType.Trim();
+
+    return string.Equals(mediaType, "application/json", StringComparison.OrdinalIgnoreCase)
+        || mediaType.EndsWith("+json", StringComparison.OrdinalIgnoreCase);
+}
+
+static async Task<GenerationRequest> ReadGenerationRequestAsync(HttpRequest httpRequest)
+{
+    if (httpRequest.ContentLength.HasValue
+        && httpRequest.ContentLength.Value > MaxGenerateRequestBodyBytes)
+    {
+        throw new PayloadTooLargeException();
+    }
+
+    using MemoryStream body = new MemoryStream();
+    byte[] buffer = new byte[RequestReadBufferBytes];
+    while (true)
+    {
+        int bytesRead = await httpRequest.Body.ReadAsync(buffer, 0, buffer.Length);
+        if (bytesRead == 0)
+        {
+            break;
+        }
+
+        if (body.Length + bytesRead > MaxGenerateRequestBodyBytes)
+        {
+            throw new PayloadTooLargeException();
+        }
+
+        body.Write(buffer, 0, bytesRead);
+    }
+
+    body.Position = 0;
+    GenerationRequest request = await JsonSerializer.DeserializeAsync<GenerationRequest>(
+        body,
+        EngineJsonOptions());
+    if (request == null)
+    {
+        throw new ArgumentException("Request body is required.");
+    }
+
+    return request;
+}
+
+static IResult PayloadTooLargeResult()
+{
+    return Results.Json(new
+    {
+        error = "payload_too_large",
+        message = "Generation requests must be 256 KB or smaller."
+    }, statusCode: StatusCodes.Status413PayloadTooLarge);
+}
+
+static IResult UnsupportedMediaTypeResult()
+{
+    return Results.Json(new
+    {
+        error = "unsupported_media_type",
+        message = "Generation requests must use Content-Type: application/json."
+    }, statusCode: StatusCodes.Status415UnsupportedMediaType);
 }
 
 static EngineInput ResolveInput(GenerationRequest request, Dictionary<string, string> samples)
@@ -319,7 +420,9 @@ static object BuildResponse(EngineOutput output, bool validateOnly)
         projectId = output.ProjectId,
         schemaVersion = output.Metadata != null ? output.Metadata.SchemaVersion : "1.2",
         variantCount = output.Variants != null ? output.Variants.Count : 0,
-        validVariantCount = output.Variants != null ? output.Variants.Count(v => v.Validation != null && v.Validation.Passed) : 0,
+        validVariantCount = output.Variants != null
+            ? output.Variants.Count(v => v.Validation != null && v.Validation.Passed)
+            : 0,
         diagnosticCount = output.Diagnostics != null ? output.Diagnostics.Count : 0,
         bestVariantId = best != null ? best.VariantId : string.Empty,
         bestScore = best != null && best.Metrics != null ? best.Metrics.Score : 0.0,
@@ -433,6 +536,10 @@ public sealed class GenerationRequest
     public int? Seed { get; set; }
     public int? Variants { get; set; }
     public bool ValidateOnly { get; set; }
+}
+
+public sealed class PayloadTooLargeException : Exception
+{
 }
 
 public partial class Program

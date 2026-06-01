@@ -639,6 +639,34 @@ namespace FloorPlanGeneration.Tests
                     manifest.RootElement.GetProperty("endpoints").EnumerateArray(),
                     endpoint => endpoint.GetProperty("path").GetString() == "/api/generate");
                 Assert.Equal(20, manifest.RootElement.GetProperty("limits").GetProperty("variantsMax").GetInt32());
+                Assert.Equal(256, manifest.RootElement.GetProperty("limits").GetProperty("requestBodyMaxKb").GetInt32());
+            }
+        }
+
+        [Theory]
+        [InlineData("/")]
+        [InlineData("/api/health")]
+        public async Task WebAppResponses_IncludeBrowserSecurityHeaders(string path)
+        {
+            using (WebApplicationFactory<global::Program> factory = new WebApplicationFactory<global::Program>())
+            using (HttpClient client = factory.CreateClient())
+            using (HttpResponseMessage response = await client.GetAsync(path))
+            {
+                response.EnsureSuccessStatusCode();
+
+                AssertHeader(response, "X-Content-Type-Options", "nosniff");
+                AssertHeader(response, "Referrer-Policy", "no-referrer");
+                AssertHeader(response, "X-Frame-Options", "DENY");
+                AssertHeader(
+                    response,
+                    "Permissions-Policy",
+                    "camera=(), microphone=(), geolocation=(), clipboard-write=(self)");
+
+                string csp = AssertHeader(response, "Content-Security-Policy");
+                Assert.Contains("default-src 'self'", csp, StringComparison.Ordinal);
+                Assert.Contains("script-src 'self'", csp, StringComparison.Ordinal);
+                Assert.Contains("object-src 'none'", csp, StringComparison.Ordinal);
+                Assert.Contains("frame-ancestors 'none'", csp, StringComparison.Ordinal);
             }
         }
 
@@ -658,6 +686,44 @@ namespace FloorPlanGeneration.Tests
                 using JsonDocument body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
                 Assert.Equal("invalid_request", body.RootElement.GetProperty("error").GetString());
                 Assert.Contains("Request JSON could not be bound", body.RootElement.GetProperty("message").GetString(), StringComparison.Ordinal);
+            }
+        }
+
+        [Fact]
+        public async Task WebApiGenerateOversizedRequest_ReturnsPayloadTooLarge()
+        {
+            using (WebApplicationFactory<global::Program> factory = new WebApplicationFactory<global::Program>())
+            using (HttpClient client = factory.CreateClient())
+            using (HttpContent content = new StringContent(
+                "{ \"sampleName\": \"rectangular-core\", \"padding\": \"" + new string('x', 270_000) + "\" }",
+                System.Text.Encoding.UTF8,
+                "application/json"))
+            {
+                HttpResponseMessage response = await client.PostAsync("/api/generate", content);
+
+                Assert.Equal(System.Net.HttpStatusCode.RequestEntityTooLarge, response.StatusCode);
+                using JsonDocument body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+                Assert.Equal("payload_too_large", body.RootElement.GetProperty("error").GetString());
+                Assert.Contains("256 KB", body.RootElement.GetProperty("message").GetString(), StringComparison.Ordinal);
+            }
+        }
+
+        [Fact]
+        public async Task WebApiGenerateNonJsonContent_ReturnsUnsupportedMediaType()
+        {
+            using (WebApplicationFactory<global::Program> factory = new WebApplicationFactory<global::Program>())
+            using (HttpClient client = factory.CreateClient())
+            using (HttpContent content = new StringContent(
+                "{ \"sampleName\": \"rectangular-core\" }",
+                System.Text.Encoding.UTF8,
+                "text/plain"))
+            {
+                HttpResponseMessage response = await client.PostAsync("/api/generate", content);
+
+                Assert.Equal(System.Net.HttpStatusCode.UnsupportedMediaType, response.StatusCode);
+                using JsonDocument body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+                Assert.Equal("unsupported_media_type", body.RootElement.GetProperty("error").GetString());
+                Assert.Contains("application/json", body.RootElement.GetProperty("message").GetString(), StringComparison.Ordinal);
             }
         }
 
@@ -722,8 +788,14 @@ namespace FloorPlanGeneration.Tests
         [Fact]
         public void ModeratelyIrregularSampleJson_GeneratesValidOutput()
         {
-            string outputPath = Path.Combine(Path.GetTempPath(), "floor-plan-irregular-" + System.Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture) + ".json");
-            string inputPath = Path.Combine(RepositoryRoot(), "samples", "floor-plan-generation", "moderately-irregular-core-input.json");
+            string outputPath = Path.Combine(
+                Path.GetTempPath(),
+                "floor-plan-irregular-" + System.Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture) + ".json");
+            string inputPath = Path.Combine(
+                RepositoryRoot(),
+                "samples",
+                "floor-plan-generation",
+                "moderately-irregular-core-input.json");
 
             try
             {
@@ -798,6 +870,24 @@ namespace FloorPlanGeneration.Tests
                 PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
                 DictionaryKeyPolicy = JsonNamingPolicy.CamelCase
             };
+        }
+
+        private static string AssertHeader(
+            HttpResponseMessage response,
+            string headerName,
+            string expectedValue = null)
+        {
+            Assert.True(
+                response.Headers.TryGetValues(headerName, out IEnumerable<string> values),
+                "Missing response header " + headerName + ".");
+
+            string actualValue = Assert.Single(values);
+            if (expectedValue != null)
+            {
+                Assert.Equal(expectedValue, actualValue);
+            }
+
+            return actualValue;
         }
 
         private static FloorPlanHypergraph CloneHypergraph(FloorPlanHypergraph hypergraph)
