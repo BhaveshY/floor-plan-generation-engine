@@ -807,13 +807,13 @@ function renderPreview(output) {
   if (!bounds || bounds.width <= 0 || bounds.height <= 0) {
     els.planSvg.removeAttribute("viewBox");
     els.planSvg.dataset.viewMode = state.viewMode;
-    els.emptyPreview.style.display = "grid";
+    els.emptyPreview.hidden = false;
     els.emptyPreview.textContent = "No plan available";
     renderLegend(false);
     return;
   }
 
-  els.emptyPreview.style.display = variant ? "none" : "grid";
+  els.emptyPreview.hidden = Boolean(variant);
   els.emptyPreview.textContent = "Input outline";
   els.planSvg.dataset.viewMode = state.viewMode;
   const viewBox = previewViewBox(bounds, state.zoom);
@@ -1996,7 +1996,7 @@ function renderVariants(output) {
         <span>#${index + 1} ${escapeHtml(variant.variantId)}</span>
         <span class="pill ${escapeHtml(variant.status)}">${escapeHtml(friendlyStatus(variant.status))}</span>
       </div>
-      <div class="variant-card-body" style="display:flex;gap:10px;align-items:center;margin-top:8px;">
+      <div class="variant-card-body">
         ${variantThumbnailSvg(variant, state.input)}
         <div>
           <div class="variant-meta">
@@ -2010,7 +2010,7 @@ function renderVariants(output) {
           </div>
         </div>
       </div>
-      <div class="score-bar" aria-label="Variant score ${scoreWidth}%"><i style="width:${scoreWidth}%"></i></div>
+      <progress class="score-bar" value="${scoreWidth}" max="100" aria-label="Variant score ${scoreWidth}%"></progress>
     `;
     item.addEventListener("click", () => {
       state.selectedVariantId = variant.variantId;
@@ -2306,7 +2306,7 @@ function renderHypergraphPreview(output) {
       <div class="matrix-caption">Showing ${treeRows.length} of ${totalTreeRows} DataNode rows. Full tree is in Output JSON.</div>
       <ul class="node-tree">
         ${treeRows.map((row) => `
-          <li style="--depth:${row.depth}">
+          <li class="${depthClass(row.depth)}">
             <b>${escapeHtml(row.name)}</b>
             <em>${row.final ? "final" : "branch"}${row.area ? ` - ${formatNumber(row.area, 1)} m2` : ""}</em>
           </li>
@@ -2328,6 +2328,10 @@ function renderHypergraphPreview(output) {
       ${incidencePreview(hypergraph)}
     </div>
   `;
+}
+
+function depthClass(depth) {
+  return `node-depth-${clamp(Math.round(Number(depth) || 0), 0, 12)}`;
 }
 
 function handleExportAction(event) {
@@ -2954,8 +2958,7 @@ async function copyText(text, successMessage) {
     const scratch = document.createElement("textarea");
     scratch.value = text;
     scratch.setAttribute("readonly", "readonly");
-    scratch.style.position = "fixed";
-    scratch.style.left = "-1000px";
+    scratch.className = "clipboard-scratch";
     document.body.appendChild(scratch);
     scratch.select();
     document.execCommand("copy");

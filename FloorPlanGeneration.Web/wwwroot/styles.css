@@ -31,6 +31,10 @@
   box-sizing: border-box;
 }
 
+[hidden] {
+  display: none !important;
+}
+
 html,
 body {
   min-height: 100%;
@@ -711,6 +715,15 @@ input[type="checkbox"] {
   white-space: nowrap;
 }
 
+.clipboard-scratch {
+  position: fixed;
+  left: -1000px;
+  top: 0;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
 textarea {
   width: 100%;
   min-height: 320px;
@@ -1214,16 +1227,28 @@ textarea.dragging {
 }
 
 .score-bar {
+  appearance: none;
+  display: block;
+  width: 100%;
   height: 7px;
   margin-top: 10px;
   overflow: hidden;
+  border: 0;
   border-radius: 999px;
   background: #edf1f4;
 }
 
-.score-bar i {
-  display: block;
-  height: 100%;
+.score-bar::-webkit-progress-bar {
+  border-radius: inherit;
+  background: #edf1f4;
+}
+
+.score-bar::-webkit-progress-value {
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--teal), #59b89f);
+}
+
+.score-bar::-moz-progress-bar {
   border-radius: inherit;
   background: linear-gradient(90deg, var(--teal), #59b89f);
 }
@@ -1633,11 +1658,50 @@ td {
 }
 
 .node-tree li {
-  margin-left: calc(var(--depth) * 12px);
   padding: 7px 8px;
   border: 1px solid var(--line);
   border-radius: 6px;
   background: var(--surface);
+}
+
+.node-depth-0 {
+  margin-left: 0;
+}
+
+.node-depth-1 {
+  margin-left: 12px;
+}
+
+.node-depth-2 {
+  margin-left: 24px;
+}
+
+.node-depth-3 {
+  margin-left: 36px;
+}
+
+.node-depth-4 {
+  margin-left: 48px;
+}
+
+.node-depth-5 {
+  margin-left: 60px;
+}
+
+.node-depth-6 {
+  margin-left: 72px;
+}
+
+.node-depth-7 {
+  margin-left: 84px;
+}
+
+.node-depth-8,
+.node-depth-9,
+.node-depth-10,
+.node-depth-11,
+.node-depth-12 {
+  margin-left: 96px;
 }
 
 .node-tree b,

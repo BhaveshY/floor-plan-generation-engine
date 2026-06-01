@@ -665,6 +665,8 @@ namespace FloorPlanGeneration.Tests
                 string csp = AssertHeader(response, "Content-Security-Policy");
                 Assert.Contains("default-src 'self'", csp, StringComparison.Ordinal);
                 Assert.Contains("script-src 'self'", csp, StringComparison.Ordinal);
+                Assert.Contains("style-src 'self'", csp, StringComparison.Ordinal);
+                Assert.DoesNotContain("'unsafe-inline'", csp, StringComparison.Ordinal);
                 Assert.Contains("object-src 'none'", csp, StringComparison.Ordinal);
                 Assert.Contains("frame-ancestors 'none'", csp, StringComparison.Ordinal);
             }

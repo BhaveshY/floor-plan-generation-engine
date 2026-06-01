@@ -32,6 +32,23 @@ namespace FloorPlanGeneration.Tests
         }
 
         [Fact]
+        public void WebAssetsAvoidInlineStylesSoCspCanStayStrict()
+        {
+            string app = ReadWebFile("app.js");
+            string index = ReadWebFile("index.html");
+            string styles = ReadWebFile("styles.css");
+
+            Assert.DoesNotContain("style=\"", app, StringComparison.Ordinal);
+            Assert.DoesNotContain(".style.", app, StringComparison.Ordinal);
+            Assert.DoesNotContain("style=\"", index, StringComparison.Ordinal);
+            Assert.Contains("els.emptyPreview.hidden", app, StringComparison.Ordinal);
+            Assert.Contains("class=\"score-bar\"", app, StringComparison.Ordinal);
+            Assert.Contains("node-depth-", app, StringComparison.Ordinal);
+            Assert.Contains(".clipboard-scratch", styles, StringComparison.Ordinal);
+            Assert.Contains(".score-bar::-webkit-progress-value", styles, StringComparison.Ordinal);
+        }
+
+        [Fact]
         public void SetupEditsPreserveGeneratedResponseUntilRegeneration()
         {
             string app = ReadWebFile("app.js");
