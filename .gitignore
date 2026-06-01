@@ -13,5 +13,7 @@ TestResults/
 *.suo
 *.nupkg
 .dotnet/
+.dotnet_home/
+.nuget/
 .tools/
 outputs/

@@ -21,7 +21,11 @@ get_dotnet() {
   echo "Installing a local .NET 8 SDK for this folder..." >&2
   mkdir -p "$REPO_ROOT/.dotnet"
   curl -fsSL https://dot.net/v1/dotnet-install.sh -o "$REPO_ROOT/.dotnet/dotnet-install.sh"
-  bash "$REPO_ROOT/.dotnet/dotnet-install.sh" --channel 8.0 --install-dir "$REPO_ROOT/.dotnet" --no-path
+  bash "$REPO_ROOT/.dotnet/dotnet-install.sh" --channel 8.0 --install-dir "$REPO_ROOT/.dotnet" --no-path >&2
+  if ! [ -x "$LOCAL_DOTNET" ] || ! "$LOCAL_DOTNET" --list-sdks 2>/dev/null | grep -Eq '^8\.'; then
+    echo "Local .NET 8 SDK install did not produce a runnable dotnet binary at $LOCAL_DOTNET" >&2
+    exit 1
+  fi
   printf '%s\n' "$LOCAL_DOTNET"
 }
 

@@ -55,6 +55,23 @@ namespace FloorPlanGeneration.Tests
         }
 
         [Fact]
+        public void FailedOutputsKeepDiagnosticJsonButDisableVariantOnlyExports()
+        {
+            string app = ReadWebFile("app.js");
+            string updateExportActions = SliceFunction(app, "updateExportActions");
+            string handleExportAction = SliceFunction(app, "handleExportAction");
+
+            Assert.Contains("const hasVariant = Boolean(selectedVariant(output))", updateExportActions, StringComparison.Ordinal);
+            Assert.Contains("const rawOutputActions = new Set", updateExportActions, StringComparison.Ordinal);
+            Assert.Contains("const variantRequiredActions = new Set", updateExportActions, StringComparison.Ordinal);
+            Assert.Contains("rawOutputActions.has(action)", updateExportActions, StringComparison.Ordinal);
+            Assert.Contains("variantRequiredActions.has(action)", updateExportActions, StringComparison.Ordinal);
+            Assert.Contains("!hasVariant", updateExportActions, StringComparison.Ordinal);
+            Assert.Contains("variantRequiredActions.has(action) && !selectedVariant(output)", handleExportAction, StringComparison.Ordinal);
+            Assert.Contains("Generate a variant before exporting adapter payloads", handleExportAction, StringComparison.Ordinal);
+        }
+
+        [Fact]
         public void BusyAndDragStatesDoNotDoubleRunOrExportStaleOutput()
         {
             string app = ReadWebFile("app.js");
@@ -113,6 +130,19 @@ namespace FloorPlanGeneration.Tests
             Assert.Contains(".guided-steps button", styles, StringComparison.Ordinal);
             Assert.Contains(".setup-guide-actions", styles, StringComparison.Ordinal);
             Assert.Contains(".setup-review-card", styles, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void MobileGuidedSetupStepsWrapInsteadOfHidingLaterSteps()
+        {
+            string styles = ReadWebFile("styles.css");
+            string narrowMedia = SliceCssBlock(styles, "@media (max-width: 430px)");
+
+            Assert.Contains(".guided-steps", narrowMedia, StringComparison.Ordinal);
+            Assert.Contains("grid-template-columns: repeat(2, minmax(0, 1fr))", narrowMedia, StringComparison.Ordinal);
+            Assert.Contains("overflow-x: visible", narrowMedia, StringComparison.Ordinal);
+            Assert.Contains(".guided-steps button", narrowMedia, StringComparison.Ordinal);
+            Assert.Contains("white-space: normal", narrowMedia, StringComparison.Ordinal);
         }
 
         [Fact]
@@ -325,6 +355,14 @@ namespace FloorPlanGeneration.Tests
             Assert.True(earlierIndex >= 0, "Missing expected text: " + earlier + ".");
             Assert.True(laterIndex >= 0, "Missing expected text: " + later + ".");
             Assert.True(earlierIndex < laterIndex, message);
+        }
+
+        private static string SliceCssBlock(string source, string marker)
+        {
+            int start = source.IndexOf(marker, StringComparison.Ordinal);
+            Assert.True(start >= 0, "Missing CSS marker " + marker + ".");
+            int next = source.IndexOf("\n@media ", start + marker.Length, StringComparison.Ordinal);
+            return next > start ? source.Substring(start, next - start) : source.Substring(start);
         }
 
         private static string RepositoryRoot()

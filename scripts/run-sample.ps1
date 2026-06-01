@@ -37,7 +37,10 @@ function Get-Dotnet {
     Write-Host "Installing a local .NET 8 SDK for this folder..."
     $installScript = Join-Path $env:TEMP "dotnet-install.ps1"
     Invoke-WebRequest -Uri "https://dot.net/v1/dotnet-install.ps1" -OutFile $installScript
-    & $installScript -Channel 8.0 -InstallDir (Join-Path $repoRoot ".dotnet") -NoPath
+    & $installScript -Channel 8.0 -InstallDir (Join-Path $repoRoot ".dotnet") -NoPath 2>&1 | ForEach-Object { Write-Host $_ }
+    if (!(Test-Dotnet8 $localDotnet)) {
+        throw "Local .NET 8 SDK install did not produce a runnable dotnet binary at $localDotnet"
+    }
     return $localDotnet
 }
 

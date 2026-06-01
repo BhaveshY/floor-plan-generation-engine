@@ -2074,6 +2074,18 @@ pre {
 }
 
 @media (max-width: 430px) {
+  .guided-steps {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    overflow-x: visible;
+  }
+
+  .guided-steps button {
+    justify-content: center;
+    white-space: normal;
+    width: 100%;
+  }
+
   .field-grid,
   .metrics-row {
     grid-template-columns: 1fr;

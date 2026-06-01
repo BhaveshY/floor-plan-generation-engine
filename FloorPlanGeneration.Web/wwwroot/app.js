@@ -531,15 +531,18 @@ function renderAll() {
 
 function updateExportActions(output) {
   const exportReady = Boolean(output && !state.inputDirty && !state.busy);
+  const hasVariant = Boolean(selectedVariant(output));
   const hasPreview = Boolean(els.planSvg.childElementCount);
-  const generatedActions = new Set([
-    "copy-rhino",
-    "copy-ifc",
+  const rawOutputActions = new Set([
     "download-json",
     "copy-json",
-    "copy-hypergraph",
-    "download-hypergraph",
     "save-svg"
+  ]);
+  const variantRequiredActions = new Set([
+    "copy-rhino",
+    "copy-ifc",
+    "copy-hypergraph",
+    "download-hypergraph"
   ]);
   document.querySelectorAll("[data-export-action]").forEach((button) => {
     const action = button.getAttribute("data-export-action");
@@ -548,8 +551,13 @@ function updateExportActions(output) {
       return;
     }
 
-    if (generatedActions.has(action)) {
+    if (rawOutputActions.has(action)) {
       button.disabled = !exportReady || (action === "save-svg" && !hasPreview);
+      return;
+    }
+
+    if (variantRequiredActions.has(action)) {
+      button.disabled = !exportReady || !hasVariant;
     }
   });
   els.saveSvgBtn.disabled = !exportReady || !hasPreview;
@@ -2238,9 +2246,16 @@ function handleExportAction(event) {
   }
 
   const action = button.getAttribute("data-export-action");
-  const generatedAction = action !== "copy-cli" && action !== "copy-api";
+  const output = state.response ? state.response.output : null;
+  const rawOutputActions = new Set(["download-json", "copy-json", "save-svg"]);
+  const variantRequiredActions = new Set(["copy-rhino", "copy-ifc", "copy-hypergraph", "download-hypergraph"]);
+  const generatedAction = rawOutputActions.has(action) || variantRequiredActions.has(action);
   if (generatedAction && (!state.response || state.inputDirty)) {
     setStatus("Regenerate before exporting generated output");
+    return;
+  }
+  if (variantRequiredActions.has(action) && !selectedVariant(output)) {
+    setStatus("Generate a variant before exporting adapter payloads");
     return;
   }
 
