@@ -811,6 +811,25 @@ namespace FloorPlanGeneration.Tests
         }
 
         [Fact]
+        public async Task WebApiGenerate_DisablesResponseCaching()
+        {
+            using (WebApplicationFactory<global::Program> factory = new WebApplicationFactory<global::Program>())
+            using (HttpClient client = factory.CreateClient())
+            {
+                using HttpResponseMessage response = await client.PostAsJsonAsync("/api/generate", new
+                {
+                    sampleName = "rectangular-core",
+                    variants = 1
+                });
+
+                response.EnsureSuccessStatusCode();
+
+                AssertNoStoreResponseCaching(response);
+                AssertHeader(response, "Pragma", "no-cache");
+            }
+        }
+
+        [Fact]
         public void CliSample_GeneratesOutputWithoutManualInputPath()
         {
             StringWriter stdout = new StringWriter(CultureInfo.InvariantCulture);
@@ -948,6 +967,14 @@ namespace FloorPlanGeneration.Tests
             }
 
             return actualValue;
+        }
+
+        private static void AssertNoStoreResponseCaching(HttpResponseMessage response)
+        {
+            Assert.NotNull(response.Headers.CacheControl);
+            Assert.True(response.Headers.CacheControl.NoStore, "Cache-Control must include no-store.");
+            Assert.True(response.Headers.CacheControl.NoCache, "Cache-Control must include no-cache.");
+            Assert.True(response.Headers.CacheControl.MustRevalidate, "Cache-Control must include must-revalidate.");
         }
 
         private static FloorPlanHypergraph CloneHypergraph(FloorPlanHypergraph hypergraph)

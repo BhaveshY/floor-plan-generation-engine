@@ -49,9 +49,9 @@ app.Use(async (context, next) =>
     {
         ApplyBrowserSecurityHeaders(context.Response);
 
-        if (ShouldDisableFrontendCache(context.Request.Path))
+        if (ShouldDisableResponseCache(context.Request.Path))
         {
-            DisableFrontendCache(context.Response);
+            DisableResponseCache(context.Response);
         }
 
         return System.Threading.Tasks.Task.CompletedTask;
@@ -64,7 +64,7 @@ app.UseStaticFiles(new StaticFileOptions
 {
     OnPrepareResponse = context =>
     {
-        DisableFrontendCache(context.Context.Response);
+        DisableResponseCache(context.Context.Response);
     }
 });
 
@@ -233,17 +233,18 @@ app.MapFallbackToFile("index.html");
 
 app.Run();
 
-static bool ShouldDisableFrontendCache(PathString path)
+static bool ShouldDisableResponseCache(PathString path)
 {
     string value = path.Value ?? string.Empty;
     return value.Length == 0
         || value == "/"
+        || value.StartsWith("/api/", StringComparison.OrdinalIgnoreCase)
         || value.EndsWith(".html", StringComparison.OrdinalIgnoreCase)
         || value.EndsWith(".css", StringComparison.OrdinalIgnoreCase)
         || value.EndsWith(".js", StringComparison.OrdinalIgnoreCase);
 }
 
-static void DisableFrontendCache(HttpResponse response)
+static void DisableResponseCache(HttpResponse response)
 {
     response.Headers.CacheControl = "no-store, no-cache, must-revalidate";
     response.Headers.Pragma = "no-cache";
