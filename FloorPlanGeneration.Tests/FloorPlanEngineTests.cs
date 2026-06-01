@@ -769,6 +769,25 @@ namespace FloorPlanGeneration.Tests
         }
 
         [Fact]
+        public async Task WebApiGenerateUnknownSample_ReturnsGenericInputError()
+        {
+            const string sampleName = "missing-sample-reflection-check";
+            using (WebApplicationFactory<global::Program> factory = new WebApplicationFactory<global::Program>())
+            using (HttpClient client = factory.CreateClient())
+            using (HttpContent content = JsonContent.Create(new { sampleName }))
+            {
+                HttpResponseMessage response = await client.PostAsync("/api/generate", content);
+
+                Assert.Equal(System.Net.HttpStatusCode.BadRequest, response.StatusCode);
+                using JsonDocument body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+                Assert.Equal("invalid_input", body.RootElement.GetProperty("error").GetString());
+                string message = body.RootElement.GetProperty("message").GetString();
+                Assert.Equal("Input could not be resolved. Use a known sample or provide a valid input object.", message);
+                Assert.DoesNotContain(sampleName, message, StringComparison.OrdinalIgnoreCase);
+            }
+        }
+
+        [Fact]
         public async Task WebApiGenerateSample_ReturnsSuccessfulEngineOutput()
         {
             using (WebApplicationFactory<global::Program> factory = new WebApplicationFactory<global::Program>())

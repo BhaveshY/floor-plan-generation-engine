@@ -206,11 +206,7 @@ app.MapPost("/api/generate", async (HttpRequest httpRequest) =>
     }
     catch (Exception ex) when (ex is ArgumentException || ex is JsonException || ex is FileNotFoundException)
     {
-        return Results.BadRequest(new
-        {
-            error = "invalid_input",
-            message = ex.Message
-        });
+        return InvalidInputResult();
     }
 
     EngineOutput output;
@@ -353,6 +349,15 @@ static IResult InvalidRequestResult()
     {
         error = "invalid_request",
         message = "Request JSON could not be bound. Check property names and the expected body shape."
+    });
+}
+
+static IResult InvalidInputResult()
+{
+    return Results.BadRequest(new
+    {
+        error = "invalid_input",
+        message = "Input could not be resolved. Use a known sample or provide a valid input object."
     });
 }
 
