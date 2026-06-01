@@ -195,11 +195,7 @@ app.MapPost("/api/generate", async (HttpRequest httpRequest) =>
     }
     catch (Exception ex) when (ex is ArgumentException || ex is JsonException || ex is IOException)
     {
-        return Results.BadRequest(new
-        {
-            error = "invalid_request",
-            message = "Request JSON could not be bound. " + ex.Message
-        });
+        return InvalidRequestResult();
     }
 
     EngineInput input;
@@ -349,6 +345,15 @@ static IResult UnsupportedMediaTypeResult()
         error = "unsupported_media_type",
         message = "Generation requests must use Content-Type: application/json."
     }, statusCode: StatusCodes.Status415UnsupportedMediaType);
+}
+
+static IResult InvalidRequestResult()
+{
+    return Results.BadRequest(new
+    {
+        error = "invalid_request",
+        message = "Request JSON could not be bound. Check property names and the expected body shape."
+    });
 }
 
 static EngineInput ResolveInput(GenerationRequest request, Dictionary<string, string> samples)

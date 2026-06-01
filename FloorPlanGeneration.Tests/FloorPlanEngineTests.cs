@@ -724,7 +724,9 @@ namespace FloorPlanGeneration.Tests
                 Assert.Equal(System.Net.HttpStatusCode.BadRequest, response.StatusCode);
                 using JsonDocument body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
                 Assert.Equal("invalid_request", body.RootElement.GetProperty("error").GetString());
-                Assert.Contains("Request JSON could not be bound", body.RootElement.GetProperty("message").GetString(), StringComparison.Ordinal);
+                string message = body.RootElement.GetProperty("message").GetString();
+                Assert.Equal("Request JSON could not be bound. Check property names and the expected body shape.", message);
+                Assert.DoesNotContain("unexpected", message, StringComparison.OrdinalIgnoreCase);
             }
         }
 
