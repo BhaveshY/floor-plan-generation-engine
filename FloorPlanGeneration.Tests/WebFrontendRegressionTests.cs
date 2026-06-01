@@ -167,6 +167,20 @@ namespace FloorPlanGeneration.Tests
         }
 
         [Fact]
+        public void FetchJsonUsesGenericFallbackForNonJsonErrorBodies()
+        {
+            string app = ReadWebFile("app.js");
+            string fetchJson = SliceFunction(app, "fetchJson");
+
+            Assert.DoesNotContain("let message = text", fetchJson, StringComparison.Ordinal);
+            Assert.Contains("throw new Error(httpErrorMessage(response, text))", fetchJson, StringComparison.Ordinal);
+            Assert.Contains("function httpErrorMessage", app, StringComparison.Ordinal);
+            Assert.Contains("JSON.parse(text)", app, StringComparison.Ordinal);
+            Assert.Contains("parsed.message", app, StringComparison.Ordinal);
+            Assert.Contains("Request failed (${response.status || \"network\"})", app, StringComparison.Ordinal);
+        }
+
+        [Fact]
         public void FailedRegenerationKeepsLastGeneratedPreviewVisible()
         {
             string app = ReadWebFile("app.js");

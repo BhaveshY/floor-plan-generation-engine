@@ -2721,16 +2721,22 @@ async function fetchJson(url, options) {
   const response = await fetch(url, options);
   const text = await response.text();
   if (!response.ok) {
-    let message = text;
-    try {
-      const parsed = JSON.parse(text);
-      message = parsed.message || parsed.error || text;
-    } catch (_) {
-      message = text || response.statusText;
-    }
-    throw new Error(message);
+    throw new Error(httpErrorMessage(response, text));
   }
   return text ? JSON.parse(text) : null;
+}
+
+function httpErrorMessage(response, text) {
+  try {
+    const parsed = JSON.parse(text);
+    if (parsed && typeof parsed.message === "string" && parsed.message.trim()) {
+      return parsed.message.trim();
+    }
+  } catch (_) {
+    // Non-JSON responses can include framework HTML or server internals.
+  }
+
+  return `Request failed (${response.status || "network"}). Try again or check the app logs.`;
 }
 
 function clearSvg() {
