@@ -12,6 +12,11 @@ namespace FloorPlanGeneration.Tests
         [InlineData("run-web.sh")]
         public void LocalDotnetInstallLogsDoNotPolluteCapturedDotnetPath(string scriptName)
         {
+            if (OperatingSystem.IsWindows())
+            {
+                return;
+            }
+
             using TempWorkspace workspace = TempWorkspace.Create();
             string repoRoot = workspace.Root;
             string scriptsDir = Path.Combine(repoRoot, "scripts");

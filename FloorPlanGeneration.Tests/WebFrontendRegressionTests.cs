@@ -95,6 +95,9 @@ namespace FloorPlanGeneration.Tests
 
             Assert.Contains("if (!options.preserveResponse)", setInput, StringComparison.Ordinal);
             Assert.Contains("state.response = null", setInput, StringComparison.Ordinal);
+            Assert.Contains("state.dragEdit = null", setInput, StringComparison.Ordinal);
+            Assert.Contains("state.selection = null", setInput, StringComparison.Ordinal);
+            Assert.Contains("state.editReadout = state.editMode ? editSummary(state.input) : \"\"", setInput, StringComparison.Ordinal);
             Assert.Contains("setInput(parsed, { preserveResponse: true })", applyJson, StringComparison.Ordinal);
             Assert.Contains("setInput(parsed, { preserveResponse: true })", formatInput, StringComparison.Ordinal);
         }
@@ -367,8 +370,12 @@ namespace FloorPlanGeneration.Tests
             Assert.Contains("selectableAttributes(\"door\", door.id)", renderPreview, StringComparison.Ordinal);
             Assert.Contains("state.selection", selectedElementDetails, StringComparison.Ordinal);
             Assert.Contains("selectedVariant(output)", selectedElementDetails, StringComparison.Ordinal);
+            Assert.Contains("unitForRoom(variant, room)", selectedElementDetails, StringComparison.Ordinal);
+            Assert.Contains("unit: parentUnit", selectedElementDetails, StringComparison.Ordinal);
+            Assert.Contains("function unitForRoom", app, StringComparison.Ordinal);
             Assert.Contains("els.selectionInspector.innerHTML", renderSelectionInspector, StringComparison.Ordinal);
             Assert.Contains("data-inspector-action", inspectorMarkup, StringComparison.Ordinal);
+            Assert.Contains("Unit type", inspectorMarkup, StringComparison.Ordinal);
             Assert.Contains(".selection-inspector", styles, StringComparison.Ordinal);
             Assert.Contains(".selected-element", styles, StringComparison.Ordinal);
         }
@@ -397,6 +404,8 @@ namespace FloorPlanGeneration.Tests
             Assert.Contains("corridor-width", renderSelectionConstraintHandles, StringComparison.Ordinal);
             Assert.Contains("unit-target-area", applyCanvasEdit, StringComparison.Ordinal);
             Assert.Contains("ensureUnitTarget(input, edit.selection.unitType", applyCanvasEdit, StringComparison.Ordinal);
+            Assert.Contains("detail.kind === \"room\" && detail.unit", app, StringComparison.Ordinal);
+            Assert.Contains("actions.push([\"unit-more\", \"More like this\"]", app, StringComparison.Ordinal);
             Assert.Contains("input.rules.minRoomWidth", applyCanvasEdit, StringComparison.Ordinal);
             Assert.Contains("input.rules.minRoomDepth", applyCanvasEdit, StringComparison.Ordinal);
             Assert.Contains("input.rules.minCorridorWidth", applyCanvasEdit, StringComparison.Ordinal);
@@ -464,6 +473,11 @@ namespace FloorPlanGeneration.Tests
             Assert.Contains("Regenerate before exporting generated output", handleExportAction, StringComparison.Ordinal);
             Assert.Contains("buildHypergraphText()", handleExportAction, StringComparison.Ordinal);
             Assert.Contains("floor-plan-hypergraph.json", handleExportAction, StringComparison.Ordinal);
+            Assert.Contains("geometry: {", buildRhinoHandoffText, StringComparison.Ordinal);
+            Assert.Contains("units: variant.units || []", buildRhinoHandoffText, StringComparison.Ordinal);
+            Assert.Contains("rooms: variant.rooms || []", buildRhinoHandoffText, StringComparison.Ordinal);
+            Assert.Contains("walls: variant.walls || []", buildRhinoHandoffText, StringComparison.Ordinal);
+            Assert.Contains("doorsOpenings: variant.doorsOpenings || []", buildRhinoHandoffText, StringComparison.Ordinal);
             Assert.Contains("hypergraph: variant.topology ? variant.topology.hypergraph : null", buildRhinoHandoffText, StringComparison.Ordinal);
         }
 

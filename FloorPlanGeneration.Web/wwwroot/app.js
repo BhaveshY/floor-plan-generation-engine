@@ -218,6 +218,9 @@ function setInput(input, options = {}) {
   state.input = ensureInputShape(clone(input));
   state.inputDirty = false;
   clearAutoGenerate();
+  state.dragEdit = null;
+  state.selection = null;
+  state.editReadout = state.editMode ? editSummary(state.input) : "";
   if (!options.preserveResponse) {
     state.response = null;
     state.lastPreviewResponse = null;
@@ -1164,11 +1167,13 @@ function selectedElementDetails(output) {
     const room = (variant.rooms || []).find((item) => String(item.id || "") === selection.id);
     if (room) {
       const points = room.polygon ? room.polygon.points || [] : [];
+      const parentUnit = unitForRoom(variant, room);
       return {
         kind: "room",
         id: room.id,
         title: `${displayUnitType(room.type)} ${room.id}`,
         item: room,
+        unit: parentUnit,
         points,
         bounds: boundsOfPoints(points),
         area: Number(room.area) || polygonArea(points),
@@ -1225,6 +1230,22 @@ function selectedElementDetails(output) {
   return null;
 }
 
+function unitForRoom(variant, room) {
+  if (!variant || !room) {
+    return null;
+  }
+
+  const roomId = String(room.id || "");
+  const roomUnitId = String(room.unitId || "");
+  return (variant.units || []).find((unit) => {
+    if (roomUnitId && String(unit.id || "") === roomUnitId) {
+      return true;
+    }
+
+    return (unit.rooms || []).some((unitRoom) => String(unitRoom.id || unitRoom) === roomId);
+  }) || null;
+}
+
 function selectionInlineSummary(detail) {
   if (!detail) {
     return "";
@@ -1256,7 +1277,11 @@ function planActionsForDetail(detail) {
     return [["core-left", "Left"], ["core-right", "Right"], ["core-up", "Up"], ["core-down", "Down"], ["core-grow", "Grow"], ["core-shrink", "Shrink"]];
   }
   if (detail.kind === "room") {
-    return [["room-use-dimensions", "Use as room minimum"]];
+    const actions = [["room-use-dimensions", "Use as room minimum"]];
+    if (detail.unit) {
+      actions.push(["unit-more", "More like this"], ["unit-less", "Fewer like this"], ["unit-fit-area", "Fit target area"]);
+    }
+    return actions;
   }
   if (detail.kind === "corridor") {
     return [["corridor-use-width", "Use as corridor width"]];
@@ -1288,6 +1313,9 @@ function inspectorMarkup(detail) {
   } else if (detail.kind === "room") {
     rows.push(["Type", displayUnitType(detail.item.type)]);
     rows.push(["Unit", detail.item.unitId || "-"]);
+    if (detail.unit) {
+      rows.push(["Unit type", displayUnitType(detail.unit.type)]);
+    }
     rows.push(["Daylight", detail.item.hasDaylight === false ? "No" : "Yes"]);
   } else if (detail.kind === "corridor") {
     rows.push(["Width", `${formatNumber(corridorWidth(detail), 2)} m`]);
@@ -1407,7 +1435,7 @@ function adjustCoreFromInspector(action) {
 }
 
 function adjustUnitTargetFromInspector(action, detail) {
-  const unit = detail.item || {};
+  const unit = detail.kind === "room" && detail.unit ? detail.unit : detail.item || {};
   const type = unit.type || "studio";
   applyInputMutation(action === "unit-fit-area" ? "Updating target unit area" : "Updating target unit mix", 220, (input) => {
     const target = ensureUnitTarget(input, type);
@@ -3393,9 +3421,21 @@ function buildRhinoHandoffText() {
       doors: countOf(variant.doorsOpenings),
       labels: countOf(variant.labels)
     },
+    geometry: {
+      variantId: variant.variantId,
+      status: variant.status,
+      externalId: variant.externalId,
+      metrics: variant.metrics || {},
+      units: variant.units || [],
+      rooms: variant.rooms || [],
+      corridors: variant.corridors || [],
+      walls: variant.walls || [],
+      doorsOpenings: variant.doorsOpenings || [],
+      labels: variant.labels || []
+    },
     hypergraph: variant.topology ? variant.topology.hypergraph : null,
     cli: buildCliCommand(),
-    note: "Use this payload with a Rhino/Grasshopper adapter to map polygons, walls, doors, labels, layers, external ids, and topology.hypergraph."
+    note: "Adapter-ready payload with selected variant polygons, walls, doors, labels, layers, external ids, and topology.hypergraph."
   }, null, 2);
 }
 
