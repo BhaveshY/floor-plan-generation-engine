@@ -58,15 +58,53 @@ namespace FloorPlanGeneration.Tests
             string app = ReadWebFile("app.js");
             string index = ReadWebFile("index.html");
             string styles = ReadWebFile("styles.css");
+            string polygonEl = SliceFunction(app, "polygonEl");
+            string rectEl = SliceFunction(app, "rectEl");
+            string lineEl = SliceFunction(app, "lineEl");
+            string svgEl = SliceFunction(app, "svgEl");
 
             Assert.DoesNotContain("style=\"", app, StringComparison.Ordinal);
+            Assert.DoesNotContain("style=", app, StringComparison.Ordinal);
+            Assert.DoesNotContain("style:", app, StringComparison.Ordinal);
             Assert.DoesNotContain(".style.", app, StringComparison.Ordinal);
+            Assert.DoesNotContain("setAttribute(\"style", app, StringComparison.Ordinal);
             Assert.DoesNotContain("style=\"", index, StringComparison.Ordinal);
+            Assert.DoesNotContain("style=", index, StringComparison.Ordinal);
+            Assert.DoesNotContain("style:", index, StringComparison.Ordinal);
             Assert.Contains("els.emptyPreview.hidden", app, StringComparison.Ordinal);
             Assert.Contains("class=\"score-bar\"", app, StringComparison.Ordinal);
             Assert.Contains("node-depth-", app, StringComparison.Ordinal);
+            Assert.DoesNotContain("style", polygonEl, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("style", rectEl, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("style", lineEl, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("style", svgEl, StringComparison.OrdinalIgnoreCase);
             Assert.Contains(".clipboard-scratch", styles, StringComparison.Ordinal);
             Assert.Contains(".score-bar::-webkit-progress-value", styles, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void DefaultSvgLabelsStayOutOfPlanReviewMode()
+        {
+            string app = ReadWebFile("app.js");
+            string renderPreview = SliceFunction(app, "renderPreview");
+            string renderRoomLabels = SliceFunction(app, "renderRoomLabels");
+
+            Assert.Contains("const labels = variant.labels || []", renderPreview, StringComparison.Ordinal);
+            Assert.Contains("if (state.viewMode === \"circulation\")", renderPreview, StringComparison.Ordinal);
+            Assert.Contains("class: \"svg-label unit-label\"", renderPreview, StringComparison.Ordinal);
+            Assert.Contains("text.textContent = shortUnitType(unit.type)", renderPreview, StringComparison.Ordinal);
+            Assert.Contains("renderRoomLabels(variant)", renderPreview, StringComparison.Ordinal);
+            AssertBefore(
+                renderPreview,
+                "if (state.viewMode === \"circulation\")",
+                "class: \"svg-label unit-label\"",
+                "Generated unit labels should only be added for the circulation overlay, not default review mode.");
+            Assert.Contains("if (!state.editMode || state.viewMode !== \"circulation\")", renderRoomLabels, StringComparison.Ordinal);
+            Assert.Contains("return;", renderRoomLabels, StringComparison.Ordinal);
+            Assert.Contains("class: \"svg-label room-label\"", renderRoomLabels, StringComparison.Ordinal);
+            Assert.Contains("compactRoomLabel(room)", renderRoomLabels, StringComparison.Ordinal);
+            Assert.Contains("shouldShowRoomLabel(room, bounds, densePlan)", renderRoomLabels, StringComparison.Ordinal);
+            Assert.DoesNotContain("labelText(label.text)", renderPreview, StringComparison.Ordinal);
         }
 
         [Fact]
@@ -242,6 +280,7 @@ namespace FloorPlanGeneration.Tests
         public void BusyAndDragStatesDoNotDoubleRunOrExportStaleOutput()
         {
             string app = ReadWebFile("app.js");
+            string setInput = SliceFunction(app, "setInput");
             string markInputDirty = SliceFunction(app, "markInputDirty");
             string runEngine = SliceFunction(app, "runEngine");
             string setBusy = SliceFunction(app, "setBusy");
@@ -249,13 +288,31 @@ namespace FloorPlanGeneration.Tests
             string handlePlanPointerMove = SliceFunction(app, "handlePlanPointerMove");
             string finishPlanPointerEdit = SliceFunction(app, "finishPlanPointerEdit");
 
+            Assert.Contains("runSerial: 0", app, StringComparison.Ordinal);
+            Assert.Contains("inputRevision: 0", app, StringComparison.Ordinal);
+            Assert.Contains("pendingRunMode: \"\"", app, StringComparison.Ordinal);
+            Assert.Contains("state.inputRevision += 1", setInput, StringComparison.Ordinal);
+            Assert.Contains("state.runSerial += 1", setInput, StringComparison.Ordinal);
+            Assert.Contains("state.inputRevision += 1", markInputDirty, StringComparison.Ordinal);
+            Assert.Contains("state.runSerial += 1", markInputDirty, StringComparison.Ordinal);
+            Assert.Contains("if (state.busy)", markInputDirty, StringComparison.Ordinal);
+            Assert.Contains("state.pendingRunMode = \"generate\"", markInputDirty, StringComparison.Ordinal);
             Assert.Contains("autoGenerateDelay !== null", markInputDirty, StringComparison.Ordinal);
             Assert.Contains("autoGenerateDelay !== undefined", markInputDirty, StringComparison.Ordinal);
             Assert.Contains("markInputDirty(\"Editing plan\", null)", handlePlanPointerMove, StringComparison.Ordinal);
             Assert.Contains("markInputDirty(\"Regenerating edited plan\", 120)", finishPlanPointerEdit, StringComparison.Ordinal);
             Assert.Contains("if (state.busy)", runEngine, StringComparison.Ordinal);
+            Assert.Contains("state.pendingRunMode === \"generate\" || !validateOnly", runEngine, StringComparison.Ordinal);
+            Assert.Contains("const requestInputRevision = state.inputRevision", runEngine, StringComparison.Ordinal);
             Assert.Contains("state.busyRunId = runId", runEngine, StringComparison.Ordinal);
+            Assert.Contains("runId !== state.runSerial || requestInputRevision !== state.inputRevision", runEngine, StringComparison.Ordinal);
+            Assert.Contains("state.previewStale = Boolean(state.lastPreviewResponse)", runEngine, StringComparison.Ordinal);
+            Assert.Contains("state.pendingRunMode = state.pendingRunMode || \"generate\"", runEngine, StringComparison.Ordinal);
             Assert.Contains("state.busyRunId === runId", runEngine, StringComparison.Ordinal);
+            Assert.Contains("if (!state.busy && state.pendingRunMode)", runEngine, StringComparison.Ordinal);
+            Assert.Contains("const nextMode = state.pendingRunMode", runEngine, StringComparison.Ordinal);
+            Assert.Contains("state.pendingRunMode = \"\"", runEngine, StringComparison.Ordinal);
+            Assert.Contains("runEngine(nextMode === \"validate\")", runEngine, StringComparison.Ordinal);
             Assert.Contains("state.busy = busy", setBusy, StringComparison.Ordinal);
             Assert.Contains("els.setupGenerateBtn", setBusy, StringComparison.Ordinal);
             Assert.Contains("updateExportActions", setBusy, StringComparison.Ordinal);
@@ -265,7 +322,7 @@ namespace FloorPlanGeneration.Tests
         }
 
         [Fact]
-        public void GuidedSetupIsARealStepFlowForNontechnicalUsers()
+        public void DesignBriefKeepsEssentialControlsVisibleForNontechnicalUsers()
         {
             string app = ReadWebFile("app.js");
             string index = ReadWebFile("index.html");
@@ -285,31 +342,40 @@ namespace FloorPlanGeneration.Tests
             Assert.Contains("id=\"setupPrevBtn\"", index, StringComparison.Ordinal);
             Assert.Contains("id=\"setupNextBtn\"", index, StringComparison.Ordinal);
             Assert.Contains("id=\"setupGenerateBtn\"", index, StringComparison.Ordinal);
+            Assert.Contains("Design Brief", index, StringComparison.Ordinal);
+            Assert.Contains("class=\"brief-prompt\"", index, StringComparison.Ordinal);
+            Assert.Contains("class=\"template-strip\"", index, StringComparison.Ordinal);
             Assert.Contains("setSetupStep(button.dataset.setupStepButton)", bindEvents, StringComparison.Ordinal);
             Assert.Contains("moveSetupStep(-1)", bindEvents, StringComparison.Ordinal);
             Assert.Contains("moveSetupStep(1)", bindEvents, StringComparison.Ordinal);
             Assert.Contains("await runEngine(false)", bindEvents, StringComparison.Ordinal);
             Assert.Contains("renderSetupGuide(output)", renderAll, StringComparison.Ordinal);
-            Assert.Contains("panel.hidden = panel.dataset.setupStep !== activeStep", renderSetupGuide, StringComparison.Ordinal);
-            Assert.Contains("els.setupGenerateBtn.hidden = activeStep !== \"generate\"", renderSetupGuide, StringComparison.Ordinal);
+            Assert.Contains("panel.hidden = false", renderSetupGuide, StringComparison.Ordinal);
+            Assert.Contains("els.setupPrevBtn.hidden = true", renderSetupGuide, StringComparison.Ordinal);
+            Assert.Contains("els.setupNextBtn.hidden = true", renderSetupGuide, StringComparison.Ordinal);
+            Assert.Contains("els.setupGenerateBtn.hidden = false", renderSetupGuide, StringComparison.Ordinal);
             Assert.Contains("buildSetupReview(output)", renderSetupGuide, StringComparison.Ordinal);
             Assert.Contains("Readiness", buildSetupReview, StringComparison.Ordinal);
-            Assert.Contains(".guided-steps button", styles, StringComparison.Ordinal);
+            Assert.Contains(".guided-steps {\n  display: none;", styles.Replace("\r\n", "\n", StringComparison.Ordinal), StringComparison.Ordinal);
+            Assert.Contains(".brief-prompt", styles, StringComparison.Ordinal);
+            Assert.Contains(".template-strip", styles, StringComparison.Ordinal);
             Assert.Contains(".setup-guide-actions", styles, StringComparison.Ordinal);
             Assert.Contains(".setup-review-card", styles, StringComparison.Ordinal);
         }
 
         [Fact]
-        public void MobileGuidedSetupStepsWrapInsteadOfHidingLaterSteps()
+        public void MobileWorkbenchKeepsOnlyBriefPlanAndReviewAreas()
         {
             string styles = ReadWebFile("styles.css");
-            string narrowMedia = SliceCssBlock(styles, "@media (max-width: 430px)");
+            string mobileMedia = SliceCssBlock(styles, "@media (max-width: 920px)");
 
-            Assert.Contains(".guided-steps", narrowMedia, StringComparison.Ordinal);
-            Assert.Contains("grid-template-columns: repeat(2, minmax(0, 1fr))", narrowMedia, StringComparison.Ordinal);
-            Assert.Contains("overflow-x: visible", narrowMedia, StringComparison.Ordinal);
-            Assert.Contains(".guided-steps button", narrowMedia, StringComparison.Ordinal);
-            Assert.Contains("white-space: normal", narrowMedia, StringComparison.Ordinal);
+            Assert.Contains("\"setup\"", mobileMedia, StringComparison.Ordinal);
+            Assert.Contains("\"plan\"", mobileMedia, StringComparison.Ordinal);
+            Assert.Contains("\"review\"", mobileMedia, StringComparison.Ordinal);
+            Assert.DoesNotContain("\"schedule\"", mobileMedia, StringComparison.Ordinal);
+            Assert.DoesNotContain("\"hypergraph\"", mobileMedia, StringComparison.Ordinal);
+            Assert.Contains(".schedule-panel,\n.hypergraph-panel", styles.Replace("\r\n", "\n", StringComparison.Ordinal), StringComparison.Ordinal);
+            Assert.Contains("display: none", styles, StringComparison.Ordinal);
         }
 
         [Fact]
@@ -374,7 +440,7 @@ namespace FloorPlanGeneration.Tests
             Assert.Contains(".edit-handle", styles, StringComparison.Ordinal);
             Assert.Contains(".edit-handle-label", styles, StringComparison.Ordinal);
             Assert.Contains(".edit-selection-box", styles, StringComparison.Ordinal);
-            Assert.Contains(".canvas-tools {\n  position: absolute;\n  z-index: 2;\n  left: 14px;\n  top: 14px;", normalizedStyles, StringComparison.Ordinal);
+            Assert.Contains(".canvas-tools {\n  position: absolute;\n  z-index: 2;\n  left: 50%;\n  bottom: 16px;", normalizedStyles, StringComparison.Ordinal);
         }
 
         [Fact]
@@ -389,11 +455,26 @@ namespace FloorPlanGeneration.Tests
             string renderSelectionInspector = SliceFunction(app, "renderSelectionInspector");
             string selectedElementDetails = SliceFunction(app, "selectedElementDetails");
             string inspectorMarkup = SliceFunction(app, "inspectorMarkup");
+            string renderDimensionGuides = SliceFunction(app, "renderDimensionGuides");
+            string renderPlanGlyphLayer = SliceFunction(app, "renderPlanGlyphLayer");
+            string renderDaylightAndWindowBands = SliceFunction(app, "renderDaylightAndWindowBands");
+            string renderRoomFixtures = SliceFunction(app, "renderRoomFixtures");
+            string appendRoomFixture = SliceFunction(app, "appendRoomFixture");
+            string renderSelectedRoomHalo = SliceFunction(app, "renderSelectedRoomHalo");
+            string renderDoorOpening = SliceFunction(app, "renderDoorOpening");
+            string renderRoomLabels = SliceFunction(app, "renderRoomLabels");
+            string compactRoomLabel = SliceFunction(app, "compactRoomLabel");
+            string displayRoomType = SliceFunction(app, "displayRoomType");
 
-            Assert.Contains("Plan Inspector", index, StringComparison.Ordinal);
+            Assert.Contains("Selection", index, StringComparison.Ordinal);
+            Assert.Contains("Constraints", index, StringComparison.Ordinal);
             Assert.Contains("id=\"selectionInspector\"", index, StringComparison.Ordinal);
+            Assert.Contains("Room Schedule", index, StringComparison.Ordinal);
+            Assert.Contains("id=\"roomScheduleList\"", index, StringComparison.Ordinal);
             Assert.Contains("els.selectionInspector.addEventListener(\"click\", handleInspectorAction)", app, StringComparison.Ordinal);
+            Assert.Contains("els.roomScheduleList.addEventListener(\"click\", handleRoomScheduleClick)", app, StringComparison.Ordinal);
             Assert.Contains("renderSelectionInspector(visualOutput)", renderAll, StringComparison.Ordinal);
+            Assert.Contains("renderRoomReviewSchedule(visualOutput)", renderAll, StringComparison.Ordinal);
             Assert.Contains("data-select-kind", selectableAttributes, StringComparison.Ordinal);
             Assert.Contains("data-select-id", selectableAttributes, StringComparison.Ordinal);
             Assert.Contains("selected-element", app, StringComparison.Ordinal);
@@ -401,7 +482,36 @@ namespace FloorPlanGeneration.Tests
             Assert.Contains("selectableAttributes(\"unit\", unit.id)", renderPreview, StringComparison.Ordinal);
             Assert.Contains("selectableAttributes(\"room\", room.id)", renderPreview, StringComparison.Ordinal);
             Assert.Contains("selectableAttributes(\"corridor\", corridor.id)", renderPreview, StringComparison.Ordinal);
-            Assert.Contains("selectableAttributes(\"door\", door.id)", renderPreview, StringComparison.Ordinal);
+            Assert.Contains("selectableAttributes(\"door\", door.id)", renderDoorOpening, StringComparison.Ordinal);
+            Assert.Contains("renderDimensionGuides(bounds, metadata && metadata.projectUnits)", renderPreview, StringComparison.Ordinal);
+            Assert.Contains("renderPlanGlyphLayer(group, variant, bounds)", renderPreview, StringComparison.Ordinal);
+            Assert.Contains("renderSelectedRoomHalo(group, variant)", renderPreview, StringComparison.Ordinal);
+            Assert.Contains("renderWallSegment(group, wall)", renderPreview, StringComparison.Ordinal);
+            Assert.Contains("renderDoorOpening(group, door, wallById.get(door.hostWall), bounds)", renderPreview, StringComparison.Ordinal);
+            Assert.Contains("renderRoomLabels(variant)", renderPreview, StringComparison.Ordinal);
+            Assert.Contains("renderScaleBar(group, bounds, units || \"m\", offset)", renderDimensionGuides, StringComparison.Ordinal);
+            Assert.Contains("renderDaylightAndWindowBands(layer, variant, bounds)", renderPlanGlyphLayer, StringComparison.Ordinal);
+            Assert.Contains("renderCorridorCenterlines(layer, variant)", renderPlanGlyphLayer, StringComparison.Ordinal);
+            Assert.Contains("renderRoomFixtures(layer, variant)", renderPlanGlyphLayer, StringComparison.Ordinal);
+            Assert.Contains("room.daylight", renderDaylightAndWindowBands, StringComparison.Ordinal);
+            Assert.Contains("closestFacadeSide(bounds, floorBounds)", renderDaylightAndWindowBands, StringComparison.Ordinal);
+            Assert.Contains("appendRoomFixture(fixtures, room)", renderRoomFixtures, StringComparison.Ordinal);
+            Assert.Contains("room.roomType || room.type", appendRoomFixture, StringComparison.Ordinal);
+            Assert.Contains("appendBedroomFixture(group, bounds)", appendRoomFixture, StringComparison.Ordinal);
+            Assert.Contains("appendBathroomFixture(group, bounds)", appendRoomFixture, StringComparison.Ordinal);
+            Assert.Contains("appendKitchenFixture(group, bounds)", appendRoomFixture, StringComparison.Ordinal);
+            Assert.Contains("appendLivingFixture(group, bounds)", appendRoomFixture, StringComparison.Ordinal);
+            Assert.Contains("state.selection.kind !== \"room\"", renderSelectedRoomHalo, StringComparison.Ordinal);
+            Assert.Contains("room-selected-halo", renderSelectedRoomHalo, StringComparison.Ordinal);
+            Assert.Contains("door.hostWall", renderDoorOpening, StringComparison.Ordinal);
+            Assert.Contains("door.width", renderDoorOpening, StringComparison.Ordinal);
+            Assert.Contains("door-gap", renderDoorOpening, StringComparison.Ordinal);
+            Assert.Contains("state.viewMode !== \"circulation\"", renderRoomLabels, StringComparison.Ordinal);
+            Assert.Contains("compactRoomLabel(room)", renderRoomLabels, StringComparison.Ordinal);
+            Assert.Contains("return \"BED\"", compactRoomLabel, StringComparison.Ordinal);
+            Assert.Contains("return \"BATH\"", compactRoomLabel, StringComparison.Ordinal);
+            Assert.Contains("return \"KIT\"", compactRoomLabel, StringComparison.Ordinal);
+            Assert.Contains("room.roomType", displayRoomType, StringComparison.Ordinal);
             Assert.Contains("state.selection", selectedElementDetails, StringComparison.Ordinal);
             Assert.Contains("selectedVariant(output)", selectedElementDetails, StringComparison.Ordinal);
             Assert.Contains("unitForRoom(variant, room)", selectedElementDetails, StringComparison.Ordinal);
@@ -410,8 +520,119 @@ namespace FloorPlanGeneration.Tests
             Assert.Contains("els.selectionInspector.innerHTML", renderSelectionInspector, StringComparison.Ordinal);
             Assert.Contains("data-inspector-action", inspectorMarkup, StringComparison.Ordinal);
             Assert.Contains("Unit type", inspectorMarkup, StringComparison.Ordinal);
+            Assert.Contains("displayRoomType(detail.item)", inspectorMarkup, StringComparison.Ordinal);
+            Assert.Contains("detail.item.daylight", inspectorMarkup, StringComparison.Ordinal);
+            Assert.Contains("detail.item.dimensions.width", inspectorMarkup, StringComparison.Ordinal);
+            Assert.Contains("detail.item.thickness", inspectorMarkup, StringComparison.Ordinal);
+            Assert.Contains("detail.item.hostWall", inspectorMarkup, StringComparison.Ordinal);
+            Assert.Contains("detail.item.connectsSpaces", inspectorMarkup, StringComparison.Ordinal);
+            Assert.DoesNotContain("detail.item.hasDaylight", inspectorMarkup, StringComparison.Ordinal);
             Assert.Contains(".selection-inspector", styles, StringComparison.Ordinal);
+            Assert.Contains(".room-schedule-list", styles, StringComparison.Ordinal);
+            Assert.Contains(".room-schedule-row", styles, StringComparison.Ordinal);
             Assert.Contains(".selected-element", styles, StringComparison.Ordinal);
+            Assert.Contains(".dimension-guides", styles, StringComparison.Ordinal);
+            Assert.Contains(".wall-hit", styles, StringComparison.Ordinal);
+            Assert.Contains(".wall-backdrop", styles, StringComparison.Ordinal);
+            Assert.Contains(".plan-visual-layer", styles, StringComparison.Ordinal);
+            Assert.Contains(".room-fixtures", styles, StringComparison.Ordinal);
+            Assert.Contains(".fixture-bed", styles, StringComparison.Ordinal);
+            Assert.Contains(".fixture-sofa", styles, StringComparison.Ordinal);
+            Assert.Contains(".fixture-bath", styles, StringComparison.Ordinal);
+            Assert.Contains(".fixture-counter", styles, StringComparison.Ordinal);
+            Assert.Contains(".daylight-band", styles, StringComparison.Ordinal);
+            Assert.Contains(".scale-bar", styles, StringComparison.Ordinal);
+            Assert.Contains(".corridor-centerline", styles, StringComparison.Ordinal);
+            Assert.Contains(".room-selected-halo", styles, StringComparison.Ordinal);
+            Assert.Contains(".room-selected-halo-handle", styles, StringComparison.Ordinal);
+            Assert.Contains(".door-gap", styles, StringComparison.Ordinal);
+            Assert.Contains(".door-swing", styles, StringComparison.Ordinal);
+            Assert.Contains(".room-label", styles, StringComparison.Ordinal);
+            Assert.Contains(".room-bedroom", styles, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void TopologyRelationshipsAndGroupedRoomScheduleAreInspectable()
+        {
+            string app = ReadWebFile("app.js");
+            string styles = ReadWebFile("styles.css");
+            string renderAll = SliceFunction(app, "renderAll");
+            string selectedElementDetails = SliceFunction(app, "selectedElementDetails");
+            string relationshipsForElement = SliceFunction(app, "relationshipsForElement");
+            string relationshipLookupIds = SliceFunction(app, "relationshipLookupIds");
+            string graphNodes = SliceFunction(app, "graphNodes");
+            string relatedNodesFromHyperedges = SliceFunction(app, "relatedNodesFromHyperedges");
+            string relationshipSectionsMarkup = SliceFunction(app, "relationshipSectionsMarkup");
+            string relationshipChipGroup = SliceFunction(app, "relationshipChipGroup");
+            string handleInspectorAction = SliceFunction(app, "handleInspectorAction");
+            string renderRoomReviewSchedule = SliceFunction(app, "renderRoomReviewSchedule");
+            string groupRoomsByUnit = SliceFunction(app, "groupRoomsByUnit");
+            string unitRoomScheduleGroup = SliceFunction(app, "unitRoomScheduleGroup");
+            string roomScheduleRow = SliceFunction(app, "roomScheduleRow");
+            string handleRoomScheduleClick = SliceFunction(app, "handleRoomScheduleClick");
+
+            Assert.Contains("renderSelectionInspector(visualOutput)", renderAll, StringComparison.Ordinal);
+            Assert.Contains("renderRoomReviewSchedule(visualOutput)", renderAll, StringComparison.Ordinal);
+            Assert.Contains("relationships: relationshipsForElement(variant, \"unit\", unit.id, unit)", selectedElementDetails, StringComparison.Ordinal);
+            Assert.Contains("relationships: relationshipsForElement(variant, \"room\", room.id, room)", selectedElementDetails, StringComparison.Ordinal);
+            Assert.Contains(
+                "relationships: relationshipsForElement(variant, \"corridor\", corridor.id, corridor)",
+                selectedElementDetails,
+                StringComparison.Ordinal);
+            Assert.Contains("relationships: relationshipsForElement(variant, \"wall\", wall.id, wall)", selectedElementDetails, StringComparison.Ordinal);
+            Assert.Contains("relationships: relationshipsForElement(variant, \"door\", door.id, door)", selectedElementDetails, StringComparison.Ordinal);
+            Assert.Contains("const topology = variant.topology || {}", relationshipsForElement, StringComparison.Ordinal);
+            Assert.Contains("const hypergraph = topology.hypergraph || {}", relationshipsForElement, StringComparison.Ordinal);
+            Assert.Contains("topology.edges || []", relationshipsForElement, StringComparison.Ordinal);
+            Assert.Contains("hypergraph.hyperedges || []", relationshipsForElement, StringComparison.Ordinal);
+            Assert.Contains(
+                "relatedNodesFromHyperedges(variant, hyperedges, selectedIds, \"adjacency\", 8)",
+                relationshipsForElement,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "relatedNodesFromHyperedges(variant, hyperedges, selectedIds, \"circulation_access\", 6)",
+                relationshipsForElement,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "relatedNodesFromHyperedges(variant, hyperedges, selectedIds, \"door\", 4)",
+                relationshipsForElement,
+                StringComparison.Ordinal);
+            Assert.Contains("doorsForElement(variant, selectedIds, item)", relationshipsForElement, StringComparison.Ordinal);
+            Assert.Contains("item && item.hostWall", relationshipLookupIds, StringComparison.Ordinal);
+            Assert.Contains("item && item.connectsSpaces", relationshipLookupIds, StringComparison.Ordinal);
+            Assert.Contains("variant.topology.nodes", graphNodes, StringComparison.Ordinal);
+            Assert.Contains("variant.topology.hypergraph.nodes", graphNodes, StringComparison.Ordinal);
+            Assert.Contains("edge.members || []", relatedNodesFromHyperedges, StringComparison.Ordinal);
+            Assert.Contains("relationshipItemForNode(variant, member.nodeId, edge)", relatedNodesFromHyperedges, StringComparison.Ordinal);
+            Assert.Contains("Graph Relations", relationshipSectionsMarkup, StringComparison.Ordinal);
+            Assert.Contains("relationship-stats", relationshipSectionsMarkup, StringComparison.Ordinal);
+            Assert.Contains("relationshipChipGroup(label, items)", relationshipSectionsMarkup, StringComparison.Ordinal);
+            Assert.Contains("data-inspector-select-kind", relationshipChipGroup, StringComparison.Ordinal);
+            Assert.Contains("data-inspector-select-id", relationshipChipGroup, StringComparison.Ordinal);
+            Assert.Contains("[data-inspector-select-id]", handleInspectorAction, StringComparison.Ordinal);
+            Assert.Contains("state.selection = { kind, id }", handleInspectorAction, StringComparison.Ordinal);
+            Assert.Contains("const roomsByUnit = groupRoomsByUnit(rooms)", renderRoomReviewSchedule, StringComparison.Ordinal);
+            Assert.Contains(
+                "unitRoomScheduleGroup(unit, " +
+                "roomsByUnit.get(String(unit.id || \"\")) || [], output)",
+                renderRoomReviewSchedule,
+                StringComparison.Ordinal);
+            Assert.Contains("Unassigned rooms", renderRoomReviewSchedule, StringComparison.Ordinal);
+            Assert.Contains("roomScheduleRow(room, output)", renderRoomReviewSchedule, StringComparison.Ordinal);
+            Assert.Contains("const groups = new Map()", groupRoomsByUnit, StringComparison.Ordinal);
+            Assert.Contains("groups.get(unitId).push(room)", groupRoomsByUnit, StringComparison.Ordinal);
+            Assert.Contains("data-schedule-unit-id", unitRoomScheduleGroup, StringComparison.Ordinal);
+            Assert.Contains("(rooms || []).map((room) => roomScheduleRow(room, output)).join(\"\")", unitRoomScheduleGroup, StringComparison.Ordinal);
+            Assert.Contains("data-schedule-room-id", roomScheduleRow, StringComparison.Ordinal);
+            Assert.Contains("room.daylight ? \"Daylight\" : \"Interior\"", roomScheduleRow, StringComparison.Ordinal);
+            Assert.Contains("state.selection = { kind: \"unit\"", handleRoomScheduleClick, StringComparison.Ordinal);
+            Assert.Contains("state.selection = { kind: \"room\"", handleRoomScheduleClick, StringComparison.Ordinal);
+            Assert.Contains(".relationship-stats", styles, StringComparison.Ordinal);
+            Assert.Contains(".relationship-group", styles, StringComparison.Ordinal);
+            Assert.Contains(".relationship-chips", styles, StringComparison.Ordinal);
+            Assert.Contains(".room-schedule-group", styles, StringComparison.Ordinal);
+            Assert.Contains(".room-schedule-unit", styles, StringComparison.Ordinal);
+            Assert.Contains(".room-schedule-total", styles, StringComparison.Ordinal);
         }
 
         [Fact]
@@ -540,7 +761,11 @@ namespace FloorPlanGeneration.Tests
             Assert.Contains("renderAll()", applyInputMutation, StringComparison.Ordinal);
             Assert.Contains("ensureUnitTarget(input, type)", adjustUnitTarget, StringComparison.Ordinal);
             Assert.Contains("normalizeUnitTargetRatios(input.program.targetUnitTypes)", adjustUnitTarget, StringComparison.Ordinal);
-            AssertBefore(applyInputMutation, "markInputDirty", "renderAll()", "Inspector edits should mark the generated preview stale before rerendering it.");
+            AssertBefore(
+                applyInputMutation,
+                "markInputDirty",
+                "renderAll()",
+                "Inspector edits should mark the generated preview stale before rerendering it.");
             Assert.DoesNotContain("state.response = null", applyInputMutation, StringComparison.Ordinal);
             Assert.DoesNotMatch(@"state\.response\s*=(?!=)", applyInputMutation);
             Assert.DoesNotContain("state.selectedVariantId = \"\"", applyInputMutation, StringComparison.Ordinal);

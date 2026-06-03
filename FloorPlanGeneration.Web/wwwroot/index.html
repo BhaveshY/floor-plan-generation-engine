@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Floor Plan Generation Engine</title>
-  <link rel="stylesheet" href="styles.css?v=20260527">
+  <link rel="stylesheet" href="styles.css?v=20260603-floorplan2">
 </head>
 <body>
   <main class="app-shell">
@@ -16,18 +16,14 @@
           <p id="runStatus">Ready</p>
         </div>
       </div>
-      <nav class="top-nav" aria-label="Product views">
-        <a href="#setup">Setup</a>
-        <a class="active" href="#plan">Plan Review</a>
-        <a href="#schedule">Schedule</a>
-        <a href="#exports">Exports</a>
+      <nav class="top-nav" aria-label="Plan studio tools">
+        <a class="active" href="#plan">Plan Studio</a>
+        <span>Edit</span>
+        <span>Variants</span>
+        <span>Export</span>
+        <span>Rhino</span>
       </nav>
       <div class="top-actions">
-        <label class="field field-compact">
-          <span>Template</span>
-          <select id="sampleSelect"></select>
-        </label>
-        <button id="loadSampleBtn" type="button">Load Template</button>
         <button id="validateBtn" type="button">Check</button>
         <button id="generateBtn" class="primary" type="button">Generate</button>
       </div>
@@ -37,9 +33,16 @@
       <aside id="setup" class="panel setup-panel">
         <div class="panel-head">
           <div>
-            <h2>Setup</h2>
+            <h2>Design Brief</h2>
             <p id="setupSubtitle">Residential floorplate</p>
           </div>
+        </div>
+        <div class="template-strip">
+          <label class="field">
+            <span>Template</span>
+            <select id="sampleSelect"></select>
+          </label>
+          <button id="loadSampleBtn" type="button">Load</button>
         </div>
         <div class="guided-steps" aria-label="Setup steps">
           <button class="active" type="button" data-setup-step-button="floorplate" aria-pressed="true">1 Floorplate</button>
@@ -51,25 +54,21 @@
 
         <form id="setupForm" class="setup-form">
           <fieldset data-setup-step="floorplate">
-            <legend>Project</legend>
+            <legend>Prompt</legend>
             <label class="field">
-              <span>Name</span>
-              <input id="projectName" type="text" autocomplete="off">
+              <span>Brief</span>
+              <textarea
+                id="projectName"
+                class="brief-prompt"
+                autocomplete="off"
+                placeholder="Generate a 2BHK apartment with daylight bedrooms and open living"></textarea>
             </label>
-            <div class="field-grid">
-              <label class="field">
-                <span>Variants</span>
-                <input id="variantInput" type="number" min="1" max="20" step="1">
-              </label>
-              <label class="field">
-                <span>Seed</span>
-                <input id="seedInput" type="number" step="1">
-              </label>
-            </div>
+            <input id="variantInput" type="hidden">
+            <input id="seedInput" type="hidden">
           </fieldset>
 
           <fieldset data-setup-step="floorplate">
-            <legend>Floorplate</legend>
+            <legend>Quick Settings</legend>
             <div class="field-grid">
               <label class="field">
                 <span>Width m</span>
@@ -83,7 +82,7 @@
           </fieldset>
 
           <fieldset data-setup-step="core">
-            <legend>Core</legend>
+            <legend>Core Position</legend>
             <div class="field-grid">
               <label class="field">
                 <span>X m</span>
@@ -105,7 +104,7 @@
           </fieldset>
 
           <fieldset data-setup-step="rules">
-            <legend>Rules</legend>
+            <legend>Constraints</legend>
             <div class="field-grid">
               <label class="field">
                 <span>Corridor m</span>
@@ -169,7 +168,7 @@
           </fieldset>
 
           <fieldset data-setup-step="generate">
-            <legend>Generate</legend>
+            <legend>Run Review</legend>
             <div id="setupReview" class="setup-review-card"></div>
           </fieldset>
         </form>
@@ -196,7 +195,7 @@
       <section id="plan" class="panel plan-panel">
         <div class="panel-head">
           <div>
-            <h2>Plan Review</h2>
+            <h2>Plan Studio</h2>
             <p id="planSubtitle">Input outline</p>
           </div>
           <div class="panel-actions preview-actions">
@@ -211,9 +210,11 @@
         </div>
         <div class="preview-frame">
           <div class="canvas-tools" aria-label="Canvas tools">
+            <button type="button" data-canvas-action="select" aria-label="Select" title="Select">Select</button>
+            <button type="button" data-canvas-action="pan" aria-label="Pan" title="Pan">Pan</button>
             <button type="button" data-canvas-action="zoom-in" aria-label="Zoom in" title="Zoom in">+</button>
             <button type="button" data-canvas-action="zoom-out" aria-label="Zoom out" title="Zoom out">-</button>
-            <button type="button" data-canvas-action="fit" aria-label="Fit view" title="Fit view">[]</button>
+            <button type="button" data-canvas-action="fit" aria-label="Fit view" title="Fit view">Fit</button>
             <button type="button" data-canvas-action="edit-toggle" aria-label="Edit constraints" aria-pressed="false" title="Edit constraints">Edit</button>
           </div>
           <div id="editReadout" class="edit-readout" aria-live="polite"></div>
@@ -227,25 +228,25 @@
       <aside class="panel review-panel">
         <div class="panel-head">
           <div>
-            <h2>Results</h2>
+            <h2>Selection</h2>
             <p id="resultSubtitle">No run yet</p>
           </div>
         </div>
 
         <section class="review-section">
           <div class="section-title">
-            <h3>Variants</h3>
-            <span id="variantCountLabel">0</span>
+            <h3>Constraints</h3>
+            <span>Live</span>
           </div>
-          <div id="variantList" class="variant-list"></div>
+          <div id="selectionInspector" class="selection-inspector"></div>
         </section>
 
         <section class="review-section">
           <div class="section-title">
-            <h3>Plan Inspector</h3>
-            <span>Live</span>
+            <h3>Room Schedule</h3>
+            <span id="roomScheduleCountLabel">0</span>
           </div>
-          <div id="selectionInspector" class="selection-inspector"></div>
+          <div id="roomScheduleList" class="room-schedule-list"></div>
         </section>
 
         <section class="review-section">
@@ -288,6 +289,13 @@
             <pre id="outputJson"></pre>
           </details>
         </section>
+
+        <section class="review-section variants-section">
+          <details class="advanced-details">
+            <summary>Variants <span id="variantCountLabel">0</span></summary>
+            <div id="variantList" class="variant-list"></div>
+          </details>
+        </section>
       </aside>
 
       <section id="schedule" class="panel schedule-panel">
@@ -327,6 +335,6 @@
     </section>
   </main>
 
-  <script src="app.js?v=20260527"></script>
+  <script src="app.js?v=20260603-floorplan2"></script>
 </body>
 </html>
