@@ -17,7 +17,16 @@ const state = {
   busyRunId: 0,
   dragEdit: null,
   selection: null,
-  syncing: false
+  studioTool: "select",
+  studioCopilot: true,
+  studioOverlays: {
+    dimensions: true,
+    labels: true,
+    accessibility: false,
+    graphRules: true
+  },
+  syncing: false,
+  operationLog: []
 };
 
 const draftKey = "floor-engine-web-draft-v2";
@@ -65,6 +74,7 @@ const els = {
   planSvg: document.getElementById("planSvg"),
   previewFrame: document.querySelector(".preview-frame"),
   editReadout: document.getElementById("editReadout"),
+  studioCopilotPanel: document.getElementById("studioCopilotPanel"),
   emptyPreview: document.getElementById("emptyPreview"),
   legendRow: document.getElementById("legendRow"),
   metricsRow: document.getElementById("metricsRow"),
@@ -82,6 +92,8 @@ const els = {
   exportCardGrid: document.querySelector(".export-card-grid"),
   modeButtons: Array.from(document.querySelectorAll("[data-view-mode]")),
   canvasButtons: Array.from(document.querySelectorAll("[data-canvas-action]")),
+  studioToolButtons: Array.from(document.querySelectorAll("[data-studio-tool]")),
+  studioToggleInputs: Array.from(document.querySelectorAll("[data-studio-toggle]")),
   setupStepButtons: Array.from(document.querySelectorAll("[data-setup-step-button]")),
   setupStepPanels: Array.from(document.querySelectorAll("[data-setup-step]")),
   topNavLinks: Array.from(document.querySelectorAll(".top-nav a")),
@@ -137,6 +149,9 @@ function bindEvents() {
   els.exportCardGrid.addEventListener("click", handleExportAction);
   els.modeButtons.forEach((button) => button.addEventListener("click", () => setViewMode(button.dataset.viewMode)));
   els.canvasButtons.forEach((button) => button.addEventListener("click", () => handleCanvasAction(button.dataset.canvasAction)));
+  els.studioToolButtons.forEach((button) => button.addEventListener("click", () => setStudioTool(button.dataset.studioTool)));
+  els.studioToggleInputs.forEach((input) => input.addEventListener("change", () => handleStudioToggle(input)));
+  els.studioCopilotPanel.addEventListener("click", handleCopilotAction);
   els.topNavLinks.forEach((link) => link.addEventListener("click", () => updateActiveNav(link.getAttribute("href"))));
   window.addEventListener("hashchange", () => updateActiveNav());
   els.planSvg.addEventListener("click", handlePlanClick);
@@ -535,9 +550,11 @@ function renderAll() {
   renderSchedule(visualOutput);
   renderValidation(output);
   renderSelectionInspector(visualOutput);
+  renderStudioPanel(visualOutput);
   renderSubtitles(output, visualOutput);
   updateDirtyState();
   updateCanvasUi(visualOutput);
+  updateStudioControls();
 
   els.outputJson.textContent = output ? JSON.stringify(output, null, 2) : "";
   els.cliCommand.textContent = buildCliCommand();
@@ -892,27 +909,133 @@ function renderPreview(output) {
       }));
     });
 
-    const unitById = new Map((variant.units || []).map((unit) => [unit.id, unit]));
-    const labels = variant.labels || [];
-    labels
-      .filter((label) => label.targetId && unitById.has(label.targetId))
-      .forEach((label) => {
-        const unit = unitById.get(label.targetId);
-        const text = svgEl("text", {
-          class: "svg-label",
-          x: label.location.x,
-          y: -label.location.y,
-          "text-anchor": "middle"
+    if (state.studioOverlays.labels) {
+      const unitById = new Map((variant.units || []).map((unit) => [unit.id, unit]));
+      const labels = variant.labels || [];
+      labels
+        .filter((label) => label.targetId && unitById.has(label.targetId))
+        .forEach((label) => {
+          const unit = unitById.get(label.targetId);
+          const text = svgEl("text", {
+            class: "svg-label",
+            x: label.location.x,
+            y: -label.location.y,
+            "text-anchor": "middle"
+          });
+          text.textContent = shortUnitType(unit.type);
+          els.planSvg.appendChild(text);
         });
-        text.textContent = shortUnitType(unit.type);
-        els.planSvg.appendChild(text);
-      });
+      (variant.rooms || [])
+        .filter((room) => room.bounds || (room.polygon && room.polygon.points))
+        .slice(0, 64)
+        .forEach((room) => {
+          const bounds = room.bounds || boundsOfPoints(room.polygon.points);
+          if (!bounds) {
+            return;
+          }
+
+          const label = svgEl("text", {
+            class: "room-label",
+            x: round(bounds.minX + bounds.width / 2),
+            y: round(-(bounds.minY + bounds.height / 2)),
+            "text-anchor": "middle"
+          });
+          label.textContent = shortRoomType(room.roomType || room.type);
+          els.planSvg.appendChild(label);
+        });
+    }
   }
 
+  renderStudioSvgOverlays(group, output, variant, bounds);
   renderInputEditHandles(group, input);
   renderSelectionConstraintHandles(group, output);
   renderPlanQuickActions(output, bounds);
   renderLegend(Boolean(variant));
+}
+
+function renderStudioSvgOverlays(group, output, variant, bounds) {
+  if (!bounds) {
+    return;
+  }
+
+  if (state.studioOverlays.accessibility && variant) {
+    renderAccessibilityOverlay(group, variant, bounds);
+  }
+  if (state.studioOverlays.dimensions) {
+    renderDimensionOverlay(output, bounds);
+  }
+  if (state.studioOverlays.graphRules && variant) {
+    renderGraphRuleOverlay(variant, bounds);
+  }
+}
+
+function renderAccessibilityOverlay(group, variant, bounds) {
+  const radius = Math.max(Math.min(bounds.width, bounds.height) * 0.035, 0.9);
+  (variant.doorsOpenings || []).forEach((door) => {
+    if (!door.location) {
+      return;
+    }
+
+    group.appendChild(svgEl("circle", {
+      class: "access-zone",
+      cx: round(door.location.x),
+      cy: round(door.location.y),
+      r: round(radius)
+    }));
+  });
+}
+
+function renderDimensionOverlay(output, bounds) {
+  appendDimensionLabel(
+    `${formatNumber(bounds.width, 1)} m`,
+    bounds.minX + bounds.width / 2,
+    -(bounds.minY - Math.max(bounds.height * 0.06, 1.1)),
+    "middle");
+  appendDimensionLabel(
+    `${formatNumber(bounds.height, 1)} m`,
+    bounds.minX - Math.max(bounds.width * 0.035, 1.2),
+    -(bounds.minY + bounds.height / 2),
+    "end");
+
+  const detail = selectedElementDetails(output);
+  if (detail && detail.bounds && (detail.kind === "room" || detail.kind === "unit" || detail.kind === "corridor")) {
+    appendDimensionLabel(
+      `${formatNumber(detail.bounds.width, 1)} x ${formatNumber(detail.bounds.height, 1)} m`,
+      detail.bounds.minX + detail.bounds.width / 2,
+      -(detail.bounds.minY + detail.bounds.height / 2),
+      "middle",
+      "dimension-label selected-dimension");
+  }
+}
+
+function appendDimensionLabel(label, x, y, anchor, className = "dimension-label") {
+  const text = svgEl("text", {
+    class: className,
+    x: round(x),
+    y: round(y),
+    "text-anchor": anchor
+  });
+  text.textContent = label;
+  els.planSvg.appendChild(text);
+}
+
+function renderGraphRuleOverlay(variant, bounds) {
+  const validation = summarizeValidation(variant);
+  const graphCheck = (variant.validation && Array.isArray(variant.validation.checks)
+    ? variant.validation.checks
+    : []).find((check) => check.name === "hypergraph_contract");
+  const text = graphCheck && graphCheck.passed
+    ? `${validation.passed}/${validation.total} rules`
+    : validation.label;
+  const badge = svgEl("g", {
+    class: `graph-rule-badge ${validation.failed ? "has-errors" : "is-passing"}`,
+    transform: `translate(${formatNumber(bounds.minX, 3)},${formatNumber(-(bounds.maxY + 2.2), 3)})`
+  });
+  badge.appendChild(svgEl("rect", { x: 0, y: 0, width: 10.8, height: 1.55, rx: 0.45 }));
+  const label = svgEl("text", { x: 0.55, y: 1.05 });
+  label.textContent = text;
+  badge.appendChild(label);
+  els.planSvg.appendChild(badge);
 }
 
 function previewViewBox(bounds, zoom) {
@@ -980,6 +1103,51 @@ function handleCanvasAction(action) {
 
   renderAll();
   setStatus(action === "fit" ? "Fit view" : `Zoom ${formatNumber(state.zoom, 2)}x`);
+}
+
+function setStudioTool(tool) {
+  const allowed = new Set(["select", "bounds", "wall", "separator", "door"]);
+  if (!allowed.has(tool)) {
+    return;
+  }
+
+  state.studioTool = tool;
+  if (tool === "bounds") {
+    state.viewMode = "plan";
+    state.editMode = true;
+    state.selection = { kind: "floorplate", id: "floorplate" };
+    state.editReadout = editSummary(state.input);
+  } else if (tool !== "select") {
+    state.viewMode = "plan";
+    state.editMode = false;
+  }
+
+  renderAll();
+  setStatus(`${titleCase(tool)} tool`);
+}
+
+function handleStudioToggle(input) {
+  const toggle = input.dataset.studioToggle;
+  if (toggle === "copilot") {
+    state.studioCopilot = input.checked;
+  } else if (Object.prototype.hasOwnProperty.call(state.studioOverlays, toggle)) {
+    state.studioOverlays[toggle] = input.checked;
+  }
+
+  renderAll();
+  setStatus(input.checked ? `${titleCase(toggle)} on` : `${titleCase(toggle)} off`);
+}
+
+function updateStudioControls() {
+  els.studioToolButtons.forEach((button) => {
+    const active = button.dataset.studioTool === state.studioTool;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", active ? "true" : "false");
+  });
+  els.studioToggleInputs.forEach((input) => {
+    const toggle = input.dataset.studioToggle;
+    input.checked = toggle === "copilot" ? state.studioCopilot : Boolean(state.studioOverlays[toggle]);
+  });
 }
 
 function updateModeButtons() {
@@ -1098,6 +1266,132 @@ function renderSelectionInspector(output) {
   }
 
   els.selectionInspector.innerHTML = inspectorMarkup(detail);
+}
+
+function renderStudioPanel(output) {
+  const variant = selectedVariant(output);
+  const detail = selectedElementDetails(output);
+  const cards = [];
+
+  if (state.studioCopilot) {
+    const copilotActions = copilotActionsForDetail(detail);
+    cards.push(copilotCardMarkup(detail, copilotActions));
+  }
+  if (state.studioOverlays.graphRules) {
+    cards.push(graphRuleCardMarkup(variant));
+  }
+
+  els.studioCopilotPanel.hidden = cards.length === 0;
+  els.studioCopilotPanel.innerHTML = cards.join("");
+}
+
+function copilotCardMarkup(detail, actions = copilotActionsForDetail(detail)) {
+  const title = detail ? `${selectionKindLabel(detail.kind)} ${detail.id}` : "AI Co-Pilot";
+  const suggestion = copilotSuggestionText(detail);
+  return `
+    <section class="studio-card">
+      <div>
+        <span>AI Co-Pilot</span>
+        <strong>${escapeHtml(title)}</strong>
+      </div>
+      <p>${escapeHtml(suggestion)}</p>
+      ${actions.length ? `
+        <div class="studio-card-actions">
+          ${actions.map(([action, label]) => `
+            <button type="button" data-copilot-action="${escapeHtml(action)}">${escapeHtml(label)}</button>
+          `).join("")}
+        </div>
+      ` : ""}
+    </section>
+  `;
+}
+
+function copilotActionsForDetail(detail) {
+  if (!detail) {
+    return [["select-bounds", "Bounds"]];
+  }
+
+  if (detail.kind === "room") {
+    const actions = [["room-use-dimensions", "Room min"]];
+    if (detail.unit) {
+      actions.push(["unit-more", `More ${shortUnitType(detail.unit.type)}`], ["unit-fit-area", "Fit unit"]);
+    }
+    return actions;
+  }
+  if (detail.kind === "unit") {
+    return [["unit-more", `More ${shortUnitType(detail.item.type)}`], ["unit-fit-area", "Fit unit"]];
+  }
+  if (detail.kind === "corridor") {
+    return [["corridor-use-width", "Corridor width"]];
+  }
+  if (detail.kind === "floorplate") {
+    return [["floor-wider", "Wider"], ["floor-deeper", "Deeper"]];
+  }
+  if (detail.kind === "core") {
+    return [["core-left", "Left"], ["core-right", "Right"], ["core-grow", "Grow"]];
+  }
+
+  return [];
+}
+
+function copilotSuggestionText(detail) {
+  if (!detail) {
+    return "Ready";
+  }
+  if (detail.kind === "room") {
+    const roomType = displayUnitType(detail.item.roomType || detail.item.type || "room");
+    const unitText = detail.unit ? ` in ${shortUnitType(detail.unit.type)}` : "";
+    return `${roomType}${unitText} - ${formatNumber(detail.area, 1)} m2`;
+  }
+  if (detail.kind === "unit") {
+    return `${shortUnitType(detail.item.type)} target - ${formatNumber(detail.area, 1)} m2`;
+  }
+  if (detail.kind === "corridor") {
+    return `Corridor width ${formatNumber(corridorWidth(detail), 2)} m`;
+  }
+  if (detail.bounds) {
+    return `${formatNumber(detail.bounds.width, 1)} x ${formatNumber(detail.bounds.height, 1)} m`;
+  }
+
+  return selectionKindLabel(detail.kind);
+}
+
+function graphRuleCardMarkup(variant) {
+  if (!variant) {
+    return `
+      <section class="studio-card graph-card">
+        <div><span>Graph Rules</span><strong>No variant</strong></div>
+      </section>
+    `;
+  }
+
+  const validation = summarizeValidation(variant);
+  const hypergraph = variant.topology ? variant.topology.hypergraph : null;
+  const graph = summarizeHypergraph(hypergraph);
+  return `
+    <section class="studio-card graph-card">
+      <div>
+        <span>Graph Rules</span>
+        <strong>${escapeHtml(validation.label)}</strong>
+      </div>
+      <p>${escapeHtml(graph.headline)}</p>
+    </section>
+  `;
+}
+
+function handleCopilotAction(event) {
+  const button = event.target.closest("[data-copilot-action]");
+  if (!button) {
+    return;
+  }
+
+  const action = button.dataset.copilotAction;
+  if (action === "select-bounds") {
+    setStudioTool("bounds");
+    return;
+  }
+
+  runSelectedPlanAction(action);
 }
 
 function selectedElementDetails(output) {
@@ -1386,6 +1680,11 @@ function runSelectedPlanAction(action) {
     return;
   }
 
+  const operation = operationFromPlanAction(action, detail);
+  if (operation && applyPlanOperation(operation, { message: planOperationMessage(operation), autoGenerateDelay: 220 })) {
+    return;
+  }
+
   if (action.startsWith("floor-")) {
     adjustFloorplateFromInspector(action);
   } else if (action.startsWith("core-")) {
@@ -1397,6 +1696,290 @@ function runSelectedPlanAction(action) {
   } else if (action === "corridor-use-width") {
     applyCorridorWidthFromInspector(detail);
   }
+}
+
+function operationFromPlanAction(action, detail) {
+  if (!state.input || !detail) {
+    return null;
+  }
+
+  if (action.startsWith("floor-")) {
+    const source = clone(state.input);
+    const bounds = boundsOfPoints(source.floorplate.outer.points) || { width: 42, height: 22 };
+    const step = 1;
+    return {
+      kind: "resizeFloorplate",
+      targetKind: "floorplate",
+      targetId: "floorplate",
+      width: clamp(bounds.width + (action === "floor-wider" ? step : action === "floor-narrower" ? -step : 0), 8, 300),
+      depth: clamp(bounds.height + (action === "floor-deeper" ? step : action === "floor-shallower" ? -step : 0), 8, 300)
+    };
+  }
+
+  if (action.startsWith("core-")) {
+    const input = ensureInputShape(clone(state.input));
+    const core = ensureCore(input);
+    const floorBounds = boundsOfPoints(input.floorplate.outer.points) || { minX: 0, minY: 0, maxX: 42, maxY: 22, width: 42, height: 22 };
+    const coreBounds = boundsOfPoints(core.polygon.points) || { minX: 18, minY: 8, width: 6, height: 6 };
+    const step = 1;
+    const nextWidth = clamp(coreBounds.width + (action === "core-grow" ? step : action === "core-shrink" ? -step : 0), 1, floorBounds.width);
+    const nextDepth = clamp(coreBounds.height + (action === "core-grow" ? step : action === "core-shrink" ? -step : 0), 1, floorBounds.height);
+    const dx = action === "core-left" ? -step : action === "core-right" ? step : 0;
+    const dy = action === "core-down" ? -step : action === "core-up" ? step : 0;
+    const x = clamp(coreBounds.minX + dx, floorBounds.minX, floorBounds.maxX - nextWidth);
+    const y = clamp(coreBounds.minY + dy, floorBounds.minY, floorBounds.maxY - nextDepth);
+    return {
+      kind: action === "core-grow" || action === "core-shrink" ? "resizeFixedElement" : "moveFixedElement",
+      targetKind: "fixedElement",
+      targetId: core.id || "core-01",
+      x,
+      y,
+      width: nextWidth,
+      depth: nextDepth
+    };
+  }
+
+  if (action.startsWith("unit-")) {
+    const unit = detail.kind === "room" && detail.unit ? detail.unit : detail.item || {};
+    const type = unit.type || "studio";
+    if (action === "unit-fit-area") {
+      return {
+        kind: "resizeUnitTarget",
+        targetKind: "unitType",
+        targetId: type,
+        unitType: type,
+        targetArea: Number(unit.area) || detail.area || polygonArea(detail.points)
+      };
+    }
+
+    return {
+      kind: "adjustUnitMixTarget",
+      targetKind: "unitType",
+      targetId: type,
+      unitType: type,
+      value: action === "unit-more" ? 0.05 : -0.05
+    };
+  }
+
+  if (action === "room-use-dimensions") {
+    const bounds = detail.bounds || boundsOfPoints(detail.points);
+    if (!bounds) {
+      return null;
+    }
+
+    return {
+      kind: "setRoomMinimum",
+      targetKind: "room",
+      targetId: detail.id,
+      width: clamp(round(Math.min(bounds.width, bounds.height)), 1.2, 20),
+      depth: clamp(round(Math.max(bounds.width, bounds.height)), 1.2, 25)
+    };
+  }
+
+  if (action === "corridor-use-width") {
+    return {
+      kind: "setCorridorWidth",
+      targetKind: "corridor",
+      targetId: detail.id,
+      width: clamp(round(corridorWidth(detail)), 0.9, 12)
+    };
+  }
+
+  return null;
+}
+
+function operationFromCanvasEdit(edit, point) {
+  const floorBounds = boundsOfPoints(edit.startInput.floorplate.outer.points);
+  if (!floorBounds) {
+    return null;
+  }
+
+  if (edit.action === "floor-width" || edit.action === "floor-depth" || edit.action === "floor-size") {
+    return {
+      kind: "resizeFloorplate",
+      targetKind: "floorplate",
+      targetId: "floorplate",
+      width: edit.action === "floor-depth" ? floorBounds.width : clamp(round(point.x - floorBounds.minX), 8, 300),
+      depth: edit.action === "floor-width" ? floorBounds.height : clamp(round(point.y - floorBounds.minY), 8, 300)
+    };
+  }
+
+  if (edit.action === "unit-target-area" && edit.selection && edit.selection.kind === "unit") {
+    const bounds = edit.selection.bounds;
+    const width = clamp(round(point.x - bounds.minX), 2, 60);
+    const depth = clamp(round(point.y - bounds.minY), 2, 60);
+    return {
+      kind: "resizeUnitTarget",
+      targetKind: "unitType",
+      targetId: edit.selection.unitType || "studio",
+      unitType: edit.selection.unitType || "studio",
+      targetArea: clamp(round(width * depth), 10, 400)
+    };
+  }
+
+  if (edit.action === "room-min-size" && edit.selection && edit.selection.kind === "room") {
+    const bounds = edit.selection.bounds;
+    const width = clamp(round(point.x - bounds.minX), 1.2, 25);
+    const depth = clamp(round(point.y - bounds.minY), 1.2, 25);
+    return {
+      kind: "setRoomMinimum",
+      targetKind: "room",
+      targetId: edit.selection.id,
+      width: clamp(round(Math.min(width, depth)), 1.2, 20),
+      depth: clamp(round(Math.max(width, depth)), 1.2, 25)
+    };
+  }
+
+  if (edit.action === "corridor-width" && edit.selection && edit.selection.kind === "corridor") {
+    const bounds = edit.selection.bounds;
+    const centerX = bounds.minX + bounds.width / 2;
+    const centerY = bounds.minY + bounds.height / 2;
+    const horizontal = bounds.width >= bounds.height;
+    const width = horizontal
+      ? Math.abs(point.y - centerY) * 2
+      : Math.abs(point.x - centerX) * 2;
+    return {
+      kind: "setCorridorWidth",
+      targetKind: "corridor",
+      targetId: edit.selection.id,
+      width: clamp(round(width), 0.9, 12)
+    };
+  }
+
+  const startCore = firstCore(edit.startInput);
+  const startCoreBounds = startCore && startCore.polygon ? boundsOfPoints(startCore.polygon.points) : null;
+  if (!startCore || !startCoreBounds) {
+    return null;
+  }
+
+  const currentFloorBounds = boundsOfPoints(edit.startInput.floorplate.outer.points) || floorBounds;
+  if (edit.action === "core-move") {
+    const dx = point.x - edit.startPoint.x;
+    const dy = point.y - edit.startPoint.y;
+    return {
+      kind: "moveFixedElement",
+      targetKind: "fixedElement",
+      targetId: startCore.id || "core-01",
+      x: clamp(round(startCoreBounds.minX + dx), currentFloorBounds.minX, currentFloorBounds.maxX - startCoreBounds.width),
+      y: clamp(round(startCoreBounds.minY + dy), currentFloorBounds.minY, currentFloorBounds.maxY - startCoreBounds.height)
+    };
+  }
+
+  if (edit.action === "core-size") {
+    return {
+      kind: "resizeFixedElement",
+      targetKind: "fixedElement",
+      targetId: startCore.id || "core-01",
+      width: clamp(round(point.x - startCoreBounds.minX), 1, currentFloorBounds.maxX - startCoreBounds.minX),
+      depth: clamp(round(point.y - startCoreBounds.minY), 1, currentFloorBounds.maxY - startCoreBounds.minY)
+    };
+  }
+
+  return null;
+}
+
+function applyPlanOperation(operation, options = {}) {
+  const edited = reducePlanOperationToInput(state.input, operation);
+  if (!edited) {
+    setStatus("Plan operation could not be applied");
+    return false;
+  }
+
+  state.input = edited;
+  syncFormFromInput(state.input);
+  setEditorFromInput(state.input);
+  saveDraft();
+  if (options.record !== false) {
+    recordPlanOperation(operation);
+  }
+  state.editReadout = editSummary(state.input);
+  markInputDirty(options.message || planOperationMessage(operation), options.autoGenerateDelay);
+  renderAll();
+  return true;
+}
+
+function reducePlanOperationToInput(sourceInput, operation) {
+  if (!operation) {
+    return null;
+  }
+
+  const input = ensureInputShape(clone(sourceInput || {}));
+  const kind = normalizeOperationKind(operation.kind);
+  if (kind === "resizefloorplate") {
+    const width = clamp(round(operation.width), 8, 300);
+    const depth = clamp(round(operation.depth), 8, 300);
+    resizeFloorplateInput(input, input, width, depth);
+    clampCoreIntoFloorplate(input);
+    return input;
+  }
+
+  if (kind === "setcorridorwidth") {
+    input.rules.minCorridorWidth = clamp(round(operation.width || operation.value), 0.9, 12);
+    return input;
+  }
+
+  if (kind === "setroomminimum") {
+    input.rules.minRoomWidth = clamp(round(operation.width || operation.value), 1.2, 20);
+    input.rules.minRoomDepth = clamp(round(operation.depth || operation.value), 1.2, 25);
+    return input;
+  }
+
+  if (kind === "resizeunittarget") {
+    const target = ensureUnitTarget(input, operation.unitType || operation.targetId || "studio");
+    const area = Number(operation.targetArea || operation.value) || 0;
+    target.minArea = Math.max(10, round(Number(operation.minArea) || area * 0.9));
+    target.maxArea = Math.max(target.minArea, round(Number(operation.maxArea) || area * 1.1));
+    return input;
+  }
+
+  if (kind === "adjustunitmixtarget") {
+    const target = ensureUnitTarget(input, operation.unitType || operation.targetId || "studio");
+    target.targetRatio = clamp(round((Number(target.targetRatio) || 0) + (Number(operation.value) || 0)), 0, 1);
+    normalizeUnitTargetRatios(input.program.targetUnitTypes);
+    return input;
+  }
+
+  if (kind === "movefixedelement" || kind === "resizefixedelement") {
+    const core = operation.targetId ? fixedElementById(input, operation.targetId) : ensureCore(input);
+    if (!core) {
+      return null;
+    }
+
+    const floorBounds = boundsOfPoints(input.floorplate.outer.points) || { minX: 0, minY: 0, maxX: 42, maxY: 22, width: 42, height: 22 };
+    const coreBounds = boundsOfPoints(core.polygon.points) || { minX: 18, minY: 8, width: 6, height: 6 };
+    const width = clamp(round(operation.width || coreBounds.width), 1, floorBounds.width);
+    const depth = clamp(round(operation.depth || coreBounds.height), 1, floorBounds.height);
+    const x = clamp(round(operation.x !== undefined ? operation.x : coreBounds.minX), floorBounds.minX, floorBounds.maxX - width);
+    const y = clamp(round(operation.y !== undefined ? operation.y : coreBounds.minY), floorBounds.minY, floorBounds.maxY - depth);
+    core.polygon.points = rectPoints(x, y, width, depth);
+    refreshAccessFromCore(input);
+    return input;
+  }
+
+  return null;
+}
+
+function recordPlanOperation(operation) {
+  state.operationLog.push({
+    ...operation,
+    id: operation.id || `web-op-${state.operationLog.length + 1}`,
+    createdAt: new Date().toISOString(),
+    baseVariantId: state.selectedVariantId || ""
+  });
+}
+
+function planOperationMessage(operation) {
+  const kind = normalizeOperationKind(operation && operation.kind);
+  if (kind === "resizefloorplate") return "Resizing floorplate";
+  if (kind === "movefixedelement" || kind === "resizefixedelement") return "Adjusting core";
+  if (kind === "resizeunittarget" || kind === "adjustunitmixtarget") return "Updating unit target";
+  if (kind === "setroomminimum") return "Updating room sizing rules";
+  if (kind === "setcorridorwidth") return "Updating corridor width";
+  return "Applying plan operation";
+}
+
+function normalizeOperationKind(kind) {
+  return String(kind || "").replace(/[^a-z0-9]/gi, "").toLowerCase();
 }
 
 function syncSelection(output) {
@@ -1543,11 +2126,15 @@ function handlePlanPointerMove(event) {
   }
 
   event.preventDefault();
-  const edited = applyCanvasEdit(state.dragEdit, point);
+  const operation = operationFromCanvasEdit(state.dragEdit, point);
+  const edited = operation
+    ? reducePlanOperationToInput(state.dragEdit.startInput, operation)
+    : applyCanvasEdit(state.dragEdit, point);
   if (!edited) {
     return;
   }
 
+  state.dragEdit.lastOperation = operation;
   state.input = edited;
   syncFormFromInput(state.input);
   setEditorFromInput(state.input);
@@ -1562,6 +2149,9 @@ function finishPlanPointerEdit() {
     return;
   }
 
+  if (state.dragEdit.lastOperation) {
+    recordPlanOperation(state.dragEdit.lastOperation);
+  }
   state.dragEdit = null;
   els.previewFrame.classList.remove("is-dragging");
   state.editReadout = editSummary(state.input);
@@ -3183,6 +3773,10 @@ function defaultScoringWeights() {
 
 function firstCore(input) {
   return (input.fixedElements || []).find((fixed) => String(fixed.type || "").toLowerCase() === "core") || input.fixedElements[0] || null;
+}
+
+function fixedElementById(input, id) {
+  return (input.fixedElements || []).find((fixed) => fixed.id === id) || null;
 }
 
 function findUnitTarget(input, type) {

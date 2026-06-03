@@ -313,6 +313,43 @@ namespace FloorPlanGeneration.Tests
         }
 
         [Fact]
+        public void PlanStudioToolsExposeCopilotAndRuleOverlays()
+        {
+            string app = ReadWebFile("app.js");
+            string index = ReadWebFile("index.html");
+            string styles = ReadWebFile("styles.css");
+            string bindEvents = SliceFunction(app, "bindEvents");
+            string renderPreview = SliceFunction(app, "renderPreview");
+            string renderStudioPanel = SliceFunction(app, "renderStudioPanel");
+            string handleCopilotAction = SliceFunction(app, "handleCopilotAction");
+
+            Assert.Contains("data-studio-tool=\"bounds\"", index, StringComparison.Ordinal);
+            Assert.Contains("data-studio-tool=\"wall\"", index, StringComparison.Ordinal);
+            Assert.Contains("data-studio-tool=\"door\"", index, StringComparison.Ordinal);
+            Assert.Contains("data-studio-toggle=\"copilot\"", index, StringComparison.Ordinal);
+            Assert.Contains("data-studio-toggle=\"graphRules\"", index, StringComparison.Ordinal);
+            Assert.Contains("id=\"studioCopilotPanel\"", index, StringComparison.Ordinal);
+            Assert.Contains("studioTool: \"select\"", app, StringComparison.Ordinal);
+            Assert.Contains("studioOverlays", app, StringComparison.Ordinal);
+            Assert.Contains("setStudioTool(button.dataset.studioTool)", bindEvents, StringComparison.Ordinal);
+            Assert.Contains("handleStudioToggle(input)", bindEvents, StringComparison.Ordinal);
+            Assert.Contains("handleCopilotAction", bindEvents, StringComparison.Ordinal);
+            Assert.Contains("state.editMode = true", SliceFunction(app, "setStudioTool"), StringComparison.Ordinal);
+            Assert.Contains("renderStudioSvgOverlays(group, output, variant, bounds)", renderPreview, StringComparison.Ordinal);
+            Assert.Contains("state.studioOverlays.labels", renderPreview, StringComparison.Ordinal);
+            Assert.Contains("copilotActionsForDetail(detail)", renderStudioPanel, StringComparison.Ordinal);
+            Assert.Contains("runSelectedPlanAction(action)", handleCopilotAction, StringComparison.Ordinal);
+            Assert.Contains("renderDimensionOverlay", app, StringComparison.Ordinal);
+            Assert.Contains("renderAccessibilityOverlay", app, StringComparison.Ordinal);
+            Assert.Contains("renderGraphRuleOverlay", app, StringComparison.Ordinal);
+            Assert.Contains(".studio-bar", styles, StringComparison.Ordinal);
+            Assert.Contains(".studio-copilot-panel", styles, StringComparison.Ordinal);
+            Assert.Contains(".dimension-label", styles, StringComparison.Ordinal);
+            Assert.Contains(".access-zone", styles, StringComparison.Ordinal);
+            Assert.Contains(".graph-rule-badge", styles, StringComparison.Ordinal);
+        }
+
+        [Fact]
         public void EditModeControlsAreExplicitAndGateCanvasEditHooks()
         {
             string app = ReadWebFile("app.js");
@@ -511,6 +548,38 @@ namespace FloorPlanGeneration.Tests
             Assert.DoesNotMatch(@"state\.response\s*=(?!=)", applyInputMutation);
             Assert.DoesNotContain("state.selectedVariantId = \"\"", applyInputMutation, StringComparison.Ordinal);
             Assert.DoesNotContain("els.outputJson.textContent =", applyInputMutation, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void PlanEditsProduceNamedOperationsBeforeInputReduction()
+        {
+            string app = ReadWebFile("app.js");
+            string runSelectedPlanAction = SliceFunction(app, "runSelectedPlanAction");
+            string operationFromPlanAction = SliceFunction(app, "operationFromPlanAction");
+            string operationFromCanvasEdit = SliceFunction(app, "operationFromCanvasEdit");
+            string applyPlanOperation = SliceFunction(app, "applyPlanOperation");
+            string reducePlanOperationToInput = SliceFunction(app, "reducePlanOperationToInput");
+            string handlePlanPointerMove = SliceFunction(app, "handlePlanPointerMove");
+            string finishPlanPointerEdit = SliceFunction(app, "finishPlanPointerEdit");
+            string recordPlanOperation = SliceFunction(app, "recordPlanOperation");
+
+            Assert.Contains("operationLog: []", app, StringComparison.Ordinal);
+            Assert.Contains("operationFromPlanAction(action, detail)", runSelectedPlanAction, StringComparison.Ordinal);
+            Assert.Contains("applyPlanOperation(operation", runSelectedPlanAction, StringComparison.Ordinal);
+            Assert.Contains("kind: \"resizeFloorplate\"", operationFromPlanAction, StringComparison.Ordinal);
+            Assert.Contains("kind: \"resizeUnitTarget\"", operationFromPlanAction, StringComparison.Ordinal);
+            Assert.Contains("kind: \"setRoomMinimum\"", operationFromCanvasEdit, StringComparison.Ordinal);
+            Assert.Contains("kind: \"setCorridorWidth\"", operationFromCanvasEdit, StringComparison.Ordinal);
+            Assert.Contains("reducePlanOperationToInput(state.input, operation)", applyPlanOperation, StringComparison.Ordinal);
+            Assert.Contains("normalizeOperationKind(operation.kind)", reducePlanOperationToInput, StringComparison.Ordinal);
+            Assert.Contains("reducePlanOperationToInput(state.dragEdit.startInput, operation)", handlePlanPointerMove, StringComparison.Ordinal);
+            Assert.Contains("recordPlanOperation(state.dragEdit.lastOperation)", finishPlanPointerEdit, StringComparison.Ordinal);
+            Assert.Contains("state.operationLog.push", recordPlanOperation, StringComparison.Ordinal);
+            AssertBefore(
+                runSelectedPlanAction,
+                "operationFromPlanAction",
+                "adjustFloorplateFromInspector",
+                "Named operation dispatch should precede legacy input mutation fallback.");
         }
 
         [Fact]

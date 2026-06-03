@@ -10,6 +10,7 @@ using System.Threading.Tasks;
 using FloorPlanGeneration;
 using FloorPlanGeneration.Cli;
 using FloorPlanGeneration.Geometry;
+using FloorPlanGeneration.Operations;
 using FloorPlanGeneration.Schema;
 using FloorPlanGeneration.Topology;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -528,6 +529,62 @@ namespace FloorPlanGeneration.Tests
         }
 
         [Fact]
+        public void ApplyOperations_CommitsNamedOperationsAndRegeneratesOutput()
+        {
+            PlanOperationResult result = new FloorPlanEngine().ApplyOperations(new PlanOperationRequest
+            {
+                Input = RectangularInput(seed: 20260603, variantCount: 2),
+                Operations = new List<PlanOperation>
+                {
+                    new PlanOperation { Kind = "resizeUnitTarget", UnitType = "two_bed", TargetArea = 92.0 },
+                    new PlanOperation { Kind = "setCorridorWidth", Width = 2.2 },
+                    new PlanOperation { Kind = "setRoomMinimum", Width = 2.8, Depth = 3.0 }
+                }
+            });
+
+            Assert.Equal("succeeded", result.Status);
+            Assert.Equal(3, result.Operations.Count);
+            Assert.All(result.Operations, operation => Assert.Equal("committed", operation.Status));
+            Assert.All(result.Operations, operation => Assert.False(string.IsNullOrWhiteSpace(operation.GraphIntent)));
+            Assert.Equal(2.2, result.Input.Rules.MinCorridorWidth);
+            Assert.Equal(2.8, result.Input.Rules.MinRoomWidth);
+            Assert.Equal(3.0, result.Input.Rules.MinRoomDepth);
+
+            UnitTypeTarget twoBed = Assert.Single(
+                result.Input.Program.TargetUnitTypes,
+                target => target.Type == "two_bed");
+            Assert.Equal(82.8, twoBed.MinArea);
+            Assert.Equal(101.2, twoBed.MaxArea);
+            Assert.Equal(2, result.Output.Variants.Count);
+            Assert.All(result.Output.Variants, variant => Assert.True(variant.Validation.Passed));
+            Assert.All(result.Output.Variants, variant => Assert.NotNull(variant.Topology.Hypergraph));
+        }
+
+        [Fact]
+        public void ApplyOperations_RejectsUnsupportedOperationTransactionally()
+        {
+            EngineInput input = RectangularInput(seed: 20260603, variantCount: 1);
+            double originalCorridorWidth = input.Rules.MinCorridorWidth;
+
+            PlanOperationResult result = new FloorPlanEngine().ApplyOperations(new PlanOperationRequest
+            {
+                Input = input,
+                Operations = new List<PlanOperation>
+                {
+                    new PlanOperation { Kind = "setCorridorWidth", Width = 2.4 },
+                    new PlanOperation { Kind = "teleportWall", TargetId = "wall-01" }
+                }
+            });
+
+            Assert.Equal("failed", result.Status);
+            Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Code == "operation.rejected");
+            Assert.Equal(originalCorridorWidth, result.Input.Rules.MinCorridorWidth);
+            Assert.Equal("committed", result.Operations[0].Status);
+            Assert.Equal("rejected", result.Operations[1].Status);
+            Assert.Empty(result.Output.Variants);
+        }
+
+        [Fact]
         public void CliValidateOnly_ReturnsValidatedJsonWithoutVariants()
         {
             string outputPath = Path.Combine(
@@ -601,6 +658,9 @@ namespace FloorPlanGeneration.Tests
             Assert.Contains(
                 manifest.RootElement.GetProperty("automationNotes").EnumerateArray(),
                 note => note.GetString().Contains("--validate-only", StringComparison.Ordinal));
+            Assert.Contains(
+                manifest.RootElement.GetProperty("commands").EnumerateArray(),
+                command => command.GetProperty("name").GetString() == "apply-operations");
         }
 
         [Fact]
@@ -678,6 +738,48 @@ namespace FloorPlanGeneration.Tests
         }
 
         [Fact]
+        public void CliOperations_AppliesNamedOperationFileForAgents()
+        {
+            string operationsPath = Path.Combine(
+                Path.GetTempPath(),
+                "floor-plan-ops-" + Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture) + ".json");
+            File.WriteAllText(
+                operationsPath,
+                JsonSerializer.Serialize(new[]
+                {
+                    new PlanOperation { Kind = "setCorridorWidth", Width = 2.3 },
+                    new PlanOperation { Kind = "resizeUnitTarget", UnitType = "one_bed", TargetArea = 66.0 }
+                }, JsonOptions()));
+            StringWriter stdout = new StringWriter(CultureInfo.InvariantCulture);
+            StringWriter stderr = new StringWriter(CultureInfo.InvariantCulture);
+
+            try
+            {
+                int exitCode = CliApplication.Run(
+                    new[] { "--sample", "rectangular-core", "--operations", operationsPath, "--variants", "1", "--summary" },
+                    new ThrowingTextReader(),
+                    stdout,
+                    stderr);
+
+                Assert.Equal(0, exitCode);
+                PlanOperationResult result = JsonSerializer.Deserialize<PlanOperationResult>(stdout.ToString(), JsonOptions());
+                Assert.Equal("succeeded", result.Status);
+                Assert.Equal(2, result.Operations.Count);
+                Assert.All(result.Operations, operation => Assert.Equal("committed", operation.Status));
+                Assert.Equal(2.3, result.Input.Rules.MinCorridorWidth);
+                Assert.Single(result.Output.Variants);
+                Assert.Contains("operations=2", stderr.ToString(), StringComparison.Ordinal);
+            }
+            finally
+            {
+                if (File.Exists(operationsPath))
+                {
+                    File.Delete(operationsPath);
+                }
+            }
+        }
+
+        [Fact]
         public async Task WebApiManifest_DescribesLocalGenerateContract()
         {
             using (WebApplicationFactory<global::Program> factory = new WebApplicationFactory<global::Program>())
@@ -688,6 +790,9 @@ namespace FloorPlanGeneration.Tests
                 Assert.Contains(
                     manifest.RootElement.GetProperty("endpoints").EnumerateArray(),
                     endpoint => endpoint.GetProperty("path").GetString() == "/api/generate");
+                Assert.Contains(
+                    manifest.RootElement.GetProperty("endpoints").EnumerateArray(),
+                    endpoint => endpoint.GetProperty("path").GetString() == "/api/operations");
                 Assert.Equal(20, manifest.RootElement.GetProperty("limits").GetProperty("variantsMax").GetInt32());
                 Assert.Equal(256, manifest.RootElement.GetProperty("limits").GetProperty("requestBodyMaxKb").GetInt32());
             }
@@ -853,6 +958,35 @@ namespace FloorPlanGeneration.Tests
                     Assert.Equal(1, body.RootElement.GetProperty("validVariantCount").GetInt32());
                     Assert.Equal("succeeded", body.RootElement.GetProperty("output").GetProperty("status").GetString());
                 }
+            }
+        }
+
+        [Fact]
+        public async Task WebApiOperations_ReturnsOperationReceiptsAndRegeneratedOutput()
+        {
+            using (WebApplicationFactory<global::Program> factory = new WebApplicationFactory<global::Program>())
+            using (HttpClient client = factory.CreateClient())
+            {
+                HttpResponseMessage response = await client.PostAsJsonAsync("/api/operations", new
+                {
+                    sampleName = "rectangular-core",
+                    variants = 1,
+                    operations = new[]
+                    {
+                        new { kind = "setCorridorWidth", width = 2.25, depth = 0.0 },
+                        new { kind = "setRoomMinimum", width = 2.7, depth = 2.9 }
+                    }
+                });
+                response.EnsureSuccessStatusCode();
+
+                using JsonDocument body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+                Assert.Equal("succeeded", body.RootElement.GetProperty("status").GetString());
+                Assert.Equal("operations", body.RootElement.GetProperty("mode").GetString());
+                Assert.Equal(2, body.RootElement.GetProperty("operationCount").GetInt32());
+                Assert.Equal(2, body.RootElement.GetProperty("committedOperationCount").GetInt32());
+                JsonElement result = body.RootElement.GetProperty("result");
+                Assert.Equal(2.25, result.GetProperty("input").GetProperty("rules").GetProperty("minCorridorWidth").GetDouble());
+                Assert.Equal("succeeded", result.GetProperty("output").GetProperty("status").GetString());
             }
         }
 

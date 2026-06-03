@@ -209,6 +209,22 @@
             <button id="saveSvgBtn" type="button">Save SVG</button>
           </div>
         </div>
+        <div class="studio-bar" aria-label="Plan Studio">
+          <div class="studio-tools" aria-label="Studio tools">
+            <button class="active" type="button" data-studio-tool="select" aria-pressed="true">Select</button>
+            <button type="button" data-studio-tool="bounds" aria-pressed="false">Bounds</button>
+            <button type="button" data-studio-tool="wall" aria-pressed="false">Wall</button>
+            <button type="button" data-studio-tool="separator" aria-pressed="false">Separator</button>
+            <button type="button" data-studio-tool="door" aria-pressed="false">Door</button>
+          </div>
+          <div class="studio-toggles" aria-label="Studio overlays">
+            <label><input type="checkbox" data-studio-toggle="copilot" checked> AI Co-Pilot</label>
+            <label><input type="checkbox" data-studio-toggle="dimensions" checked> Dimensions</label>
+            <label><input type="checkbox" data-studio-toggle="labels" checked> Labels</label>
+            <label><input type="checkbox" data-studio-toggle="accessibility"> Access</label>
+            <label><input type="checkbox" data-studio-toggle="graphRules" checked> Graph Rules</label>
+          </div>
+        </div>
         <div class="preview-frame">
           <div class="canvas-tools" aria-label="Canvas tools">
             <button type="button" data-canvas-action="zoom-in" aria-label="Zoom in" title="Zoom in">+</button>
@@ -217,6 +233,7 @@
             <button type="button" data-canvas-action="edit-toggle" aria-label="Edit constraints" aria-pressed="false" title="Edit constraints">Edit</button>
           </div>
           <div id="editReadout" class="edit-readout" aria-live="polite"></div>
+          <div id="studioCopilotPanel" class="studio-copilot-panel" aria-live="polite"></div>
           <svg id="planSvg" role="img" aria-label="Generated floor plan preview"></svg>
           <div id="emptyPreview" class="empty-preview">No plan available</div>
         </div>

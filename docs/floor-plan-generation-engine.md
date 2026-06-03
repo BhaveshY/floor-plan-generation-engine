@@ -28,6 +28,40 @@ The public orchestration path is:
 10. Validate geometry containment, overlap, corridor width, doors, fixed-core access, daylight requirements, hypergraph contract integrity, and strict unit-mix constraints.
 11. Score each variant and rank valid variants before invalid variants.
 
+This is the MVP orchestration path, not the final product architecture. The final architecture must invert the relationship between generation and topology: the live design graph comes first, solver geometry comes second, and exported variants come last. The hypergraph cannot remain only a reporting artifact built after candidate generation.
+
+## Target Live Graph Editing Model
+
+The final Floor Engine behavior should feel direct and fluid while staying mathematically grounded. A user should be able to generate or load a plan, drag a wall or room handle, ask for a larger bedroom, shorten a corridor, move a kitchen, or lock a bath location, and the surrounding plan should rebalance automatically instead of falling apart.
+
+The required edit flow is:
+
+```text
+mouse edit or AI prompt
+-> PlanOperation
+-> graph transaction on the live DataNode/hypergraph model
+-> constraint projection
+-> local solver / reference-transfer solver
+-> rebuilt units, rooms, walls, doors, labels, and topology
+-> validation and scoring
+-> commit, reject, or present alternatives
+```
+
+The operation layer should cover at least:
+
+- `ResizeRoom`: change a room target area or split ratio and redistribute the delta to adjacent rooms or circulation.
+- `MoveWall`: move a shared boundary while preserving both neighboring spaces, minimum dimensions, doors, and wall joins.
+- `SplitRoom`: add a new child split to the graph and solve its geometry inside the parent room.
+- `MergeRooms`: merge graph leaves, rebuild adjacency, and update door/facade/circulation relationships.
+- `MoveKitchen` and wet-zone operations: preserve shaft/wet-wall constraints while changing room placement.
+- `AddDoor` and `RemoveDoor`: update physical openings and graph connectivity together.
+- `LockElement`: prevent selected rooms, walls, doors, or constraints from being changed by later solves.
+- `ImproveConstraint`: increase daylight, reduce corridor length, improve facade access, or satisfy a validation issue.
+
+Each operation must be transactional. If a drag cannot satisfy the graph constraints, the engine should keep the last valid state and return clear alternatives instead of committing broken geometry. Undo/redo and branch history should store graph operations, not screenshots.
+
+This is also the AI contract. Prompt generation and prompt modification must use the same operation model as mouse edits. For example, "make this a better 2BHK and increase the living room" should select or create a graph-backed 2BHK template, adjust the living-room area constraint, rebalance connected rooms, rerun validation, and explain any tradeoffs.
+
 ## Local Web App
 
 The web app is meant for non-technical users and quick review sessions. It runs locally, uses the same engine library as the CLI, and does not require any external modeling tool.
@@ -64,6 +98,7 @@ The app exposes a small local API:
 - `GET /api/samples/{name}`: returns an `EngineInput` sample JSON file.
 - `GET /api/schemas/input` and `GET /api/schemas/output`: return the packaged schema artifacts.
 - `POST /api/generate`: accepts `{ input, seed, variants, validateOnly }` and returns a response wrapper containing the full `EngineOutput`.
+- `POST /api/operations`: accepts `{ input, sampleName, operations, seed, variants, validateOnly }` and returns operation receipts, updated input, and regenerated output.
 
 ## Input Schema
 
@@ -167,6 +202,21 @@ Override the input seed or variant count without editing JSON:
 dotnet run --project FloorPlanGeneration.Cli -- --input samples/floor-plan-generation/l-shaped-core-input.json --seed 5601 --variants 5 --summary
 ```
 
+Apply named operations from a JSON file and regenerate:
+
+```sh
+dotnet run --project FloorPlanGeneration.Cli -- --sample rectangular-core --operations my-plan-operations.json --summary
+```
+
+Example operation file:
+
+```json
+[
+  { "kind": "setCorridorWidth", "width": 2.2 },
+  { "kind": "resizeUnitTarget", "unitType": "two_bed", "targetArea": 92 }
+]
+```
+
 `--summary` writes a compact status line to stderr and leaves stdout clean for JSON when no `--output` path is supplied. `--fail-on-partial` returns a non-zero exit code for partial outputs, which is useful in automated checks.
 
 `generationSettings.timeLimitMilliseconds` is a soft generation budget. The engine finishes the current variant, returns completed variants, and emits `generation.time_limit_reached` when the budget is reached before all requested variants are generated.
@@ -184,6 +234,7 @@ The manifest describes supported commands, sample names, schema URLs, stdout/std
 - Generation, validation, schema, sample, and manifest commands write machine-readable data to stdout unless `--output` is supplied.
 - `--summary` writes compact status to stderr so stdout stays parseable.
 - When neither `--input` nor `--sample` is supplied, the CLI reads `EngineInput` JSON from stdin.
+- `--operations <path>` applies `PlanOperation` JSON and returns `PlanOperationResult` JSON instead of plain `EngineOutput`.
 - Usage errors return `64`, failed engine output returns `2`, and partial output with `--fail-on-partial` returns `3`.
 - `topology.hypergraph` is machine-readable and does not require a Rhino process, so agents can inspect containment, adjacency, door, facade, and matrix relationships directly from JSON.
 
@@ -276,6 +327,10 @@ Invalid contract values, invalid outer-boundary geometry, and conservative infea
 - Facade handling is segment-length based and does not model view quality, obstructions, fire separation, or code-specific egress.
 - Validation is architectural sanity checking, not permit-ready building code compliance.
 - The engine does not mutate existing RGeoLib, samples, notebooks, or Python API surfaces.
+
+These limits are acceptable for the current MVP but not for the final Finch3D/Synaps-style product target. The next major engine milestone is the live graph editing kernel described above.
+
+The current `PlanOperation` bridge is the first step toward that kernel. It exposes named operations through the core engine, CLI, and local web API, applies them transactionally to the current input constraints, and regenerates/validates the output. It is intentionally shaped so the reducer can be replaced by true `DataNode`/hypergraph transactions without changing the web or agent command surface again.
 
 ## BIM and IFC Next Steps
 

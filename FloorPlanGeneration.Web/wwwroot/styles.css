@@ -365,6 +365,58 @@ h3 {
   box-shadow: 0 1px 4px rgba(15, 23, 42, 0.08);
 }
 
+.studio-bar {
+  min-height: 50px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--line);
+  background: #f8fafb;
+}
+
+.studio-tools,
+.studio-toggles,
+.studio-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.studio-tools button {
+  min-height: 32px;
+  padding: 0 10px;
+  border-color: #d7e0e6;
+  background: #fff;
+  box-shadow: none;
+}
+
+.studio-tools button.active {
+  color: var(--teal);
+  border-color: #abdeda;
+  background: var(--teal-soft);
+}
+
+.studio-toggles label {
+  min-height: 30px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 9px;
+  border: 1px solid #dce4ea;
+  border-radius: 6px;
+  color: var(--ink-soft);
+  background: #fff;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.studio-toggles input {
+  margin: 0;
+}
+
 .canvas-tools {
   position: absolute;
   z-index: 2;
@@ -808,6 +860,65 @@ textarea.dragging {
   display: none;
 }
 
+.studio-copilot-panel {
+  position: absolute;
+  z-index: 3;
+  top: 14px;
+  right: 14px;
+  width: min(360px, calc(100% - 28px));
+  display: grid;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.studio-copilot-panel[hidden] {
+  display: none;
+}
+
+.studio-card {
+  padding: 10px;
+  border: 1px solid rgba(15, 23, 42, 0.14);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: var(--shadow-soft);
+  pointer-events: auto;
+}
+
+.studio-card div:first-child {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: baseline;
+}
+
+.studio-card span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.studio-card strong {
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.studio-card p {
+  margin: 6px 0 0;
+  color: var(--ink-soft);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.studio-card-actions {
+  margin-top: 8px;
+}
+
+.studio-card-actions button {
+  min-height: 30px;
+  padding: 0 9px;
+}
+
 #planSvg {
   display: block;
   width: 100%;
@@ -948,6 +1059,51 @@ textarea.dragging {
 .plan-action-chip:focus rect {
   fill: var(--teal-soft);
   stroke: var(--teal-strong);
+}
+
+.dimension-label {
+  fill: #334155;
+  font-size: 1.15px;
+  font-weight: 900;
+  paint-order: stroke;
+  stroke: rgba(255, 255, 255, 0.82);
+  stroke-width: 0.12;
+  pointer-events: none;
+}
+
+.selected-dimension {
+  fill: var(--teal-strong);
+}
+
+.access-zone {
+  fill: rgba(83, 112, 255, 0.13);
+  stroke: rgba(58, 79, 192, 0.72);
+  stroke-width: 0.12;
+  stroke-dasharray: 0.35 0.25;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+
+.graph-rule-badge rect {
+  fill: rgba(255, 255, 255, 0.94);
+  stroke: rgba(15, 23, 42, 0.14);
+  stroke-width: 0.08;
+}
+
+.graph-rule-badge.is-passing rect {
+  fill: #e8f7ef;
+  stroke: #6bb384;
+}
+
+.graph-rule-badge.has-errors rect {
+  fill: #fff0e6;
+  stroke: #d18445;
+}
+
+.graph-rule-badge text {
+  fill: var(--ink-soft);
+  font-size: 0.72px;
+  font-weight: 900;
 }
 
 #planSvg .selected-element {

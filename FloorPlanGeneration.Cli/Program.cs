@@ -6,6 +6,7 @@ using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using FloorPlanGeneration;
+using FloorPlanGeneration.Operations;
 using FloorPlanGeneration.Schema;
 
 namespace FloorPlanGeneration.Cli
@@ -14,7 +15,7 @@ namespace FloorPlanGeneration.Cli
     {
         private const string Usage =
             "Usage: FloorPlanGeneration.Cli [--input path|--sample name] [--output path] [--seed n] " +
-            "[--variants n] [--validate-only] [--summary] [--fail-on-partial] " +
+            "[--variants n] [--operations path] [--validate-only] [--summary] [--fail-on-partial] " +
             "[--list-samples|--write-sample name] [--print-input-schema|--print-output-schema|--ai-manifest]";
 
         private static readonly Dictionary<string, string> Samples = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
@@ -94,6 +95,11 @@ namespace FloorPlanGeneration.Cli
                 }
             }
 
+            if (!string.IsNullOrWhiteSpace(options.OperationsPath))
+            {
+                return RunOperations(options, inputReader, outputWriter, errorWriter);
+            }
+
             EngineOutput output;
             try
             {
@@ -146,6 +152,83 @@ namespace FloorPlanGeneration.Cli
             return 0;
         }
 
+        private static int RunOperations(
+            CliOptions options,
+            TextReader inputReader,
+            TextWriter outputWriter,
+            TextWriter errorWriter)
+        {
+            PlanOperationResult result;
+            try
+            {
+                bool operationsIncludeInput;
+                PlanOperationRequest request = ReadOperationRequest(options.OperationsPath, out operationsIncludeInput);
+                if (HasInputSource(options) || !operationsIncludeInput)
+                {
+                    string json = ReadInput(options, inputReader);
+                    if (string.IsNullOrWhiteSpace(json))
+                    {
+                        result = FailedOperationResult("cli.empty_input", "No JSON input was provided.");
+                        return WriteOperationResult(result, options, outputWriter, errorWriter);
+                    }
+
+                    request.Input = JsonSerializer.Deserialize<EngineInput>(json, JsonOptions());
+                }
+
+                ApplyOverrides(request.Input, options);
+                if (options.ValidateOnly)
+                {
+                    request.ValidateOnly = true;
+                }
+
+                FloorPlanEngine engine = new FloorPlanEngine();
+                result = engine.ApplyOperations(request);
+            }
+            catch (JsonException)
+            {
+                result = FailedOperationResult(
+                    "cli.invalid_json",
+                    "Input or operation JSON could not be parsed. Check the operation contract and try again.");
+            }
+            catch (Exception)
+            {
+                result = FailedOperationResult(
+                    "cli.exception",
+                    "CLI operation execution failed unexpectedly. Review input, operations, and command options.");
+            }
+
+            return WriteOperationResult(result, options, outputWriter, errorWriter);
+        }
+
+        private static int WriteOperationResult(
+            PlanOperationResult result,
+            CliOptions options,
+            TextWriter outputWriter,
+            TextWriter errorWriter)
+        {
+            if (!TryWriteOutput(options.OutputPath, JsonSerializer.Serialize(result, JsonOptions()), outputWriter, errorWriter, true))
+            {
+                return 2;
+            }
+
+            if (options.Summary)
+            {
+                WriteOperationSummary(result, options.OutputPath, errorWriter);
+            }
+
+            if (string.Equals(result.Status, "failed", StringComparison.OrdinalIgnoreCase))
+            {
+                return 2;
+            }
+
+            if (options.FailOnPartial && string.Equals(result.Status, "partial", StringComparison.OrdinalIgnoreCase))
+            {
+                return 3;
+            }
+
+            return 0;
+        }
+
         private static JsonSerializerOptions JsonOptions()
         {
             return new JsonSerializerOptions
@@ -177,6 +260,47 @@ namespace FloorPlanGeneration.Cli
             }
 
             return inputReader.ReadToEnd();
+        }
+
+        private static bool HasInputSource(CliOptions options)
+        {
+            return !string.IsNullOrWhiteSpace(options.SampleName) || !string.IsNullOrWhiteSpace(options.InputPath);
+        }
+
+        private static PlanOperationRequest ReadOperationRequest(string path, out bool includesInput)
+        {
+            includesInput = false;
+            string json = File.ReadAllText(path);
+            using (JsonDocument document = JsonDocument.Parse(json))
+            {
+                JsonElement root = document.RootElement;
+                if (root.ValueKind == JsonValueKind.Array)
+                {
+                    return new PlanOperationRequest
+                    {
+                        Operations = JsonSerializer.Deserialize<List<PlanOperation>>(json, JsonOptions())
+                    };
+                }
+
+                if (root.ValueKind != JsonValueKind.Object)
+                {
+                    throw new JsonException("Operation JSON must be an object or array.");
+                }
+
+                includesInput = root.TryGetProperty("input", out JsonElement _);
+                if (root.TryGetProperty("operations", out JsonElement _))
+                {
+                    return JsonSerializer.Deserialize<PlanOperationRequest>(json, JsonOptions());
+                }
+
+                return new PlanOperationRequest
+                {
+                    Operations = new List<PlanOperation>
+                    {
+                        JsonSerializer.Deserialize<PlanOperation>(json, JsonOptions())
+                    }
+                };
+            }
         }
 
         private static bool TryReadSample(string sampleName, out string json)
@@ -335,6 +459,28 @@ namespace FloorPlanGeneration.Cli
                 target));
         }
 
+        private static void WriteOperationSummary(
+            PlanOperationResult result,
+            string outputPath,
+            TextWriter errorWriter)
+        {
+            int operationCount = result.Operations != null ? result.Operations.Count : 0;
+            int committedCount = result.Operations != null
+                ? result.Operations.Count(o => string.Equals(o.Status, "committed", StringComparison.OrdinalIgnoreCase))
+                : 0;
+            int variantCount = result.Output != null && result.Output.Variants != null ? result.Output.Variants.Count : 0;
+            string target = string.IsNullOrWhiteSpace(outputPath) ? "stdout" : outputPath;
+
+            errorWriter.WriteLine(string.Format(
+                CultureInfo.InvariantCulture,
+                "status={0} operations={1} committed={2} variants={3} output={4}",
+                result.Status,
+                operationCount,
+                committedCount,
+                variantCount,
+                target));
+        }
+
         private static EngineOutput FailedOutput(string code, string message)
         {
             return new EngineOutput
@@ -345,6 +491,22 @@ namespace FloorPlanGeneration.Cli
                 {
                     Diagnostic.Error(code, message)
                 }
+            };
+        }
+
+        private static PlanOperationResult FailedOperationResult(string code, string message)
+        {
+            Diagnostic diagnostic = Diagnostic.Error(code, message);
+            return new PlanOperationResult
+            {
+                Status = "failed",
+                Output = new EngineOutput
+                {
+                    ProjectId = "project",
+                    Status = "failed",
+                    Diagnostics = new List<Diagnostic> { diagnostic }
+                },
+                Diagnostics = new List<Diagnostic> { diagnostic }
             };
         }
 
@@ -418,6 +580,13 @@ namespace FloorPlanGeneration.Cli
                     continue;
                 }
 
+                if (arg == "--operations")
+                {
+                    if (++i >= args.Length) return false;
+                    options.OperationsPath = args[i];
+                    continue;
+                }
+
                 if (arg == "--summary")
                 {
                     options.Summary = true;
@@ -488,6 +657,12 @@ namespace FloorPlanGeneration.Cli
                     },
                     new
                     {
+                        name = "apply-operations",
+                        args = "--input <path>|--sample <name> --operations <path> [--output <path>] [--summary]",
+                        result = "PlanOperationResult JSON with operation receipts, updated input, and regenerated output."
+                    },
+                    new
+                    {
                         name = "write-sample",
                         args = "--write-sample <name> [--output <path>]",
                         result = "Starter EngineInput JSON."
@@ -520,6 +695,7 @@ namespace FloorPlanGeneration.Cli
                 automationNotes = new[]
                 {
                     "Prefer --sample for smoke tests and --input for user files.",
+                    "Use --operations for mouse/AI edit commands; it returns operation receipts plus regenerated output.",
                     "Use --validate-only before generation when editing JSON programmatically.",
                     "Use --summary for logs; parse JSON from stdout or the --output file.",
                     "Do not scrape human README text when --ai-manifest and schema commands are available."
@@ -527,6 +703,7 @@ namespace FloorPlanGeneration.Cli
                 examples = new[]
                 {
                     "floorplan-gen --sample rectangular-core --variants 2",
+                    "floorplan-gen --sample rectangular-core --operations operations.json --summary",
                     "floorplan-gen --input input.json --output output.json --summary",
                     "floorplan-gen --input input.json --validate-only --summary",
                     "floorplan-gen --write-sample rectangular-core --output starter.json"
@@ -557,6 +734,7 @@ namespace FloorPlanGeneration.Cli
             public string OutputPath { get; set; }
             public string SampleName { get; set; }
             public string WriteSampleName { get; set; }
+            public string OperationsPath { get; set; }
             public bool Help { get; set; }
             public int? SeedOverride { get; set; }
             public int? VariantCountOverride { get; set; }

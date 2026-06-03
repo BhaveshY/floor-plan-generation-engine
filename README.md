@@ -4,6 +4,8 @@ Rhino-ready, headless floor plan generation app for multi-family residential flo
 
 The engine accepts architectural boundaries and fixed constraints as JSON, then returns ranked 2D floor plan variants with validation status, diagnostics, topology, and a portable hypergraph contract compatible with the `BhaveshY/hypergraph` `DataNode` shape. RhinoCommon/Grasshopper integration is intentionally kept as an adapter layer; the core engine is JSON I/O only.
 
+The intended product direction goes beyond the current MVP: Floor Engine should become a graph-backed plan studio where AI prompts and mouse edits modify the same live mathematical floor plan. Resizing a room, moving a wall, or asking for a better 2BHK should rebalance adjacent spaces through graph operations and validation instead of redrawing disconnected lines.
+
 ## Easiest Start
 
 If you want the visual app, run one of these commands from the repo folder.
@@ -199,6 +201,7 @@ The CLI is designed to be agent-friendly:
 - stdout is JSON for generation, validation, schema, sample, and manifest commands.
 - `--summary` writes compact run status to stderr.
 - stdin accepts EngineInput JSON when neither `--input` nor `--sample` is supplied.
+- `--operations <path>` applies named plan operations and returns a `PlanOperationResult` with receipts, updated input, and regenerated output.
 - `--variants` accepts values from `1` through `20`.
 - exit code `0` means success, `2` means failed engine/CLI JSON output, `3` means partial output with `--fail-on-partial`, and `64` means usage error.
 - every generated variant includes `topology.hypergraph` with a recursive `DataNode` tree, explicit nodes, hyperedges, incidence records, and subdivision/adjacency/area/angle/incidence matrices.
@@ -208,12 +211,14 @@ The CLI is designed to be agent-friendly:
 - Headless JSON I/O core.
 - Deterministic generation with seed-based variation.
 - Honest validation failures with machine-readable diagnostics.
+- Named plan operations for mouse/AI edits, exposed through the engine, CLI, and local web API.
 - Rhino/Grasshopper coupling only through future adapters.
 - Strict CLI JSON parsing: unknown JSON properties fail fast instead of being silently ignored.
 - Published schema version `1.2` with strict input schema, output schema, and compact golden contract fixtures.
 - Portable hypergraph output: recursive `DataNode` JSON (`name`, `area`, `angle`, `mergeid`, `final`, `children`, `connected`, `treeNodeMesh`) plus explicit hyperedges and matrices.
+- Future live editing kernel: mouse edits and AI prompts should become undoable graph operations that resize and rebalance plans while preserving containment, adjacency, circulation, daylight, doors, room minimums, and locked constraints.
 - Adapter-facing output metadata for schema version, seed, effective generation settings, floorplate bounds/areas, stable `externalId` values, and predictable layer names such as `FP::Input::Boundary`, `FP::Input::Fixed`, `FP::Generated::Units`, `FP::Generated::Corridors`, and `FP::Generated::Diagnostics`.
 
 ## MVP Scope
 
-This MVP targets rectangular, L-shaped, and moderately irregular orthogonal floorplates with one fixed core. Candidate placement is obstacle-aware for holes and blocking fixed elements, but still heuristic and template-based. It is not a finished architectural design system; it is a production-oriented engine skeleton with explicit validation and extension points. See `docs/roadmap.md` for the remaining product gaps.
+This MVP targets rectangular, L-shaped, and moderately irregular orthogonal floorplates with one fixed core. Candidate placement is obstacle-aware for holes and blocking fixed elements, but still heuristic and template-based. The operation bridge currently maps named edits to input constraints and regeneration; the next major step is replacing that reducer with the live hypergraph solver. See `docs/roadmap.md` for the remaining product gaps.

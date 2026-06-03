@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Linq;
 using FloorPlanGeneration.Generation;
 using FloorPlanGeneration.Geometry;
+using FloorPlanGeneration.Operations;
 using FloorPlanGeneration.Schema;
 using FloorPlanGeneration.Topology;
 using FloorPlanGeneration.Validation;
@@ -60,6 +61,33 @@ namespace FloorPlanGeneration
                             "engine.exception",
                             "Floor plan validation failed unexpectedly. Review the input contract and try again.")
                     }
+                };
+            }
+        }
+
+        public PlanOperationResult ApplyOperations(PlanOperationRequest request)
+        {
+            try
+            {
+                return new PlanOperationEngine().Apply(request);
+            }
+            catch (Exception)
+            {
+                Diagnostic diagnostic = Diagnostic.Error(
+                    "operation.exception",
+                    "Plan operation failed unexpectedly. Review the operation contract and try again.");
+                return new PlanOperationResult
+                {
+                    Status = "failed",
+                    Output = new EngineOutput
+                    {
+                        ProjectId = request != null && request.Input != null && request.Input.Project != null
+                            ? request.Input.Project.Id
+                            : "project",
+                        Status = "failed",
+                        Diagnostics = new List<Diagnostic> { diagnostic }
+                    },
+                    Diagnostics = new List<Diagnostic> { diagnostic }
                 };
             }
         }

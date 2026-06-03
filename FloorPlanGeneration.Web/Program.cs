@@ -6,6 +6,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 using FloorPlanGeneration;
+using FloorPlanGeneration.Operations;
 using FloorPlanGeneration.Schema;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -113,6 +114,13 @@ app.MapGet("/api/manifest", () => Results.Json(new
             path = "/api/generate",
             body = "{ input, sampleName, seed, variants, validateOnly }",
             result = "Response summary plus full EngineOutput JSON."
+        },
+        new
+        {
+            method = "POST",
+            path = "/api/operations",
+            body = "{ input, sampleName, operations, seed, variants, validateOnly }",
+            result = "Operation receipts, updated input, and regenerated EngineOutput JSON."
         }
     },
     limits = new
@@ -128,6 +136,57 @@ app.MapGet("/api/manifest", () => Results.Json(new
         "The output property contains the complete EngineOutput contract."
     }
 }));
+
+app.MapPost("/api/operations", async (HttpRequest httpRequest) =>
+{
+    if (!IsJsonRequest(httpRequest))
+    {
+        return UnsupportedMediaTypeResult();
+    }
+
+    OperationRequest request;
+    try
+    {
+        request = await ReadOperationRequestAsync(httpRequest);
+    }
+    catch (PayloadTooLargeException)
+    {
+        return PayloadTooLargeResult();
+    }
+    catch (Exception ex) when (ex is ArgumentException || ex is JsonException || ex is IOException)
+    {
+        return InvalidRequestResult();
+    }
+
+    EngineInput input;
+    try
+    {
+        input = ResolveOperationInput(request, samples);
+        ApplyOperationOverrides(input, request);
+    }
+    catch (Exception ex) when (ex is ArgumentException || ex is JsonException || ex is FileNotFoundException)
+    {
+        return InvalidInputResult();
+    }
+
+    PlanOperationResult result;
+    try
+    {
+        FloorPlanEngine engine = new FloorPlanEngine();
+        result = engine.ApplyOperations(new PlanOperationRequest
+        {
+            Input = input,
+            Operations = request.Operations ?? new List<PlanOperation>(),
+            ValidateOnly = request.ValidateOnly
+        });
+    }
+    catch (Exception)
+    {
+        return GenerationFailedResult();
+    }
+
+    return Results.Json(BuildOperationResponse(result));
+});
 
 app.MapGet("/api/samples", () =>
 {
@@ -322,6 +381,44 @@ static async Task<GenerationRequest> ReadGenerationRequestAsync(HttpRequest http
     return request;
 }
 
+static async Task<OperationRequest> ReadOperationRequestAsync(HttpRequest httpRequest)
+{
+    if (httpRequest.ContentLength.HasValue
+        && httpRequest.ContentLength.Value > MaxGenerateRequestBodyBytes)
+    {
+        throw new PayloadTooLargeException();
+    }
+
+    using MemoryStream body = new MemoryStream();
+    byte[] buffer = new byte[RequestReadBufferBytes];
+    while (true)
+    {
+        int bytesRead = await httpRequest.Body.ReadAsync(buffer, 0, buffer.Length);
+        if (bytesRead == 0)
+        {
+            break;
+        }
+
+        if (body.Length + bytesRead > MaxGenerateRequestBodyBytes)
+        {
+            throw new PayloadTooLargeException();
+        }
+
+        body.Write(buffer, 0, bytesRead);
+    }
+
+    body.Position = 0;
+    OperationRequest request = await JsonSerializer.DeserializeAsync<OperationRequest>(
+        body,
+        EngineJsonOptions());
+    if (request == null)
+    {
+        throw new ArgumentException("Request body is required.");
+    }
+
+    return request;
+}
+
 static IResult PayloadTooLargeResult()
 {
     return Results.Json(new
@@ -409,7 +506,65 @@ static EngineInput ResolveInput(GenerationRequest request, Dictionary<string, st
     return request.Input.Value.Deserialize<EngineInput>(options);
 }
 
+static EngineInput ResolveOperationInput(OperationRequest request, Dictionary<string, string> samples)
+{
+    if (request == null)
+    {
+        throw new ArgumentException("Request body is required.");
+    }
+
+    bool hasInput = request.Input.HasValue && request.Input.Value.ValueKind == JsonValueKind.Object;
+    bool hasSample = !string.IsNullOrWhiteSpace(request.SampleName);
+    if (hasInput && hasSample)
+    {
+        throw new ArgumentException("Provide either input or sampleName, not both.");
+    }
+
+    JsonSerializerOptions options = EngineJsonOptions();
+    if (hasSample)
+    {
+        if (!TryReadSample(request.SampleName, samples, out string sampleJson))
+        {
+            throw new ArgumentException("Unknown sample '" + request.SampleName + "'.");
+        }
+
+        return JsonSerializer.Deserialize<EngineInput>(sampleJson, options);
+    }
+
+    if (!hasInput)
+    {
+        throw new ArgumentException("Provide an EngineInput object.");
+    }
+
+    return request.Input.Value.Deserialize<EngineInput>(options);
+}
+
 static void ApplyOverrides(EngineInput input, GenerationRequest request)
+{
+    if (input == null || request == null)
+    {
+        return;
+    }
+
+    if (request.Seed.HasValue)
+    {
+        if (input.Project == null) input.Project = new ProjectInfo();
+        input.Project.Seed = request.Seed.Value;
+    }
+
+    if (request.Variants.HasValue)
+    {
+        if (request.Variants.Value < 1 || request.Variants.Value > 20)
+        {
+            throw new ArgumentException("variants must be between 1 and 20.");
+        }
+
+        if (input.GenerationSettings == null) input.GenerationSettings = new GenerationSettings();
+        input.GenerationSettings.VariantCount = request.Variants.Value;
+    }
+}
+
+static void ApplyOperationOverrides(EngineInput input, OperationRequest request)
 {
     if (input == null || request == null)
     {
@@ -457,6 +612,27 @@ static object BuildResponse(EngineOutput output, bool validateOnly)
         bestVariantId = best != null ? best.VariantId : string.Empty,
         bestScore = best != null && best.Metrics != null ? best.Metrics.Score : 0.0,
         output
+    };
+}
+
+static object BuildOperationResponse(PlanOperationResult result)
+{
+    EngineOutput output = result.Output ?? new EngineOutput();
+    int operationCount = result.Operations != null ? result.Operations.Count : 0;
+    int committedCount = result.Operations != null
+        ? result.Operations.Count(o => string.Equals(o.Status, "committed", StringComparison.OrdinalIgnoreCase))
+        : 0;
+
+    return new
+    {
+        status = result.Status,
+        mode = "operations",
+        operationCount,
+        committedOperationCount = committedCount,
+        projectId = output.ProjectId,
+        variantCount = output.Variants != null ? output.Variants.Count : 0,
+        diagnosticCount = output.Diagnostics != null ? output.Diagnostics.Count : 0,
+        result
     };
 }
 
@@ -563,6 +739,21 @@ public sealed class GenerationRequest
 {
     public string SampleName { get; set; }
     public JsonElement? Input { get; set; }
+    public int? Seed { get; set; }
+    public int? Variants { get; set; }
+    public bool ValidateOnly { get; set; }
+}
+
+public sealed class OperationRequest
+{
+    public OperationRequest()
+    {
+        Operations = new List<PlanOperation>();
+    }
+
+    public string SampleName { get; set; }
+    public JsonElement? Input { get; set; }
+    public List<PlanOperation> Operations { get; set; }
     public int? Seed { get; set; }
     public int? Variants { get; set; }
     public bool ValidateOnly { get; set; }
