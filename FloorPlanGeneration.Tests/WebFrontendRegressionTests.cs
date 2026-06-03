@@ -313,13 +313,36 @@ namespace FloorPlanGeneration.Tests
         }
 
         [Fact]
+        public void TopNavUsesControlledHashScrollBelowStickyHeader()
+        {
+            string app = ReadWebFile("app.js");
+            string bindEvents = SliceFunction(app, "bindEvents");
+            string navigateToHash = SliceFunction(app, "navigateToHash");
+            string scrollToHashTarget = SliceFunction(app, "scrollToHashTarget");
+            string normalizeNavHash = SliceFunction(app, "normalizeNavHash");
+
+            Assert.Contains("event.preventDefault()", bindEvents, StringComparison.Ordinal);
+            Assert.Contains("navigateToHash(link.getAttribute(\"href\"))", bindEvents, StringComparison.Ordinal);
+            Assert.Contains("window.addEventListener(\"hashchange\"", bindEvents, StringComparison.Ordinal);
+            Assert.Contains("scrollToHashTarget()", bindEvents, StringComparison.Ordinal);
+            Assert.Contains("scrollToHashTarget(window.location.hash, true)", app, StringComparison.Ordinal);
+            Assert.Contains("window.location.hash = hash", navigateToHash, StringComparison.Ordinal);
+            Assert.Contains("document.getElementById(hash.slice(1))", scrollToHashTarget, StringComparison.Ordinal);
+            Assert.Contains("topbar.getBoundingClientRect().height", scrollToHashTarget, StringComparison.Ordinal);
+            Assert.Contains("window.scrollTo", scrollToHashTarget, StringComparison.Ordinal);
+            Assert.Contains("\"#plan\"", normalizeNavHash, StringComparison.Ordinal);
+        }
+
+        [Fact]
         public void EditModeControlsAreExplicitAndGateCanvasEditHooks()
         {
             string app = ReadWebFile("app.js");
             string index = ReadWebFile("index.html");
             string styles = ReadWebFile("styles.css");
+            string normalizedStyles = styles.Replace("\r\n", "\n", StringComparison.Ordinal);
             string handleCanvasAction = SliceFunction(app, "handleCanvasAction");
             string handlePlanPointerDown = SliceFunction(app, "handlePlanPointerDown");
+            string applyCanvasEdit = SliceFunction(app, "applyCanvasEdit");
             string renderInputEditHandles = SliceFunction(app, "renderInputEditHandles");
             string renderSelectionConstraintHandles = SliceFunction(app, "renderSelectionConstraintHandles");
             string editHandle = SliceFunction(app, "editHandle");
@@ -329,18 +352,29 @@ namespace FloorPlanGeneration.Tests
             Assert.Contains("id=\"editReadout\"", index, StringComparison.Ordinal);
             Assert.Contains("action === \"edit-toggle\"", handleCanvasAction, StringComparison.Ordinal);
             Assert.Contains("state.editMode = !state.editMode", handleCanvasAction, StringComparison.Ordinal);
+            Assert.Contains("state.selection = { kind: \"floorplate\", id: \"floorplate\" }", handleCanvasAction, StringComparison.Ordinal);
             Assert.Contains("button.dataset.canvasAction === \"edit-toggle\"", app, StringComparison.Ordinal);
             Assert.Contains("editToggle.setAttribute(\"aria-pressed\", editActive ? \"true\" : \"false\")", app, StringComparison.Ordinal);
             Assert.Contains("els.planSvg.addEventListener(\"pointerdown\", handlePlanPointerDown)", app, StringComparison.Ordinal);
             Assert.Contains("!state.editMode", handlePlanPointerDown, StringComparison.Ordinal);
             Assert.Contains("function applyCanvasEdit", app, StringComparison.Ordinal);
             Assert.Contains("state.editMode", renderInputEditHandles, StringComparison.Ordinal);
+            Assert.Contains("editHandleLabel(\"Width\"", renderInputEditHandles, StringComparison.Ordinal);
+            Assert.Contains("editHandleLabel(\"Move\"", renderInputEditHandles, StringComparison.Ordinal);
+            Assert.Contains("const handleInset", renderInputEditHandles, StringComparison.Ordinal);
+            Assert.Contains("const dx = point.x - edit.startPoint.x", applyCanvasEdit, StringComparison.Ordinal);
+            Assert.Contains("const dy = point.y - edit.startPoint.y", applyCanvasEdit, StringComparison.Ordinal);
+            Assert.Contains("floorBounds.width + dx", applyCanvasEdit, StringComparison.Ordinal);
+            Assert.Contains("floorBounds.height + dy", applyCanvasEdit, StringComparison.Ordinal);
             Assert.Contains("state.editMode", renderSelectionConstraintHandles, StringComparison.Ordinal);
             Assert.Contains("detail.source !== \"generated\"", renderSelectionConstraintHandles, StringComparison.Ordinal);
             Assert.Contains("data-edit-action", editHandle, StringComparison.Ordinal);
+            Assert.Contains("class: `edit-handle edit-${action}`", editHandle, StringComparison.Ordinal);
             Assert.Contains(".edit-readout", styles, StringComparison.Ordinal);
             Assert.Contains(".edit-handle", styles, StringComparison.Ordinal);
+            Assert.Contains(".edit-handle-label", styles, StringComparison.Ordinal);
             Assert.Contains(".edit-selection-box", styles, StringComparison.Ordinal);
+            Assert.Contains(".canvas-tools {\n  position: absolute;\n  z-index: 2;\n  left: 14px;\n  top: 14px;", normalizedStyles, StringComparison.Ordinal);
         }
 
         [Fact]

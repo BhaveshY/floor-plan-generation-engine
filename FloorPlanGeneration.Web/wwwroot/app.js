@@ -110,6 +110,7 @@ async function init() {
   }
   renderAll();
   await runEngine(false);
+  scrollToHashTarget(window.location.hash, true);
 }
 
 function bindEvents() {
@@ -126,8 +127,7 @@ function bindEvents() {
   els.setupNextBtn.addEventListener("click", () => moveSetupStep(1));
   els.setupGenerateBtn.addEventListener("click", async () => {
     await runEngine(false);
-    window.location.hash = "#plan";
-    updateActiveNav("#plan");
+    navigateToHash("#plan");
   });
   els.inputEditor.addEventListener("input", saveDraft);
   els.formatBtn.addEventListener("click", formatInput);
@@ -137,8 +137,14 @@ function bindEvents() {
   els.exportCardGrid.addEventListener("click", handleExportAction);
   els.modeButtons.forEach((button) => button.addEventListener("click", () => setViewMode(button.dataset.viewMode)));
   els.canvasButtons.forEach((button) => button.addEventListener("click", () => handleCanvasAction(button.dataset.canvasAction)));
-  els.topNavLinks.forEach((link) => link.addEventListener("click", () => updateActiveNav(link.getAttribute("href"))));
-  window.addEventListener("hashchange", () => updateActiveNav());
+  els.topNavLinks.forEach((link) => link.addEventListener("click", (event) => {
+    event.preventDefault();
+    navigateToHash(link.getAttribute("href"));
+  }));
+  window.addEventListener("hashchange", () => {
+    updateActiveNav();
+    scrollToHashTarget();
+  });
   els.planSvg.addEventListener("click", handlePlanClick);
   els.planSvg.addEventListener("keydown", handlePlanActionKeyDown);
   els.planSvg.addEventListener("pointerdown", handlePlanPointerDown);
@@ -959,6 +965,9 @@ function handleCanvasAction(action) {
     }
     state.editMode = !state.editMode;
     state.dragEdit = null;
+    if (state.editMode && !state.selection) {
+      state.selection = { kind: "floorplate", id: "floorplate" };
+    }
     state.editReadout = state.editMode ? editSummary(state.input) : "";
     renderAll();
     setStatus(state.editMode ? "Edit constraints mode" : "Plan review mode");
@@ -1590,12 +1599,14 @@ function applyCanvasEdit(edit, point) {
   }
 
   if (edit.action === "floor-width" || edit.action === "floor-depth" || edit.action === "floor-size") {
+    const dx = point.x - edit.startPoint.x;
+    const dy = point.y - edit.startPoint.y;
     const width = edit.action === "floor-depth"
       ? floorBounds.width
-      : clamp(round(point.x - floorBounds.minX), 8, 300);
+      : clamp(round(floorBounds.width + dx), 8, 300);
     const depth = edit.action === "floor-width"
       ? floorBounds.height
-      : clamp(round(point.y - floorBounds.minY), 8, 300);
+      : clamp(round(floorBounds.height + dy), 8, 300);
     resizeFloorplateInput(input, edit.startInput, width, depth);
     clampCoreIntoFloorplate(input);
     return input;
@@ -1784,22 +1795,48 @@ function renderInputEditHandles(group, input) {
     return;
   }
 
-  const handleRadius = Math.max(floorBounds.width, floorBounds.height) * 0.012;
+  const handleRadius = Math.max(Math.max(floorBounds.width, floorBounds.height) * 0.018, 0.42);
+  const handleInset = Math.max(handleRadius * 1.9, 0.9);
   const floorGroup = svgEl("g", { class: "edit-handles" });
-  floorGroup.appendChild(editHandle("floor-width", floorBounds.maxX, floorBounds.minY + floorBounds.height / 2, handleRadius, "Resize floorplate width"));
-  floorGroup.appendChild(editHandle("floor-depth", floorBounds.minX + floorBounds.width / 2, floorBounds.maxY, handleRadius, "Resize floorplate depth"));
-  floorGroup.appendChild(editHandle("floor-size", floorBounds.maxX, floorBounds.maxY, handleRadius * 1.1, "Resize floorplate"));
+  const floorWidthPoint = { x: floorBounds.maxX, y: floorBounds.minY + floorBounds.height / 2 };
+  const floorDepthPoint = { x: floorBounds.minX + floorBounds.width / 2, y: floorBounds.maxY - handleInset };
+  const floorSizePoint = { x: floorBounds.maxX, y: floorBounds.maxY - handleInset };
+  floorGroup.appendChild(editHandle(
+    "floor-width",
+    floorWidthPoint.x,
+    floorWidthPoint.y,
+    handleRadius,
+    "Resize floorplate width"));
+  floorGroup.appendChild(editHandleLabel("Width", floorWidthPoint.x, floorWidthPoint.y, handleRadius, "left"));
+  floorGroup.appendChild(editHandle(
+    "floor-depth",
+    floorDepthPoint.x,
+    floorDepthPoint.y,
+    handleRadius,
+    "Resize floorplate depth"));
+  floorGroup.appendChild(editHandleLabel("Depth", floorDepthPoint.x, floorDepthPoint.y, handleRadius, "below"));
+  floorGroup.appendChild(editHandle(
+    "floor-size",
+    floorSizePoint.x,
+    floorSizePoint.y,
+    handleRadius * 1.1,
+    "Resize floorplate"));
+  floorGroup.appendChild(editHandleLabel("Resize", floorSizePoint.x, floorSizePoint.y, handleRadius * 1.1, "left-below"));
 
   const core = firstCore(input);
   const coreBounds = core && core.polygon ? boundsOfPoints(core.polygon.points) : null;
   if (coreBounds) {
+    const coreMovePoint = { x: coreBounds.minX + coreBounds.width / 2, y: coreBounds.minY + coreBounds.height / 2 };
+    const coreSizePoint = { x: coreBounds.maxX, y: coreBounds.maxY };
     floorGroup.appendChild(editHandle(
       "core-move",
-      coreBounds.minX + coreBounds.width / 2,
-      coreBounds.minY + coreBounds.height / 2,
+      coreMovePoint.x,
+      coreMovePoint.y,
       handleRadius * 1.2,
       "Move core"));
-    floorGroup.appendChild(editHandle("core-size", coreBounds.maxX, coreBounds.maxY, handleRadius, "Resize core"));
+    floorGroup.appendChild(editHandleLabel("Move", coreMovePoint.x, coreMovePoint.y, handleRadius * 1.2));
+    floorGroup.appendChild(editHandle("core-size", coreSizePoint.x, coreSizePoint.y, handleRadius, "Resize core"));
+    floorGroup.appendChild(editHandleLabel("Core size", coreSizePoint.x, coreSizePoint.y, handleRadius));
   }
 
   group.appendChild(floorGroup);
@@ -1846,12 +1883,28 @@ function editHandle(action, x, y, radius, label) {
     "data-edit-action": action,
     cx: round(x),
     cy: round(y),
-    r: Math.max(radius, 0.18)
+    r: Math.max(radius, 0.34)
   });
   const title = svgEl("title");
   title.textContent = label;
   handle.appendChild(title);
   return handle;
+}
+
+function editHandleLabel(text, x, y, radius, placement = "right") {
+  const offsetX = Math.max(radius * 1.55, 0.72);
+  const offsetY = Math.max(radius * 0.45, 0.28);
+  const placeLeft = placement.includes("left");
+  const placeBelow = placement.includes("below");
+  const label = svgEl("text", {
+    class: "edit-handle-label",
+    x: round(x + (placeLeft ? -offsetX : offsetX)),
+    y: round(-(y + (placeBelow ? -offsetY : offsetY))),
+    transform: "scale(1,-1)",
+    "text-anchor": placeLeft ? "end" : "start"
+  });
+  label.textContent = text;
+  return label;
 }
 
 function renderPlanQuickActions(output, canvasBounds) {
@@ -3041,6 +3094,11 @@ function svgStyleElement() {
     .unit-two_bed{fill:#eadff6;stroke:#7d64a3}
     .room{fill:rgba(255,255,255,0.42);stroke:rgba(31,36,40,0.38);stroke-width:0.06}
     .svg-label{fill:#1f2428;font-size:1.35px;font-weight:700}
+    .edit-handle{fill:#fff;stroke:#007d78;stroke-width:0.42;vector-effect:non-scaling-stroke}
+    .edit-core-move{fill:#007d78;stroke:#fff;stroke-width:0.52}
+    .edit-handle-label{fill:#0d4f4b;paint-order:stroke;stroke:rgba(255,255,255,0.92)}
+    .edit-handle-label{stroke-width:0.2;stroke-linejoin:round;font-size:0.78px;font-weight:900}
+    .edit-handle-label{letter-spacing:0;pointer-events:none}
     .door{fill:#3867b7;stroke:#fff;stroke-width:0.08}
   `;
   return style;
@@ -3356,11 +3414,48 @@ function viewModeLabel(mode) {
 }
 
 function updateActiveNav(nextHash) {
-  const allowed = new Set(["#setup", "#plan", "#schedule", "#exports"]);
-  const hash = allowed.has(nextHash) ? nextHash : allowed.has(window.location.hash) ? window.location.hash : "#plan";
+  const hash = normalizeNavHash(nextHash);
   els.topNavLinks.forEach((link) => {
     link.classList.toggle("active", link.getAttribute("href") === hash);
   });
+}
+
+function navigateToHash(nextHash) {
+  const hash = normalizeNavHash(nextHash);
+  if (window.location.hash === hash) {
+    updateActiveNav(hash);
+    scrollToHashTarget(hash);
+    return;
+  }
+
+  window.location.hash = hash;
+}
+
+function scrollToHashTarget(nextHash, instant = false) {
+  const hash = normalizeNavHash(nextHash);
+  const target = document.getElementById(hash.slice(1));
+  if (!target) {
+    return;
+  }
+
+  const topbar = document.querySelector(".topbar");
+  const topbarHeight = topbar ? topbar.getBoundingClientRect().height : 70;
+  const targetTop = target.getBoundingClientRect().top + window.scrollY;
+  window.scrollTo({
+    top: Math.max(0, targetTop - topbarHeight - 16),
+    behavior: instant ? "auto" : "smooth"
+  });
+}
+
+function normalizeNavHash(nextHash) {
+  const allowed = new Set(["#setup", "#plan", "#schedule", "#exports"]);
+  if (allowed.has(nextHash)) {
+    return nextHash;
+  }
+  if (allowed.has(window.location.hash)) {
+    return window.location.hash;
+  }
+  return "#plan";
 }
 
 function slugify(value) {
