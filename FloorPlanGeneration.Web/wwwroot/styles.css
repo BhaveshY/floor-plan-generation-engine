@@ -4007,3 +4007,21 @@ button:active:not(:disabled) {
 .core-grab-overlay:hover {
   fill: rgba(16, 121, 107, 0.12);
 }
+
+/* On narrower canvases the title block keeps only its header line — the same
+   figures live in the metrics row right below the canvas, so the drawing wins
+   the space. */
+@media (max-width: 1280px) {
+  .title-block {
+    min-width: 0;
+  }
+
+  .title-block-head {
+    padding-bottom: 0;
+    border-bottom: none;
+  }
+
+  .title-block-schedule {
+    display: none;
+  }
+}
