@@ -29,6 +29,12 @@ const state = {
   busy: false,
   busyRunId: 0,
   dragEdit: null,
+  geomDrag: null,
+  // Direct, manual geometry edits the user makes on top of generated output,
+  // keyed by variantId then kind ("room"/"unit") then element id. These are an
+  // overlay on the engine result: they survive selection/zoom/undo but are
+  // intentionally cleared whenever the engine regenerates a fresh layout.
+  geometryEdits: {},
   selection: null,
   syncing: false
 };
@@ -127,6 +133,10 @@ async function init() {
     if (!restoreDraft()) {
       await loadSelectedSample(false);
     }
+    // Open straight onto a generated plan instead of a bare input outline.
+    if (state.input && !state.response) {
+      runEngine(false);
+    }
   } catch (error) {
     els.sampleSelect.innerHTML = '<option value="">Manual input</option>';
     setInput(ensureInputShape({ project: { id: "manual-project", name: "Manual Floor Plan" } }));
@@ -141,6 +151,8 @@ async function init() {
 
 function bindEvents() {
   els.loadSampleBtn.addEventListener("click", () => loadSelectedSample(true));
+  // Picking a template should immediately show its plan, like clicking Load.
+  els.sampleSelect.addEventListener("change", () => loadSelectedSample(true));
   els.validateBtn.addEventListener("click", () => runEngine(true));
   els.generateBtn.addEventListener("click", () => runEngine(false));
   els.openInputBtn.addEventListener("click", () => els.inputFile.click());
@@ -171,11 +183,32 @@ function bindEvents() {
     event.preventDefault();
     navigateToHash(link.getAttribute("href"));
   }));
+  const topNav = document.querySelector(".top-nav");
+  if (topNav) {
+    topNav.addEventListener("click", (event) => {
+      const action = event.target.closest ? event.target.closest("[data-nav]") : null;
+      if (action) {
+        event.preventDefault();
+        handleTopNavAction(action.dataset.nav);
+      }
+    });
+    topNav.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") {
+        return;
+      }
+      const action = event.target.closest ? event.target.closest("[data-nav]") : null;
+      if (action) {
+        event.preventDefault();
+        handleTopNavAction(action.dataset.nav);
+      }
+    });
+  }
   window.addEventListener("hashchange", () => {
     updateActiveNav();
     scrollToHashTarget();
   });
   els.planSvg.addEventListener("click", handlePlanClick);
+  els.planSvg.addEventListener("dblclick", handlePlanDoubleClick);
   els.planSvg.addEventListener("keydown", handlePlanActionKeyDown);
   els.planSvg.addEventListener("pointerdown", handlePlanPointerDown);
   window.addEventListener("pointermove", handlePlanPointerMove);
@@ -293,6 +326,7 @@ function setInput(input, options = {}) {
   // into a previously loaded plan (or replay a stale redo onto this one).
   state.undoStack = [];
   state.redoStack = [];
+  state.geometryEdits = {};
   state.editReadout = state.editMode ? editSummary(state.input) : "";
   if (!options.preserveResponse) {
     state.response = null;
@@ -687,6 +721,7 @@ async function generateFromPrompt() {
   // Generating a fresh plan from a prompt starts a new edit history.
   state.undoStack = [];
   state.redoStack = [];
+  state.geometryEdits = {};
   applyPromptToForm(intent);
   syncInputFromForm();
   setEditorFromInput(state.input);
@@ -819,6 +854,9 @@ async function runEngine(validateOnly) {
     const hasPreview = hasGeneratedVariant(response.output);
     state.response = response;
     if (hasPreview) {
+      // A fresh layout supersedes any manual room/unit edits, which were tied to
+      // the previous variant's geometry and ids.
+      state.geometryEdits = {};
       state.lastPreviewResponse = response;
       state.selectedVariantId = response.bestVariantId || firstVariantId(response.output);
     } else if (!state.lastPreviewResponse) {
@@ -940,6 +978,12 @@ function setSetupStep(step) {
 
   state.setupStep = step;
   renderSetupGuide(state.response ? state.response.output : null);
+  // All step panels are visible at once, so bring the chosen one into view to
+  // make Back/Next and the step chips do something tangible.
+  const target = document.querySelector(`[data-setup-step="${step}"]`);
+  if (target && typeof target.scrollIntoView === "function") {
+    target.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }
   setStatus(`${setupStepLabel(step)} setup`);
 }
 
@@ -967,11 +1011,13 @@ function renderSetupGuide(output) {
     panel.hidden = false;
   });
 
-  els.setupPrevBtn.disabled = state.busy || safeIndex === 0;
+  const lastStepIndex = setupSteps.length - 1;
+  els.setupPrevBtn.disabled = state.busy;
   els.setupNextBtn.disabled = state.busy;
   els.setupGenerateBtn.disabled = state.busy;
-  els.setupPrevBtn.hidden = true;
-  els.setupNextBtn.hidden = true;
+  // Show Back from step 2 on, Next until the last step; Generate stays available.
+  els.setupPrevBtn.hidden = safeIndex === 0;
+  els.setupNextBtn.hidden = safeIndex >= lastStepIndex;
   els.setupGenerateBtn.hidden = false;
   els.setupReview.innerHTML = buildSetupReview(output);
 }
@@ -1660,7 +1706,11 @@ function renderDaylightAndWindowBands(layer, variant, floorBounds) {
     }
 
     const side = closestFacadeSide(bounds, floorBounds);
-    appendWindowSymbol(layer, bounds, side);
+    const wrap = svgEl("g", { "data-room-ref": String(room.id || "") });
+    appendWindowSymbol(wrap, bounds, side);
+    if (wrap.childElementCount > 0) {
+      layer.appendChild(wrap);
+    }
   });
 }
 
@@ -1738,7 +1788,14 @@ function renderCorridorCenterlines(layer, variant) {
 
 function renderRoomFixtures(layer, variant) {
   const fixtures = svgEl("g", { class: "room-fixtures", "aria-hidden": "true" });
-  (variant.rooms || []).forEach((room) => appendRoomFixture(fixtures, room));
+  (variant.rooms || []).forEach((room) => {
+    // Per-room wrapper so a live drag can fade exactly this room's furniture.
+    const wrap = svgEl("g", { "data-room-ref": String((room && room.id) || "") });
+    appendRoomFixture(wrap, room);
+    if (wrap.childElementCount > 0) {
+      fixtures.appendChild(wrap);
+    }
+  });
   if (fixtures.childElementCount > 0) {
     layer.appendChild(fixtures);
   }
@@ -2104,33 +2161,10 @@ function renderSelectedRoomHalo(group, variant) {
     halo.appendChild(rectEl(bounds.minX, bounds.minY, bounds.width, bounds.height, "room-selected-halo"));
   }
 
-  const radius = clamp(Math.max(bounds.width, bounds.height) * 0.011, 0.09, 0.16);
-  if (state.editMode) {
-    selectedHaloGripPoints(bounds).forEach((point) => {
-      halo.appendChild(svgEl("circle", {
-        class: "room-selected-halo-handle",
-        cx: round(point.x),
-        cy: round(point.y),
-        r: round(radius)
-      }));
-    });
-  }
+  // The real, draggable resize grips are drawn by appendGeomResizeHandles in
+  // edit mode; the halo stays a pure selection glow so there is exactly one
+  // set of handles on screen and every visible grip actually works.
   group.appendChild(halo);
-}
-
-function selectedHaloGripPoints(bounds) {
-  const midX = bounds.minX + bounds.width / 2;
-  const midY = bounds.minY + bounds.height / 2;
-  return [
-    { x: bounds.minX, y: bounds.minY },
-    { x: midX, y: bounds.minY },
-    { x: bounds.maxX, y: bounds.minY },
-    { x: bounds.maxX, y: midY },
-    { x: bounds.maxX, y: bounds.maxY },
-    { x: midX, y: bounds.maxY },
-    { x: bounds.minX, y: bounds.maxY },
-    { x: bounds.minX, y: midY }
-  ];
 }
 
 function roomVisualBounds(room) {
@@ -2173,7 +2207,8 @@ function renderWallSegment(group, wall) {
 
   // A white halo keeps the wall crisp where it abuts a dark fixture or another wall.
   group.appendChild(lineEl(wall.centerline.start, wall.centerline.end, "wall-backdrop", {
-    "stroke-width": formatNumber(thickness + 0.07, 3)
+    "stroke-width": formatNumber(thickness + 0.07, 3),
+    "data-wall-ref": wall.id
   }));
 
   // Construction-document poché: each wall is drawn as its real footprint polygon
@@ -2183,14 +2218,15 @@ function renderWallSegment(group, wall) {
   // walls overlap and corners read solid. Degenerate walls fall back to a stroke.
   const footprint = wallFootprint(wall, thickness);
   if (footprint) {
-    group.appendChild(polygonEl(footprint, wallClass, attributes));
+    group.appendChild(polygonEl(footprint, wallClass, { ...attributes, "data-wall-ref": wall.id }));
   } else {
     group.appendChild(lineEl(wall.centerline.start, wall.centerline.end, wallClass, {
       ...attributes,
-      "stroke-width": formatNumber(thickness, 3)
+      "stroke-width": formatNumber(thickness, 3),
+      "data-wall-ref": wall.id
     }));
   }
-  group.appendChild(lineEl(wall.centerline.start, wall.centerline.end, "wall-hit", attributes));
+  group.appendChild(lineEl(wall.centerline.start, wall.centerline.end, "wall-hit", { ...attributes, "data-wall-ref": wall.id }));
 }
 
 function wallFootprint(wall, thickness) {
@@ -2353,6 +2389,7 @@ function renderRoomLabels(variant) {
     const fontSize = roomLabelFontSize(bounds, densePlan);
     const text = svgEl("text", {
       class: "svg-label room-label",
+      "data-room-ref": String(room.id || ""),
       x: round(centerX),
       y: round(-centerY + fontSize * 0.34),
       "text-anchor": "middle",
@@ -2606,6 +2643,10 @@ function isSelection(kind, id) {
 }
 
 function handlePlanClick(event) {
+  if (state.suppressNextPlanClick) {
+    state.suppressNextPlanClick = false;
+    return;
+  }
   const planAction = event.target.closest ? event.target.closest("[data-plan-action]") : null;
   if (planAction) {
     event.preventDefault();
@@ -2632,6 +2673,43 @@ function handlePlanClick(event) {
     id: target.dataset.selectId || ""
   };
   setStatus(`${selectionKindLabel(state.selection.kind)} selected`);
+  renderAll();
+}
+
+// Double-click an element to zoom to it; double-click empty canvas to fit all.
+function handlePlanDoubleClick(event) {
+  if (state.viewMode === "axon" || !state.viewFrame) {
+    return;
+  }
+  const target = event.target.closest ? event.target.closest("[data-select-kind]") : null;
+  if (!target) {
+    state.zoom = 1;
+    state.panX = 0;
+    state.panY = 0;
+    renderAll();
+    setStatus("Fit view");
+    return;
+  }
+  state.selection = { kind: target.dataset.selectKind, id: target.dataset.selectId || "" };
+  const detail = selectedElementDetails(currentVisualOutput());
+  if (detail && detail.bounds && detail.bounds.width > 0 && detail.bounds.height > 0) {
+    zoomToBounds(detail.bounds);
+    setStatus(`Zoomed to ${selectionKindLabel(state.selection.kind).toLowerCase()}`);
+  }
+}
+
+function zoomToBounds(bounds) {
+  const frame = state.viewFrame;
+  if (!frame || !bounds) {
+    return;
+  }
+  state.zoom = clamp(
+    Math.min(frame.width / (bounds.width * 3.2), frame.height / (bounds.height * 3.2)),
+    1,
+    maxZoom);
+  // viewFrame lives in flipped (SVG) space, so the target centre's Y negates.
+  state.panX = (bounds.minX + bounds.width / 2) - frame.centerX;
+  state.panY = -(bounds.minY + bounds.height / 2) - frame.centerY;
   renderAll();
 }
 
@@ -2755,6 +2833,11 @@ function canvasPanAllowed(event) {
   if (event.target.closest && event.target.closest("[data-edit-action]")) {
     return false;
   }
+  // In edit mode, pressing on a room/unit grabs it to move — never pan from there.
+  if (state.editMode && event.target.closest
+    && event.target.closest('[data-select-kind="room"],[data-select-kind="unit"]')) {
+    return false;
+  }
   const toolPan = state.canvasTool === "pan" && !state.editMode;
   return toolPan || state.spaceHeld || event.button === 1;
 }
@@ -2847,8 +2930,11 @@ const canvasKeyShortcuts = {
 };
 
 function handleEditorKeyDown(event) {
+  // The plan IS the default view, so canvas shortcuts must work for an empty
+  // or foreign hash too — normalize instead of demanding exactly "#plan".
+  const onPlan = normalizeNavHash(window.location.hash) === "#plan";
   if (event.code === "Space") {
-    if (location.hash === "#plan" && !isInteractiveTarget(event.target)) {
+    if (onPlan && !isInteractiveTarget(event.target)) {
       if (!event.repeat) {
         state.spaceHeld = true;
         els.previewFrame.classList.add("space-pan");
@@ -2858,7 +2944,7 @@ function handleEditorKeyDown(event) {
     return;
   }
 
-  if (isTextEntryTarget(event.target) || location.hash !== "#plan") {
+  if (isTextEntryTarget(event.target) || !onPlan) {
     return;
   }
 
@@ -2892,13 +2978,60 @@ function handleEditorKeyDown(event) {
   }
 
   const arrows = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, 1], ArrowDown: [0, -1] };
+  // In edit mode, arrows nudge the selected room/unit on the snap grid
+  // (Shift = 0.5 m steps); otherwise they pan a zoomed view.
+  if (arrows[event.key] && state.editMode && state.selection
+    && (state.selection.kind === "room" || state.selection.kind === "unit")) {
+    event.preventDefault();
+    nudgeSelection(arrows[event.key], event.shiftKey ? 0.5 : geomSnapStep, !event.repeat);
+    return;
+  }
   if (arrows[event.key] && state.zoom > 1 && state.viewFrame) {
     event.preventDefault();
     const step = (state.viewFrame.width / state.zoom) * 0.12;
+    // Screen-down is model-up: panY is stored in flipped (SVG) space.
     state.panX = (Number(state.panX) || 0) + arrows[event.key][0] * step;
-    state.panY = (Number(state.panY) || 0) + arrows[event.key][1] * step;
+    state.panY = (Number(state.panY) || 0) - arrows[event.key][1] * step;
     renderAll();
   }
+}
+
+function nudgeSelection(direction, step, recordUndo) {
+  const variant = selectedVariant(currentVisualOutput());
+  if (!variant || !variant.variantId || !state.selection) {
+    return;
+  }
+  const kind = state.selection.kind;
+  const id = String(state.selection.id || "");
+  const list = kind === "unit" ? variant.units : variant.rooms;
+  const item = (list || []).find((entry) => String(entry.id || "") === id);
+  const points = (item && item.polygon ? item.polygon.points || [] : [])
+    .map((p) => ({ x: Number(p.x), y: Number(p.y) }));
+  const bounds = boundsOfPoints(points);
+  if (points.length < 3 || !bounds) {
+    return;
+  }
+  if (recordUndo) {
+    pushUndoSnapshot(captureSnapshot());
+  }
+  const floorBounds = state.input && state.input.floorplate && state.input.floorplate.outer
+    ? boundsOfPoints(state.input.floorplate.outer.points)
+    : null;
+  const next = translateBoundsWithin(bounds, direction[0] * step, direction[1] * step, floorBounds);
+  setGeometryOverride(variant.variantId, kind, id, remapPolygon(points, bounds, next));
+  if (kind === "unit") {
+    (variant.rooms || [])
+      .filter((room) => String(room.unitId || "") === id)
+      .forEach((room) => {
+        const roomPoints = (room.polygon ? room.polygon.points || [] : [])
+          .map((p) => ({ x: Number(p.x), y: Number(p.y) }));
+        if (roomPoints.length >= 3) {
+          setGeometryOverride(variant.variantId, "room", String(room.id || ""), remapPolygon(roomPoints, bounds, next));
+        }
+      });
+  }
+  renderAll();
+  setStatus(`${selectionKindLabel(kind)} @ ${formatNumber(next.minX, 1)}, ${formatNumber(next.minY, 1)} m`);
 }
 
 function handleEditorKeyUp(event) {
@@ -2908,11 +3041,18 @@ function handleEditorKeyUp(event) {
   }
 }
 
-function pushUndoSnapshot(input) {
-  if (!input) {
+// A history entry captures both worlds the user can edit: the engine input
+// (floorplate/core/rules) and the manual geometry overlay (resized rooms/units),
+// so a single Undo restores whichever one the last action touched.
+function captureSnapshot() {
+  return { input: clone(state.input), geometry: clone(state.geometryEdits) };
+}
+
+function pushUndoSnapshot(snapshot) {
+  if (!snapshot || !snapshot.input) {
     return;
   }
-  state.undoStack.push(clone(input));
+  state.undoStack.push(snapshot);
   if (state.undoStack.length > undoStackLimit) {
     state.undoStack.shift();
   }
@@ -2924,8 +3064,8 @@ function undoEdit() {
     setStatus("Nothing to undo");
     return;
   }
-  state.redoStack.push(clone(state.input));
-  applyInputFromHistory(state.undoStack.pop(), "Undid last edit");
+  state.redoStack.push(captureSnapshot());
+  applySnapshot(state.undoStack.pop(), "Undid last edit");
 }
 
 function redoEdit() {
@@ -2933,17 +3073,27 @@ function redoEdit() {
     setStatus("Nothing to redo");
     return;
   }
-  state.undoStack.push(clone(state.input));
-  applyInputFromHistory(state.redoStack.pop(), "Redid edit");
+  state.undoStack.push(captureSnapshot());
+  applySnapshot(state.redoStack.pop(), "Redid edit");
 }
 
-function applyInputFromHistory(input, label) {
-  state.input = clone(input);
+function applySnapshot(snapshot, label) {
+  if (!snapshot || !snapshot.input) {
+    return;
+  }
+  // Only re-run the engine when the restored state changes the input; a pure
+  // geometry-overlay undo must NOT regenerate, or it would wipe the very
+  // overrides it just restored.
+  const inputChanged = JSON.stringify(state.input) !== JSON.stringify(snapshot.input);
+  state.input = clone(snapshot.input);
+  state.geometryEdits = clone(snapshot.geometry || {});
   syncFormFromInput(state.input);
   setEditorFromInput(state.input);
   saveDraft();
   state.editReadout = state.editMode ? editSummary(state.input) : "";
-  markInputDirty(label, 120);
+  if (inputChanged) {
+    markInputDirty(label, 120);
+  }
   renderAll();
   setStatus(label);
 }
@@ -3787,8 +3937,10 @@ function selectionEditSnapshot(detail) {
 }
 
 function handlePlanPointerDown(event) {
-  const handle = event.target.closest ? event.target.closest("[data-edit-action]") : null;
-  if (!handle || !state.editMode || !state.input || state.viewMode === "axon") {
+  if (!state.editMode || !state.input || state.viewMode === "axon") {
+    return;
+  }
+  if (event.button && event.button !== 0) {
     return;
   }
 
@@ -3797,24 +3949,58 @@ function handlePlanPointerDown(event) {
     return;
   }
 
-  event.preventDefault();
-  const detail = selectedElementDetails(currentVisualOutput());
-  state.dragEdit = {
-    action: handle.dataset.editAction,
-    startPoint: point,
-    startInput: clone(state.input),
-    selection: selectionEditSnapshot(detail)
-  };
-  try {
-    handle.setPointerCapture(event.pointerId);
-  } catch (_) {
-    // Pointer capture is helpful but not required for SVG editing.
+  // 1) Direct geometry resize handle on a selected room/unit.
+  const geomHandle = event.target.closest ? event.target.closest('[data-edit-action="geom-resize"]') : null;
+  if (geomHandle) {
+    event.preventDefault();
+    beginGeomDrag(event, point, {
+      mode: "resize",
+      handle: geomHandle.dataset.geomHandle,
+      kind: geomHandle.dataset.geomKind,
+      id: geomHandle.dataset.geomId
+    });
+    return;
   }
-  els.previewFrame.classList.add("is-dragging");
-  setStatus("Editing plan");
+
+  // 2) Existing input-constraint handles (floorplate, core, corridor width, ...).
+  const handle = event.target.closest ? event.target.closest("[data-edit-action]") : null;
+  if (handle) {
+    event.preventDefault();
+    const detail = selectedElementDetails(currentVisualOutput());
+    state.dragEdit = {
+      action: handle.dataset.editAction,
+      startPoint: point,
+      startInput: clone(state.input),
+      startGeometry: clone(state.geometryEdits),
+      selection: selectionEditSnapshot(detail)
+    };
+    try {
+      handle.setPointerCapture(event.pointerId);
+    } catch (_) {
+      // Pointer capture is helpful but not required for SVG editing.
+    }
+    els.previewFrame.classList.add("is-dragging");
+    setStatus("Editing plan");
+    return;
+  }
+
+  // 3) Grab the body of a room/unit to move it directly (not while panning).
+  if (state.spaceHeld || state.canvasTool === "pan") {
+    return;
+  }
+  const body = event.target.closest ? event.target.closest('[data-select-kind="room"],[data-select-kind="unit"]') : null;
+  if (body) {
+    event.preventDefault();
+    state.selection = { kind: body.dataset.selectKind, id: body.dataset.selectId || "" };
+    beginGeomDrag(event, point, { mode: "move", kind: state.selection.kind, id: state.selection.id });
+  }
 }
 
 function handlePlanPointerMove(event) {
+  if (state.geomDrag) {
+    updateGeomDrag(event);
+    return;
+  }
   if (!state.dragEdit) {
     return;
   }
@@ -3841,6 +4027,10 @@ function handlePlanPointerMove(event) {
 }
 
 function finishPlanPointerEdit() {
+  if (state.geomDrag) {
+    finishGeomDrag();
+    return;
+  }
   if (!state.dragEdit) {
     return;
   }
@@ -3848,7 +4038,7 @@ function finishPlanPointerEdit() {
   // Capture the pre-drag input so this edit can be undone, but only when the
   // pointer actually moved (a bare click on a handle should not stack history).
   if (state.dragEdit.startInput && state.dragEdit.lastPoint) {
-    pushUndoSnapshot(state.dragEdit.startInput);
+    pushUndoSnapshot({ input: state.dragEdit.startInput, geometry: state.dragEdit.startGeometry });
   }
 
   state.dragEdit = null;
@@ -3869,6 +4059,447 @@ function clientToModelPoint(event) {
   point.y = event.clientY;
   const svgPoint = point.matrixTransform(matrix.inverse());
   return { x: round(svgPoint.x), y: round(-svgPoint.y) };
+}
+
+// --- Direct geometry editing (live room/unit resize + move) -----------------
+// Smallest room/unit dimension and the grid the drag snaps to, in metres.
+const geomMinDimension = 0.8;
+const geomSnapStep = 0.1;
+
+function geomSnap(value) {
+  return round(Math.round(Number(value) / geomSnapStep) * geomSnapStep);
+}
+
+function pointsToAttr(points) {
+  return (points || []).map((p) => `${p.x},${p.y}`).join(" ");
+}
+
+// Find the live <polygon> for a room/unit so a drag can patch its points
+// in place at 60fps, the way the pan handler re-aims the viewBox directly.
+function planPolygonFor(kind, id) {
+  const nodes = els.planSvg.querySelectorAll(`[data-select-kind="${kind}"]`);
+  for (let i = 0; i < nodes.length; i += 1) {
+    if ((nodes[i].getAttribute("data-select-id") || "") === String(id)) {
+      return nodes[i];
+    }
+  }
+  return null;
+}
+
+function beginGeomDrag(event, point, opts) {
+  // The effective variant already has earlier overrides (and warped walls)
+  // applied, so every drag starts from exactly what is on screen.
+  const variant = selectedVariant(currentVisualOutput());
+  if (!variant || !variant.variantId) {
+    return;
+  }
+  const kind = opts.kind;
+  const id = String(opts.id || "");
+  const list = kind === "unit" ? variant.units : variant.rooms;
+  const item = (list || []).find((entry) => String(entry.id || "") === id);
+  const startPoints = (item && item.polygon ? item.polygon.points || [] : [])
+    .map((p) => ({ x: Number(p.x), y: Number(p.y) }));
+  const startBounds = boundsOfPoints(startPoints);
+  if (startPoints.length < 3 || !startBounds || startBounds.width <= 0 || startBounds.height <= 0) {
+    return;
+  }
+
+  const floorBounds = state.input && state.input.floorplate && state.input.floorplate.outer
+    ? boundsOfPoints(state.input.floorplate.outer.points)
+    : null;
+  // Resizing a unit must carry its rooms along, live and on commit.
+  const childRooms = kind === "unit"
+    ? (variant.rooms || [])
+        .filter((room) => String(room.unitId || "") === id)
+        .map((room) => ({
+          id: String(room.id || ""),
+          points: (room.polygon ? room.polygon.points || [] : []).map((p) => ({ x: Number(p.x), y: Number(p.y) })),
+          node: planPolygonFor("room", String(room.id || ""))
+        }))
+    : [];
+  const fadeNodes = collectFadeNodes(variant, kind, id, childRooms, startBounds);
+  state.geomDrag = {
+    mode: opts.mode,
+    handle: opts.handle || null,
+    kind,
+    id,
+    variantId: variant.variantId,
+    startPoint: point,
+    startPoints,
+    startBounds,
+    floorBounds,
+    current: startPoints,
+    currentBounds: startBounds,
+    moved: false,
+    snapshot: captureSnapshot(),
+    polygon: planPolygonFor(kind, id),
+    childRooms,
+    liveWalls: collectLiveWalls(variant, startBounds),
+    fadeNodes
+  };
+
+  try {
+    els.planSvg.setPointerCapture(event.pointerId);
+  } catch (_) {
+    // Pointer capture only smooths the drag; editing still works without it.
+  }
+  els.previewFrame.classList.add("is-dragging");
+  // Fixtures and doors re-place on commit; fade them so mid-drag they read as
+  // "pending" instead of stuck.
+  fadeNodes.forEach((node) => node.classList.add("geom-stale"));
+  // Swap the static selection chrome for a live overlay we repaint per frame.
+  removeGeomChrome();
+  renderGeomOverlay(startBounds, kind, id, startPoints);
+  setStatus(`${opts.mode === "move" ? "Moving" : "Resizing"} ${selectionKindLabel(kind).toLowerCase()}`);
+}
+
+// Walls touching the dragged element's footprint get their endpoints re-aimed
+// every frame, so the wall fabric stretches with the room like in a CAD tool.
+function collectLiveWalls(variant, bounds) {
+  const inBounds = (p) => p
+    && Number(p.x) >= bounds.minX - warpEpsilon && Number(p.x) <= bounds.maxX + warpEpsilon
+    && Number(p.y) >= bounds.minY - warpEpsilon && Number(p.y) <= bounds.maxY + warpEpsilon;
+  const refs = [];
+  (variant.walls || []).forEach((wall) => {
+    if (!wall || !wall.centerline || !wall.centerline.start || !wall.centerline.end) {
+      return;
+    }
+    const startIn = inBounds(wall.centerline.start);
+    const endIn = inBounds(wall.centerline.end);
+    if (!startIn && !endIn) {
+      return;
+    }
+    const parts = Array.from(els.planSvg.querySelectorAll(`[data-wall-ref="${wall.id}"]`));
+    if (parts.length) {
+      refs.push({ wall, startIn, endIn, parts, thickness: wallStrokeWidth(wall) });
+    }
+  });
+  return refs;
+}
+
+function collectFadeNodes(variant, kind, id, childRooms, bounds) {
+  const nodes = [];
+  const roomIds = kind === "room" ? [id] : childRooms.map((child) => child.id);
+  roomIds.forEach((roomId) => {
+    els.planSvg.querySelectorAll(`[data-room-ref="${roomId}"]`).forEach((node) => nodes.push(node));
+  });
+  (variant.doorsOpenings || []).forEach((door) => {
+    const p = door && door.location;
+    if (!p
+      || Number(p.x) < bounds.minX - warpEpsilon || Number(p.x) > bounds.maxX + warpEpsilon
+      || Number(p.y) < bounds.minY - warpEpsilon || Number(p.y) > bounds.maxY + warpEpsilon) {
+      return;
+    }
+    els.planSvg.querySelectorAll(`[data-select-kind="door"][data-select-id="${door.id}"]`)
+      .forEach((node) => nodes.push(node));
+  });
+  return nodes;
+}
+
+function updateGeomDrag(event) {
+  const drag = state.geomDrag;
+  if (!drag) {
+    return;
+  }
+  event.preventDefault();
+  const point = clientToModelPoint(event);
+  if (!point) {
+    return;
+  }
+
+  const dx = point.x - drag.startPoint.x;
+  const dy = point.y - drag.startPoint.y;
+  const bounds = drag.mode === "move"
+    ? translateBoundsWithin(drag.startBounds, dx, dy, drag.floorBounds)
+    : resizeBounds(drag.startBounds, drag.handle, dx, dy, drag.floorBounds);
+  const points = remapPolygon(drag.startPoints, drag.startBounds, bounds);
+
+  drag.current = points;
+  drag.currentBounds = bounds;
+  if (Math.abs(dx) > 1e-3 || Math.abs(dy) > 1e-3) {
+    drag.moved = true;
+  }
+  if (drag.polygon) {
+    drag.polygon.setAttribute("points", pointsToAttr(points));
+    drag.polygon.classList.add("geom-editing");
+  }
+
+  // Live-follow: child rooms (when dragging a unit) and abutting walls are
+  // re-aimed in place each frame — no full re-render, CAD-smooth.
+  const mapPoint = (p) => ({
+    x: round(bounds.minX + ((Number(p.x) - drag.startBounds.minX) / drag.startBounds.width) * bounds.width),
+    y: round(bounds.minY + ((Number(p.y) - drag.startBounds.minY) / drag.startBounds.height) * bounds.height)
+  });
+  (drag.childRooms || []).forEach((child) => {
+    if (child.node && child.points.length >= 3) {
+      child.node.setAttribute("points", pointsToAttr(child.points.map(mapPoint)));
+    }
+  });
+  (drag.liveWalls || []).forEach((ref) => updateLiveWall(ref, mapPoint));
+
+  renderGeomOverlay(bounds, drag.kind, drag.id, points);
+  showGeomReadout(bounds, points, drag.kind);
+}
+
+function updateLiveWall(ref, mapPoint) {
+  const start = ref.startIn ? mapPoint(ref.wall.centerline.start) : ref.wall.centerline.start;
+  const end = ref.endIn ? mapPoint(ref.wall.centerline.end) : ref.wall.centerline.end;
+  const footprint = wallFootprint({ centerline: { start, end } }, ref.thickness);
+  ref.parts.forEach((part) => {
+    if (part.tagName === "polygon") {
+      if (footprint) {
+        part.setAttribute("points", pointsToAttr(footprint.map((p) => ({ x: round(p.x), y: round(p.y) }))));
+      }
+    } else {
+      part.setAttribute("x1", round(start.x));
+      part.setAttribute("y1", round(start.y));
+      part.setAttribute("x2", round(end.x));
+      part.setAttribute("y2", round(end.y));
+    }
+  });
+}
+
+function finishGeomDrag() {
+  const drag = state.geomDrag;
+  if (!drag) {
+    return;
+  }
+  state.geomDrag = null;
+  els.previewFrame.classList.remove("is-dragging");
+  removeGeomOverlay();
+  if (drag.polygon) {
+    drag.polygon.classList.remove("geom-editing");
+  }
+  (drag.fadeNodes || []).forEach((node) => node.classList.remove("geom-stale"));
+
+  if (drag.moved) {
+    // Record the pre-edit state first so a single Undo reverts this resize,
+    // then store the override. Manual geometry edits never re-run the engine.
+    pushUndoSnapshot(drag.snapshot);
+    setGeometryOverride(drag.variantId, drag.kind, drag.id, drag.current);
+    // A unit edit rebases its rooms as explicit overrides with the same
+    // transform, so rooms travel with their unit and stay individually editable.
+    (drag.childRooms || []).forEach((child) => {
+      if (child.points.length >= 3) {
+        setGeometryOverride(
+          drag.variantId,
+          "room",
+          child.id,
+          remapPolygon(child.points, drag.startBounds, drag.currentBounds));
+      }
+    });
+    saveDraft();
+    const b = drag.currentBounds;
+    setStatus(`${selectionKindLabel(drag.kind)} set to ${formatNumber(b.width, 1)} × ${formatNumber(b.height, 1)} m`);
+    // A move/resize ends with a pointerup that the browser may also deliver as a
+    // click; swallow that one so it does not reset the selection we just edited.
+    state.suppressNextPlanClick = true;
+  }
+  renderAll();
+}
+
+function resizeBounds(start, handle, dx, dy, floor) {
+  const h = handle || "";
+  let minX = start.minX;
+  let minY = start.minY;
+  let maxX = start.maxX;
+  let maxY = start.maxY;
+  // Model space is Y-up, so the "north"/top handle moves the max-Y edge.
+  if (h.includes("e")) maxX = geomSnap(start.maxX + dx);
+  if (h.includes("w")) minX = geomSnap(start.minX + dx);
+  if (h.includes("n")) maxY = geomSnap(start.maxY + dy);
+  if (h.includes("s")) minY = geomSnap(start.minY + dy);
+
+  // Keep the opposite (anchored) edge fixed while enforcing a minimum size.
+  if (h.includes("w")) {
+    minX = Math.min(minX, maxX - geomMinDimension);
+  } else if (h.includes("e")) {
+    maxX = Math.max(maxX, minX + geomMinDimension);
+  }
+  if (h.includes("s")) {
+    minY = Math.min(minY, maxY - geomMinDimension);
+  } else if (h.includes("n")) {
+    maxY = Math.max(maxY, minY + geomMinDimension);
+  }
+
+  // Never let a dragged edge leave the floorplate.
+  if (floor) {
+    if (h.includes("w")) minX = clamp(minX, floor.minX, maxX - geomMinDimension);
+    if (h.includes("e")) maxX = clamp(maxX, minX + geomMinDimension, floor.maxX);
+    if (h.includes("s")) minY = clamp(minY, floor.minY, maxY - geomMinDimension);
+    if (h.includes("n")) maxY = clamp(maxY, minY + geomMinDimension, floor.maxY);
+  }
+
+  return { minX, minY, maxX, maxY, width: round(maxX - minX), height: round(maxY - minY) };
+}
+
+function translateBoundsWithin(start, dx, dy, floor) {
+  let minX = geomSnap(start.minX + dx);
+  let minY = geomSnap(start.minY + dy);
+  if (floor && floor.width >= start.width && floor.height >= start.height) {
+    minX = clamp(minX, floor.minX, floor.maxX - start.width);
+    minY = clamp(minY, floor.minY, floor.maxY - start.height);
+  }
+  return {
+    minX,
+    minY,
+    maxX: round(minX + start.width),
+    maxY: round(minY + start.height),
+    width: start.width,
+    height: start.height
+  };
+}
+
+// Proportionally remap a polygon from its old bounding box into a new one. For
+// the common rectangular room this is an exact resize; for an L-shaped room it
+// scales the outline sensibly so non-rectangular rooms still drag predictably.
+function remapPolygon(points, oldBounds, newBounds) {
+  const sx = oldBounds.width > 1e-6 ? newBounds.width / oldBounds.width : 1;
+  const sy = oldBounds.height > 1e-6 ? newBounds.height / oldBounds.height : 1;
+  return points.map((p) => ({
+    x: round(newBounds.minX + (Number(p.x) - oldBounds.minX) * sx),
+    y: round(newBounds.minY + (Number(p.y) - oldBounds.minY) * sy)
+  }));
+}
+
+function showGeomReadout(bounds, points, kind) {
+  if (!els.editReadout) {
+    return;
+  }
+  const area = polygonArea(points);
+  els.editReadout.textContent =
+    `${selectionKindLabel(kind)} ${formatNumber(bounds.width, 1)} × ${formatNumber(bounds.height, 1)} m · ${formatNumber(area, 1)} m²`;
+  els.editReadout.hidden = false;
+}
+
+function removeGeomChrome() {
+  els.planSvg.querySelectorAll(".edit-selection-handles, .room-selected-halo-group")
+    .forEach((node) => node.remove());
+}
+
+function removeGeomOverlay() {
+  const existing = els.planSvg.querySelector(".geom-drag-overlay");
+  if (existing) {
+    existing.remove();
+  }
+}
+
+function renderGeomOverlay(bounds, kind, id, points) {
+  removeGeomOverlay();
+  const overlay = svgEl("g", { class: "edit-selection-handles geom-drag-overlay", transform: "scale(1,-1)" });
+  appendGeomResizeHandles(overlay, bounds, kind, id);
+  if (points) {
+    appendGeomBadge(overlay, bounds, points);
+  }
+  els.planSvg.appendChild(overlay);
+}
+
+// Grip size in model metres that stays a constant ~10px on screen regardless of
+// zoom, so handles never balloon when zoomed in or vanish when zoomed out.
+function geomHandleRadius() {
+  const view = state.viewFrame
+    ? state.viewFrame.width / clamp(state.zoom, 1, maxZoom)
+    : 40;
+  return clamp(view * 0.011, 0.12, 0.6);
+}
+
+// Selection box plus eight resize grips — square corners, round edge midpoints
+// (the Figma/CAD convention). Used for the resting selection and, repainted
+// each frame, during a drag.
+function appendGeomResizeHandles(parent, bounds, kind, id) {
+  parent.appendChild(svgEl("rect", {
+    class: "edit-selection-box geom-edit-box",
+    x: round(bounds.minX),
+    y: round(bounds.minY),
+    width: round(Math.max(bounds.width, 0)),
+    height: round(Math.max(bounds.height, 0))
+  }));
+
+  const radius = geomHandleRadius();
+  geomHandlePositions(bounds).forEach((pos) => {
+    const handleAttrs = {
+      "data-edit-action": "geom-resize",
+      "data-geom-handle": pos.dir,
+      "data-geom-kind": kind,
+      "data-geom-id": String(id)
+    };
+    const group = svgEl("g", { class: `edit-handle-group geom-handle-group geom-handle-${pos.dir}`, ...handleAttrs });
+    group.appendChild(svgEl("circle", {
+      class: "edit-handle-hit",
+      cx: round(pos.x),
+      cy: round(pos.y),
+      r: round(Math.max(radius * 2.1, 0.55))
+    }));
+    if (pos.dir.length === 2) {
+      const side = radius * 1.8;
+      group.appendChild(svgEl("rect", {
+        class: "edit-handle geom-handle geom-handle-corner",
+        ...handleAttrs,
+        x: round(pos.x - side / 2),
+        y: round(pos.y - side / 2),
+        width: round(side),
+        height: round(side),
+        rx: round(side * 0.18),
+        ry: round(side * 0.18)
+      }));
+    } else {
+      group.appendChild(svgEl("circle", {
+        class: "edit-handle geom-handle",
+        ...handleAttrs,
+        cx: round(pos.x),
+        cy: round(pos.y),
+        r: round(radius)
+      }));
+    }
+    parent.appendChild(group);
+  });
+}
+
+// Floating dimension pill above the dragged element: width × depth · area,
+// sized for the current zoom so it reads the same at any magnification.
+function appendGeomBadge(parent, bounds, points) {
+  const view = state.viewFrame ? state.viewFrame.width / clamp(state.zoom, 1, maxZoom) : 40;
+  const font = clamp(view * 0.021, 0.28, 1.05);
+  const text = `${formatNumber(bounds.width, 1)} × ${formatNumber(bounds.height, 1)} m · ${formatNumber(polygonArea(points), 1)} m²`;
+  const padX = font * 0.7;
+  const boxH = font * 1.75;
+  const boxW = text.length * font * 0.56 + padX * 2;
+  const cx = bounds.minX + bounds.width / 2;
+  const y0 = bounds.maxY + font * 0.9;
+  parent.appendChild(svgEl("rect", {
+    class: "geom-badge-bg",
+    x: round(cx - boxW / 2),
+    y: round(y0),
+    width: round(boxW),
+    height: round(boxH),
+    rx: round(boxH / 2),
+    ry: round(boxH / 2)
+  }));
+  const label = svgEl("text", {
+    class: "geom-badge-text",
+    x: round(cx),
+    y: round(-(y0 + boxH * 0.7)),
+    transform: "scale(1,-1)",
+    "text-anchor": "middle",
+    "font-size": formatNumber(font, 2)
+  });
+  label.textContent = text;
+  parent.appendChild(label);
+}
+
+function geomHandlePositions(bounds) {
+  const midX = bounds.minX + bounds.width / 2;
+  const midY = bounds.minY + bounds.height / 2;
+  return [
+    { dir: "sw", x: bounds.minX, y: bounds.minY },
+    { dir: "s", x: midX, y: bounds.minY },
+    { dir: "se", x: bounds.maxX, y: bounds.minY },
+    { dir: "e", x: bounds.maxX, y: midY },
+    { dir: "ne", x: bounds.maxX, y: bounds.maxY },
+    { dir: "n", x: midX, y: bounds.maxY },
+    { dir: "nw", x: bounds.minX, y: bounds.maxY },
+    { dir: "w", x: bounds.minX, y: midY }
+  ];
 }
 
 function applyCanvasEdit(edit, point) {
@@ -4133,25 +4764,26 @@ function renderSelectionConstraintHandles(group, output) {
   }
 
   const bounds = detail.bounds;
-  const handleRadius = Math.max(Math.max(bounds.width, bounds.height) * 0.05, 0.18);
   const editGroup = svgEl("g", { class: "edit-selection-handles" });
-  editGroup.appendChild(svgEl("rect", {
-    class: "edit-selection-box",
-    x: round(bounds.minX),
-    y: round(bounds.minY),
-    width: round(bounds.width),
-    height: round(bounds.height)
-  }));
 
-  if (detail.kind === "unit") {
-    editGroup.appendChild(editHandle("unit-target-area", bounds.maxX, bounds.maxY, handleRadius, "Drag to fit this unit type target area"));
-  } else if (detail.kind === "room") {
-    editGroup.appendChild(editHandle("room-min-size", bounds.maxX, bounds.maxY, handleRadius, "Drag to set room minimum size"));
-  } else if (detail.kind === "corridor") {
-    const horizontal = bounds.width >= bounds.height;
-    const x = horizontal ? bounds.minX + bounds.width / 2 : bounds.maxX;
-    const y = horizontal ? bounds.maxY : bounds.minY + bounds.height / 2;
-    editGroup.appendChild(editHandle("corridor-width", x, y, handleRadius, "Drag to set corridor width"));
+  if (detail.kind === "unit" || detail.kind === "room") {
+    // Rooms and units are resized directly: eight live grips + body drag-to-move.
+    appendGeomResizeHandles(editGroup, bounds, detail.kind, detail.id);
+  } else {
+    editGroup.appendChild(svgEl("rect", {
+      class: "edit-selection-box",
+      x: round(bounds.minX),
+      y: round(bounds.minY),
+      width: round(bounds.width),
+      height: round(bounds.height)
+    }));
+    if (detail.kind === "corridor") {
+      const handleRadius = Math.max(Math.max(bounds.width, bounds.height) * 0.05, 0.18);
+      const horizontal = bounds.width >= bounds.height;
+      const x = horizontal ? bounds.minX + bounds.width / 2 : bounds.maxX;
+      const y = horizontal ? bounds.maxY : bounds.minY + bounds.height / 2;
+      editGroup.appendChild(editHandle("corridor-width", x, y, handleRadius, "Drag to set corridor width"));
+    }
   }
 
   group.appendChild(editGroup);
@@ -5246,8 +5878,175 @@ function renderError(code, message) {
 }
 
 function selectedVariant(output) {
+  return applyGeometryOverrides(selectedVariantRaw(output));
+}
+
+function selectedVariantRaw(output) {
   const variants = output && Array.isArray(output.variants) ? output.variants : [];
   return variants.find((variant) => variant.variantId === state.selectedVariantId) || variants[0] || null;
+}
+
+// Overlay the user's manual room/unit resizes onto the engine output so every
+// downstream renderer (canvas, inspector, schedule, halo, exports) reads the
+// edited geometry from one place. Returns the variant untouched when there are
+// no edits, so the common path allocates nothing.
+function applyGeometryOverrides(variant) {
+  if (!variant || !variant.variantId) {
+    return variant;
+  }
+  const overrides = state.geometryEdits[variant.variantId];
+  if (!overrides || (!overrides.room && !overrides.unit)) {
+    return variant;
+  }
+
+  const overrideItems = (items, kind) => {
+    const byId = overrides[kind];
+    if (!byId || !Array.isArray(items)) {
+      return items;
+    }
+    return items.map((item) => {
+      const points = byId[String(item.id || "")];
+      if (!points) {
+        return item;
+      }
+      const bounds = boundsOfPoints(points);
+      return {
+        ...item,
+        polygon: { ...(item.polygon || {}), points },
+        area: round(polygonArea(points)),
+        bounds: bounds
+          ? { minX: bounds.minX, minY: bounds.minY, width: bounds.width, height: bounds.height }
+          : item.bounds,
+        edited: true
+      };
+    });
+  };
+
+  const result = {
+    ...variant,
+    units: overrideItems(variant.units, "unit"),
+    rooms: overrideItems(variant.rooms, "room")
+  };
+
+  // Walls, doors, and labels are separate engine entities that would otherwise
+  // stay frozen at the pre-edit positions. Warp any of their points that fall
+  // inside an edited element's original bounds through the same old→new
+  // transform, so the drawn fabric follows the user's manual resize.
+  const warps = collectGeometryWarps(variant, overrides);
+  if (warps.length) {
+    result.walls = (variant.walls || []).map((wall) => warpWall(wall, warps));
+    result.doorsOpenings = (variant.doorsOpenings || []).map((door) => warpDoor(door, warps));
+    result.labels = (variant.labels || []).map((label) => (
+      label && label.location ? { ...label, location: warpPoint(label.location, warps) } : label
+    ));
+    result.metrics = recomputeEditedMetrics(variant, result);
+  }
+  return result;
+}
+
+function collectGeometryWarps(variant, overrides) {
+  const warps = [];
+  const push = (items, kind) => {
+    const byId = overrides[kind];
+    if (!byId) {
+      return;
+    }
+    (items || []).forEach((item) => {
+      const points = byId[String(item.id || "")];
+      if (!points || !item.polygon) {
+        return;
+      }
+      const from = boundsOfPoints(item.polygon.points);
+      const to = boundsOfPoints(points);
+      if (from && to && from.width > 1e-6 && from.height > 1e-6) {
+        warps.push({ from, to, area: from.width * from.height });
+      }
+    });
+  };
+  push(variant.rooms, "room");
+  push(variant.units, "unit");
+  // Most specific (smallest) region wins, so a wall inside an edited room moves
+  // with the room even when its parent unit was edited too.
+  warps.sort((a, b) => a.area - b.area);
+  return warps;
+}
+
+const warpEpsilon = 0.02;
+
+function warpPoint(point, warps) {
+  const x = Number(point.x);
+  const y = Number(point.y);
+  for (let i = 0; i < warps.length; i += 1) {
+    const w = warps[i];
+    if (x >= w.from.minX - warpEpsilon && x <= w.from.maxX + warpEpsilon
+      && y >= w.from.minY - warpEpsilon && y <= w.from.maxY + warpEpsilon) {
+      return {
+        x: round(w.to.minX + ((x - w.from.minX) / w.from.width) * w.to.width),
+        y: round(w.to.minY + ((y - w.from.minY) / w.from.height) * w.to.height)
+      };
+    }
+  }
+  return point;
+}
+
+function warpWall(wall, warps) {
+  if (!wall || !wall.centerline || !wall.centerline.start || !wall.centerline.end) {
+    return wall;
+  }
+  const start = warpPoint(wall.centerline.start, warps);
+  const end = warpPoint(wall.centerline.end, warps);
+  if (start === wall.centerline.start && end === wall.centerline.end) {
+    return wall;
+  }
+  return { ...wall, centerline: { ...wall.centerline, start, end } };
+}
+
+function warpDoor(door, warps) {
+  if (!door || !door.location) {
+    return door;
+  }
+  const location = warpPoint(door.location, warps);
+  return location === door.location ? door : { ...door, location };
+}
+
+// Keep the headline metrics honest after manual edits: sellable area is the sum
+// of the (possibly resized) units, and net/gross scales with it.
+function recomputeEditedMetrics(variant, edited) {
+  const metrics = variant.metrics || {};
+  const oldSellable = Number(metrics.sellableArea);
+  const newSellable = (edited.units || []).reduce((sum, unit) => sum + (Number(unit.area) || 0), 0);
+  if (!Number.isFinite(oldSellable) || oldSellable <= 0 || newSellable <= 0) {
+    return metrics;
+  }
+  const factor = newSellable / oldSellable;
+  const next = { ...metrics, sellableArea: round(newSellable) };
+  if (Number.isFinite(Number(metrics.netGrossRatio))) {
+    next.netGrossRatio = round(Number(metrics.netGrossRatio) * factor);
+  }
+  return next;
+}
+
+function geometryOverrideFor(variantId, kind, id) {
+  const variantEdits = state.geometryEdits[variantId];
+  const byKind = variantEdits ? variantEdits[kind] : null;
+  return byKind ? byKind[String(id)] || null : null;
+}
+
+function setGeometryOverride(variantId, kind, id, points) {
+  if (!variantId) {
+    return;
+  }
+  if (!state.geometryEdits[variantId]) {
+    state.geometryEdits[variantId] = {};
+  }
+  if (!state.geometryEdits[variantId][kind]) {
+    state.geometryEdits[variantId][kind] = {};
+  }
+  state.geometryEdits[variantId][kind][String(id)] = points;
+}
+
+function hasGeometryOverrides() {
+  return Object.keys(state.geometryEdits || {}).length > 0;
 }
 
 function firstVariantId(output) {
@@ -5629,6 +6428,7 @@ function setBusy(busy, label) {
     els.generateBtn,
     els.validateBtn,
     els.loadSampleBtn,
+    els.sampleSelect,
     els.setupGenerateBtn,
     els.openInputBtn,
     els.applyJsonBtn,
@@ -5639,6 +6439,9 @@ function setBusy(busy, label) {
       button.disabled = busy;
     }
   });
+  if (els.previewFrame) {
+    els.previewFrame.classList.toggle("is-busy", Boolean(busy));
+  }
   renderSetupGuide(state.response ? state.response.output : null);
   updateExportActions(state.response ? state.response.output : null);
   if (busy) {
@@ -5934,6 +6737,47 @@ function navigateToHash(nextHash) {
   }
 
   window.location.hash = hash;
+}
+
+function handleTopNavAction(action) {
+  switch (action) {
+    case "edit":
+      navigateToHash("#plan");
+      state.editMode = true;
+      state.canvasTool = "select";
+      renderAll();
+      setStatus("Edit mode on — drag a room to resize or move it");
+      break;
+    case "variants": {
+      const details = els.variantList ? els.variantList.closest("details") : null;
+      if (details) {
+        details.open = true;
+        details.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+      setStatus("Variants");
+      break;
+    }
+    case "export":
+      navigateToHash("#exports");
+      setStatus("Export");
+      break;
+    case "rhino":
+      navigateToHash("#exports");
+      flashExportCard("copy-rhino");
+      setStatus("Rhino / Grasshopper export");
+      break;
+    default:
+      break;
+  }
+}
+
+function flashExportCard(action) {
+  const card = document.querySelector(`[data-export-action="${action}"]`);
+  if (!card) {
+    return;
+  }
+  card.classList.add("nav-flash");
+  window.setTimeout(() => card.classList.remove("nav-flash"), 1400);
 }
 
 function scrollToHashTarget(nextHash, instant = false) {
