@@ -3969,3 +3969,138 @@ button:active:not(:disabled) {
     animation-iteration-count: 1 !important;
   }
 }
+
+/* =====================================================================
+   EDITOR LAYER 2 — boundary-move engine chrome, toolbar relocation,
+   wall-drag affordances. Appended last to win the cascade.
+   ===================================================================== */
+
+/* The canvas toolbar lives at the TOP of the canvas: the bottom corners belong
+   to the title block (left) and the live readout (right), so nothing collides
+   and every button stays clickable with a selection active. */
+.canvas-tools {
+  top: 12px;
+  bottom: auto;
+}
+
+.preview-frame.is-fullscreen .canvas-tools,
+.preview-frame:fullscreen .canvas-tools {
+  top: 20px;
+  bottom: auto;
+}
+
+/* Badges stack under the toolbar's left edge instead of mid-canvas. */
+.preview-frame.is-edit-mode::before,
+.preview-frame.is-stale::after {
+  top: 12px;
+}
+
+.preview-frame.is-stale.is-edit-mode::before {
+  top: 56px;
+}
+
+/* Walls are grabbable in edit mode: a generous hit zone, an obvious cursor,
+   and a soft tint while hovered so the plane about to move is unmistakable. */
+.wall-hit {
+  stroke-width: 9px;
+}
+
+.preview-frame.is-edit-mode #planSvg .wall-hit-v {
+  cursor: ew-resize;
+}
+
+.preview-frame.is-edit-mode #planSvg .wall-hit-h {
+  cursor: ns-resize;
+}
+
+.preview-frame.is-edit-mode #planSvg .wall-hit-v:hover,
+.preview-frame.is-edit-mode #planSvg .wall-hit-h:hover {
+  stroke: rgba(16, 121, 107, 0.28);
+}
+
+/* The sliding wall plane during a drag. */
+.wall-drag-guide {
+  stroke: var(--teal-strong);
+  stroke-width: 2px;
+  vector-effect: non-scaling-stroke;
+  stroke-dasharray: 6 4;
+  fill: none;
+  pointer-events: none;
+  filter: drop-shadow(0 0 3px rgba(16, 121, 107, 0.5));
+}
+
+/* Input-constraint grips (floorplate edges, core) share the geometry-grip
+   look: small white squares-on-accent, constant size on screen. */
+#planSvg .edit-handle {
+  vector-effect: non-scaling-stroke;
+  stroke-width: 1.6px;
+  filter: drop-shadow(0 1px 1.5px rgba(15, 23, 42, 0.3));
+}
+
+#planSvg .edit-core-move {
+  fill: rgba(255, 255, 255, 0.92);
+  stroke: var(--teal-strong);
+}
+
+/* Keep the constraint grips quiet until edit mode is on. */
+.preview-frame:not(.is-edit-mode) #planSvg .edit-handles {
+  display: none;
+}
+
+/* Failed-run empty state: name the problem, offer the way back. */
+.empty-preview-card {
+  display: grid;
+  gap: 10px;
+  justify-items: center;
+  max-width: 380px;
+  padding: 22px 26px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-md, 12px);
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: var(--shadow-soft);
+  text-align: center;
+}
+
+.empty-preview-card strong {
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.empty-preview-card p {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 12.5px;
+  font-weight: 550;
+  line-height: 1.5;
+}
+
+.empty-preview-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.empty-preview-actions button {
+  min-height: 34px;
+  padding: 0 14px;
+  font-size: 12.5px;
+}
+
+.empty-preview-actions button:first-child {
+  color: #fff;
+  background: var(--teal-strong);
+  border-color: var(--teal-deep);
+}
+
+/* The core's invisible grab surface in edit mode. */
+.core-grab-overlay {
+  fill: transparent;
+  stroke: none;
+  pointer-events: all;
+  cursor: move;
+}
+
+.core-grab-overlay:hover {
+  fill: rgba(16, 121, 107, 0.12);
+}

@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Floor Plan Generation Engine</title>
-  <link rel="stylesheet" href="styles.css?v=20260609-edit19">
+  <link rel="stylesheet" href="styles.css?v=20260610-1">
 </head>
 <body>
   <main class="app-shell">
@@ -45,14 +45,6 @@
           </label>
           <button id="loadSampleBtn" type="button">Load</button>
         </div>
-        <div class="guided-steps" aria-label="Setup steps">
-          <button class="active" type="button" data-setup-step-button="floorplate" aria-pressed="true">1 Floorplate</button>
-          <button type="button" data-setup-step-button="core" aria-pressed="false">2 Core</button>
-          <button type="button" data-setup-step-button="rules" aria-pressed="false">3 Rules</button>
-          <button type="button" data-setup-step-button="mix" aria-pressed="false">4 Unit Mix</button>
-          <button type="button" data-setup-step-button="generate" aria-pressed="false">5 Generate</button>
-        </div>
-
         <form id="setupForm" class="setup-form">
           <fieldset data-setup-step="floorplate">
             <legend>Prompt</legend>
@@ -186,9 +178,7 @@
           </fieldset>
         </form>
 
-        <div class="setup-guide-actions" aria-label="Setup navigation">
-          <button id="setupPrevBtn" type="button">Back</button>
-          <button id="setupNextBtn" type="button">Next</button>
+        <div class="setup-guide-actions" aria-label="Setup actions">
           <button id="setupGenerateBtn" class="primary" type="button">Generate Variants</button>
         </div>
 
@@ -381,7 +371,7 @@
     </section>
   </main>
 
-  <script src="app.js?v=20260609-edit19"></script>
+  <script src="app.js?v=20260610-1"></script>
 </body>
 </html>
 

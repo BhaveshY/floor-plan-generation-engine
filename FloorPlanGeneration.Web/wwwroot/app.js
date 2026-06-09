@@ -19,7 +19,6 @@ const state = {
   editMode: false,
   labelsVisible: true,
   editReadout: "",
-  setupStep: "floorplate",
   inputDirty: false,
   previewStale: false,
   autoGenerateTimer: 0,
@@ -30,6 +29,11 @@ const state = {
   busyRunId: 0,
   dragEdit: null,
   geomDrag: null,
+  wallDrag: null,
+  // Manual edits stay valid exactly as long as the engine input that produced
+  // their variants: both signatures are the stringified generate request.
+  editsSignature: "",
+  lastRunInputSignature: "",
   // Direct, manual geometry edits the user makes on top of generated output,
   // keyed by variantId then kind ("room"/"unit") then element id. These are an
   // overlay on the engine result: they survive selection/zoom/undo but are
@@ -41,7 +45,6 @@ const state = {
 
 const draftKey = "floor-engine-web-draft-v2";
 const unitTypes = ["studio", "one_bed", "two_bed"];
-const setupSteps = ["floorplate", "core", "rules", "mix", "generate"];
 // Hard ceiling (in model metres) for any plan label so a bad data value can
 // never render the meter-tall SVG text overlays that this canvas used to show.
 const maxPlanLabelFontSize = 0.85;
@@ -55,8 +58,6 @@ const els = {
   setupForm: document.getElementById("setupForm"),
   setupSubtitle: document.getElementById("setupSubtitle"),
   setupReview: document.getElementById("setupReview"),
-  setupPrevBtn: document.getElementById("setupPrevBtn"),
-  setupNextBtn: document.getElementById("setupNextBtn"),
   setupGenerateBtn: document.getElementById("setupGenerateBtn"),
   projectName: document.getElementById("projectName"),
   promptGenerateBtn: document.getElementById("promptGenerateBtn"),
@@ -113,8 +114,6 @@ const els = {
   exportCardGrid: document.querySelector(".export-card-grid"),
   modeButtons: Array.from(document.querySelectorAll("[data-view-mode]")),
   canvasButtons: Array.from(document.querySelectorAll("[data-canvas-action]")),
-  setupStepButtons: Array.from(document.querySelectorAll("[data-setup-step-button]")),
-  setupStepPanels: Array.from(document.querySelectorAll("[data-setup-step]")),
   topNavLinks: Array.from(document.querySelectorAll(".top-nav a")),
   variantCountLabel: document.getElementById("variantCountLabel"),
   roomScheduleCountLabel: document.getElementById("roomScheduleCountLabel"),
@@ -161,9 +160,6 @@ function bindEvents() {
   els.setupForm.addEventListener("input", handleSetupInput);
   els.setupForm.addEventListener("change", handleSetupInput);
   els.setupForm.addEventListener("click", handleStepperClick);
-  els.setupStepButtons.forEach((button) => button.addEventListener("click", () => setSetupStep(button.dataset.setupStepButton)));
-  els.setupPrevBtn.addEventListener("click", () => moveSetupStep(-1));
-  els.setupNextBtn.addEventListener("click", () => moveSetupStep(1));
   els.setupGenerateBtn.addEventListener("click", async () => {
     await runEngine(false);
     navigateToHash("#plan");
@@ -208,6 +204,7 @@ function bindEvents() {
     scrollToHashTarget();
   });
   els.planSvg.addEventListener("click", handlePlanClick);
+  els.emptyPreview.addEventListener("click", handleEmptyPreviewAction);
   els.planSvg.addEventListener("dblclick", handlePlanDoubleClick);
   els.planSvg.addEventListener("keydown", handlePlanActionKeyDown);
   els.planSvg.addEventListener("pointerdown", handlePlanPointerDown);
@@ -285,6 +282,10 @@ function restoreDraft() {
 
     const parsed = JSON.parse(draft.inputJson);
     setInput(parsed);
+    if (draft.geometryEdits && typeof draft.geometryEdits === "object") {
+      state.geometryEdits = draft.geometryEdits;
+      state.editsSignature = typeof draft.editsSignature === "string" ? draft.editsSignature : "";
+    }
     if (typeof draft.brief === "string") {
       state.brief = draft.brief;
       els.projectName.value = draft.brief;
@@ -306,6 +307,10 @@ function saveDraft() {
       inputJson: els.inputEditor.value,
       sampleName: els.sampleSelect.value,
       brief: state.brief,
+      // Manual room/wall edits ride along: variant ids are deterministic for a
+      // given input+seed, so overrides re-apply cleanly after a reload.
+      geometryEdits: state.geometryEdits,
+      editsSignature: state.editsSignature,
       savedAt: new Date().toISOString()
     }));
   } catch (_) {
@@ -327,6 +332,7 @@ function setInput(input, options = {}) {
   state.undoStack = [];
   state.redoStack = [];
   state.geometryEdits = {};
+  state.editsSignature = "";
   state.editReadout = state.editMode ? editSummary(state.input) : "";
   if (!options.preserveResponse) {
     state.response = null;
@@ -854,9 +860,15 @@ async function runEngine(validateOnly) {
     const hasPreview = hasGeneratedVariant(response.output);
     state.response = response;
     if (hasPreview) {
-      // A fresh layout supersedes any manual room/unit edits, which were tied to
-      // the previous variant's geometry and ids.
-      state.geometryEdits = {};
+      // Identical input (same floorplate, rules, seed) regenerates identical
+      // variants, so manual room/wall edits keyed to those variant ids stay
+      // valid — even across reloads or duplicate boot runs. Any real input
+      // change produces a new layout and retires the old edits with it.
+      const signature = JSON.stringify(request.input);
+      state.lastRunInputSignature = signature;
+      if (hasGeometryOverrides() && state.editsSignature !== signature) {
+        state.geometryEdits = {};
+      }
       state.lastPreviewResponse = response;
       state.selectedVariantId = response.bestVariantId || firstVariantId(response.output);
     } else if (!state.lastPreviewResponse) {
@@ -912,6 +924,51 @@ function renderAll() {
 function currentVisualOutput() {
   const output = state.response ? state.response.output : null;
   return previewOutput(output);
+}
+
+// The empty canvas explains itself. A failed run is a dead end only if the
+// app leaves the user staring at an outline — so it names the problem and
+// offers the way back (reset to a known-good template, read the notes).
+function renderEmptyPreviewContent() {
+  const output = state.response ? state.response.output : null;
+  const failedRun = Boolean(output && !hasGeneratedVariant(output));
+  if (!failedRun) {
+    els.emptyPreview.textContent = "Input outline";
+    return;
+  }
+  const firstIssue = collectDiagnostics(output)
+    .find((diagnostic) => /error|fail/i.test(String(diagnostic.severity || "")));
+  const reason = firstIssue
+    ? friendlyDiagnosticMessage(firstIssue)
+    : "The engine could not fit any valid unit layout inside these constraints.";
+  els.emptyPreview.innerHTML = `
+    <div class="empty-preview-card">
+      <strong>No valid variants from this input</strong>
+      <p>${escapeHtml(firstLine(reason))}</p>
+      <div class="empty-preview-actions">
+        <button type="button" data-empty-action="reset">Reset to template</button>
+        <button type="button" data-empty-action="notes">Open review notes</button>
+      </div>
+    </div>
+  `;
+}
+
+function handleEmptyPreviewAction(event) {
+  const button = event.target.closest ? event.target.closest("[data-empty-action]") : null;
+  if (!button) {
+    return;
+  }
+  if (button.dataset.emptyAction === "reset") {
+    loadSelectedSample(true);
+    return;
+  }
+  if (button.dataset.emptyAction === "notes") {
+    const list = els.diagnosticList;
+    if (list && typeof list.scrollIntoView === "function") {
+      list.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+    setStatus("Review notes");
+  }
 }
 
 function previewOutput(output) {
@@ -971,70 +1028,12 @@ function updateExportActions(output) {
   els.saveSvgBtn.disabled = !exportReady || !hasPreview || staleGeneratedPreview;
 }
 
-function setSetupStep(step) {
-  if (!setupSteps.includes(step)) {
-    return;
-  }
-
-  state.setupStep = step;
-  renderSetupGuide(state.response ? state.response.output : null);
-  // All step panels are visible at once, so bring the chosen one into view to
-  // make Back/Next and the step chips do something tangible.
-  const target = document.querySelector(`[data-setup-step="${step}"]`);
-  if (target && typeof target.scrollIntoView === "function") {
-    target.scrollIntoView({ behavior: "smooth", block: "nearest" });
-  }
-  setStatus(`${setupStepLabel(step)} setup`);
-}
-
-function moveSetupStep(delta) {
-  const index = setupSteps.indexOf(state.setupStep);
-  const nextIndex = clamp(index + delta, 0, setupSteps.length - 1);
-  setSetupStep(setupSteps[nextIndex]);
-}
-
+// The setup panel is one honest scrolling form (the step-wizard chrome was
+// retired — it only re-highlighted buttons without changing the panel). This
+// keeps the primary action state and the Run Review card current.
 function renderSetupGuide(output) {
-  const activeIndex = setupSteps.indexOf(state.setupStep);
-  const safeIndex = activeIndex >= 0 ? activeIndex : 0;
-  const activeStep = setupSteps[safeIndex];
-  state.setupStep = activeStep;
-
-  els.setupStepButtons.forEach((button) => {
-    const buttonIndex = setupSteps.indexOf(button.dataset.setupStepButton);
-    const active = button.dataset.setupStepButton === activeStep;
-    button.classList.toggle("active", active);
-    button.classList.toggle("complete", buttonIndex >= 0 && buttonIndex < safeIndex);
-    button.setAttribute("aria-pressed", active ? "true" : "false");
-  });
-
-  els.setupStepPanels.forEach((panel) => {
-    panel.hidden = false;
-  });
-
-  const lastStepIndex = setupSteps.length - 1;
-  els.setupPrevBtn.disabled = state.busy;
-  els.setupNextBtn.disabled = state.busy;
   els.setupGenerateBtn.disabled = state.busy;
-  // Show Back from step 2 on, Next until the last step; Generate stays available.
-  els.setupPrevBtn.hidden = safeIndex === 0;
-  els.setupNextBtn.hidden = safeIndex >= lastStepIndex;
-  els.setupGenerateBtn.hidden = false;
   els.setupReview.innerHTML = buildSetupReview(output);
-}
-
-function setupStepLabel(step) {
-  switch (step) {
-    case "core":
-      return "Core";
-    case "rules":
-      return "Rules";
-    case "mix":
-      return "Unit mix";
-    case "generate":
-      return "Generate";
-    default:
-      return "Floorplate";
-  }
 }
 
 function buildSetupReview(output) {
@@ -1206,7 +1205,7 @@ function renderPreview(output) {
   }
 
   els.emptyPreview.hidden = Boolean(variant);
-  els.emptyPreview.textContent = "Input outline";
+  renderEmptyPreviewContent();
   els.planSvg.dataset.viewMode = state.viewMode;
   const viewBox = previewViewBox(bounds, state.zoom);
   els.planSvg.setAttribute("viewBox", viewBox);
@@ -1233,10 +1232,11 @@ function renderPreview(output) {
     input.fixedElements.forEach((fixed) => {
       if (fixed.polygon && fixed.polygon.points) {
         const kind = String(fixed.type || "").toLowerCase() === "core" ? "core" : "fixed";
-        group.appendChild(polygonEl(fixed.polygon.points, selectableClass("fixed", kind, fixed.id || "fixed"), {
+        const attributes = {
           ...selectableAttributes(kind, fixed.id || "fixed"),
           "data-edit-target": fixed.id || "fixed"
-        }));
+        };
+        group.appendChild(polygonEl(fixed.polygon.points, selectableClass("fixed", kind, fixed.id || "fixed"), attributes));
       }
     });
   }
@@ -1289,7 +1289,6 @@ function renderPreview(output) {
 
   renderInputEditHandles(group, input);
   renderSelectionConstraintHandles(group, output);
-  renderPlanQuickActions(output, bounds);
   renderDragReadout(bounds);
   renderLegend(Boolean(variant));
 }
@@ -2226,7 +2225,13 @@ function renderWallSegment(group, wall) {
       "data-wall-ref": wall.id
     }));
   }
-  group.appendChild(lineEl(wall.centerline.start, wall.centerline.end, "wall-hit", { ...attributes, "data-wall-ref": wall.id }));
+  // Orientation class so edit mode can show the matching resize cursor when
+  // the wall itself is grabbed as a slide handle.
+  const dirX = Math.abs(Number(wall.centerline.start.x) - Number(wall.centerline.end.x));
+  const dirY = Math.abs(Number(wall.centerline.start.y) - Number(wall.centerline.end.y));
+  const orientation = dirX <= 0.05 && dirY > 0.05 ? "wall-hit-v" : (dirY <= 0.05 && dirX > 0.05 ? "wall-hit-h" : "");
+  group.appendChild(lineEl(wall.centerline.start, wall.centerline.end, `wall-hit${orientation ? ` ${orientation}` : ""}`,
+    { ...attributes, "data-wall-ref": wall.id }));
 }
 
 function wallFootprint(wall, thickness) {
@@ -2540,12 +2545,13 @@ function handleCanvasAction(action) {
     }
     state.editMode = !state.editMode;
     state.dragEdit = null;
-    if (state.editMode && !state.selection) {
-      state.selection = { kind: "floorplate", id: "floorplate" };
-    }
+    // The user's selection survives the mode switch — entering edit mode to
+    // resize the room you just picked must not yank focus to the floorplate.
     state.editReadout = state.editMode ? editSummary(state.input) : "";
     renderAll();
-    setStatus(state.editMode ? "Edit constraints mode" : "Plan review mode");
+    setStatus(state.editMode
+      ? "Edit mode — drag rooms, walls, or grips"
+      : "Plan review mode");
     return;
   }
 
@@ -2655,7 +2661,10 @@ function handlePlanClick(event) {
     return;
   }
 
-  if (event.target.closest && event.target.closest("[data-edit-action]")) {
+  // Pure handles swallow clicks, but elements that are BOTH a handle and a
+  // selectable (the core polygon in edit mode) still select on a plain click.
+  if (event.target.closest && event.target.closest("[data-edit-action]")
+    && !event.target.closest("[data-select-kind]")) {
     return;
   }
 
@@ -2833,13 +2842,18 @@ function canvasPanAllowed(event) {
   if (event.target.closest && event.target.closest("[data-edit-action]")) {
     return false;
   }
-  // In edit mode, pressing on a room/unit grabs it to move — never pan from there.
+  // In edit mode, pressing on a room/unit or wall grabs it to edit — never pan
+  // from there.
   if (state.editMode && event.target.closest
-    && event.target.closest('[data-select-kind="room"],[data-select-kind="unit"]')) {
+    && event.target.closest('[data-select-kind="room"],[data-select-kind="unit"],[data-wall-ref]')) {
     return false;
   }
   const toolPan = state.canvasTool === "pan" && !state.editMode;
-  return toolPan || state.spaceHeld || event.button === 1;
+  // Dragging truly empty canvas (the SVG itself, no element under the pointer)
+  // pans in any tool — the universal "grab the paper" gesture. A plain click
+  // still lands as deselect because zero-movement pans don't swallow clicks.
+  const emptyDrag = event.target === els.planSvg && (!event.button || event.button === 0);
+  return toolPan || emptyDrag || state.spaceHeld || event.button === 1;
 }
 
 function handleCanvasPanDown(event) {
@@ -2876,6 +2890,9 @@ function handleCanvasPanMove(event) {
     return;
   }
   event.preventDefault();
+  if (Math.abs(event.clientX - drag.clientX) > 3 || Math.abs(event.clientY - drag.clientY) > 3) {
+    drag.moved = true;
+  }
   const frame = state.viewFrame;
   const limitX = Math.max((frame.width - drag.viewW) / 2, 0);
   const limitY = Math.max((frame.height - drag.viewH) / 2, 0);
@@ -2893,6 +2910,11 @@ function handleCanvasPanMove(event) {
 function handleCanvasPanUp() {
   if (!state.panDrag) {
     return;
+  }
+  // An actual pan must not double as a click — releasing after a drag on empty
+  // canvas should keep the current selection, not clear it.
+  if (state.panDrag.moved) {
+    state.suppressNextPlanClick = true;
   }
   state.panDrag = null;
   els.previewFrame.classList.remove("is-panning");
@@ -2997,6 +3019,9 @@ function handleEditorKeyDown(event) {
 }
 
 function nudgeSelection(direction, step, recordUndo) {
+  // Arrow nudges run through the same boundary engine as pointer drags: the
+  // nudged element pushes and pulls its wall planes, neighbours follow, and
+  // nothing can overlap or tear.
   const variant = selectedVariant(currentVisualOutput());
   if (!variant || !variant.variantId || !state.selection) {
     return;
@@ -3011,25 +3036,38 @@ function nudgeSelection(direction, step, recordUndo) {
   if (points.length < 3 || !bounds) {
     return;
   }
-  if (recordUndo) {
-    pushUndoSnapshot(captureSnapshot());
-  }
   const floorBounds = state.input && state.input.floorplate && state.input.floorplate.outer
     ? boundsOfPoints(state.input.floorplate.outer.points)
     : null;
-  const next = translateBoundsWithin(bounds, direction[0] * step, direction[1] * step, floorBounds);
-  setGeometryOverride(variant.variantId, kind, id, remapPolygon(points, bounds, next));
-  if (kind === "unit") {
-    (variant.rooms || [])
-      .filter((room) => String(room.unitId || "") === id)
-      .forEach((room) => {
-        const roomPoints = (room.polygon ? room.polygon.points || [] : [])
-          .map((p) => ({ x: Number(p.x), y: Number(p.y) }));
-        if (roomPoints.length >= 3) {
-          setGeometryOverride(variant.variantId, "room", String(room.id || ""), remapPolygon(roomPoints, bounds, next));
-        }
-      });
+  const childRooms = kind === "unit"
+    ? (variant.rooms || [])
+        .filter((room) => String(room.unitId || "") === id)
+        .map((room) => ({
+          id: String(room.id || ""),
+          points: (room.polygon ? room.polygon.points || [] : []).map((p) => ({ x: Number(p.x), y: Number(p.y) }))
+        }))
+    : [];
+  const edges = collectBoundaryEdges(variant, kind, id, bounds, childRooms, floorBounds);
+  const raw = translateBoundsWithin(bounds, direction[0] * step, direction[1] * step, floorBounds);
+  const next = clampBoundsToEdges(raw, bounds, edges, "move");
+  const edgeDeltas = boundaryEdgeDeltas(edges, bounds, next);
+  if (!edgeDeltas.length) {
+    return;
   }
+  if (recordUndo) {
+    pushUndoSnapshot(captureSnapshot());
+  }
+  setGeometryOverride(variant.variantId, kind, id, remapPolygon(points, bounds, next));
+  childRooms.forEach((child) => {
+    if (child.points.length >= 3) {
+      setGeometryOverride(variant.variantId, "room", child.id, remapPolygon(child.points, bounds, next));
+    }
+  });
+  followersForDeltas(edgeDeltas).forEach((follower) => {
+    setGeometryOverride(variant.variantId, follower.kind, follower.id, shiftFollowerPoints(follower, edgeDeltas));
+  });
+  state.editsSignature = state.lastRunInputSignature;
+  saveDraft();
   renderAll();
   setStatus(`${selectionKindLabel(kind)} @ ${formatNumber(next.minX, 1)}, ${formatNumber(next.minY, 1)} m`);
 }
@@ -3150,8 +3188,14 @@ function updateCanvasUi(output) {
   if (els.zoomLevel) {
     els.zoomLevel.textContent = `${Math.round(clamp(state.zoom, 1, maxZoom) * 100)}%`;
   }
-  const selectedSummary = selectionInlineSummary(selectedElementDetails(output));
-  const text = editActive ? (state.editReadout || editSummary(state.input)) : selectedSummary;
+  const detail = selectedElementDetails(output);
+  const selectedSummary = selectionInlineSummary(detail);
+  // Outside edit mode a selected room advertises the next step, so the path
+  // from "I picked a bedroom" to "I'm resizing it" is written on screen.
+  const editHint = !editActive && detail && (detail.kind === "room" || detail.kind === "unit")
+    ? " — press E to edit"
+    : "";
+  const text = editActive ? (state.editReadout || editSummary(state.input)) : selectedSummary + (selectedSummary ? editHint : "");
   els.editReadout.textContent = text || "";
   els.editReadout.hidden = !text;
 }
@@ -3984,10 +4028,20 @@ function handlePlanPointerDown(event) {
     return;
   }
 
-  // 3) Grab the body of a room/unit to move it directly (not while panning).
+  // 3) Not while panning.
   if (state.spaceHeld || state.canvasTool === "pan") {
     return;
   }
+
+  // 4) A straight wall is itself a handle: grab it to slide the whole wall
+  //    plane, resizing the rooms on both sides in lockstep.
+  const wallHit = event.target.closest ? event.target.closest("[data-wall-ref]") : null;
+  if (wallHit && beginWallDrag(event, point, wallHit.dataset.wallRef)) {
+    event.preventDefault();
+    return;
+  }
+
+  // 5) Grab the body of a room/unit to move it directly.
   const body = event.target.closest ? event.target.closest('[data-select-kind="room"],[data-select-kind="unit"]') : null;
   if (body) {
     event.preventDefault();
@@ -3997,6 +4051,10 @@ function handlePlanPointerDown(event) {
 }
 
 function handlePlanPointerMove(event) {
+  if (state.wallDrag) {
+    updateWallDrag(event);
+    return;
+  }
   if (state.geomDrag) {
     updateGeomDrag(event);
     return;
@@ -4027,6 +4085,10 @@ function handlePlanPointerMove(event) {
 }
 
 function finishPlanPointerEdit() {
+  if (state.wallDrag) {
+    finishWallDrag();
+    return;
+  }
   if (state.geomDrag) {
     finishGeomDrag();
     return;
@@ -4039,6 +4101,9 @@ function finishPlanPointerEdit() {
   // pointer actually moved (a bare click on a handle should not stack history).
   if (state.dragEdit.startInput && state.dragEdit.lastPoint) {
     pushUndoSnapshot({ input: state.dragEdit.startInput, geometry: state.dragEdit.startGeometry });
+    // The pointerup may also arrive as a click on the handle's host element —
+    // swallow it so finishing a core drag does not re-route the selection.
+    state.suppressNextPlanClick = true;
   }
 
   state.dragEdit = null;
@@ -4117,7 +4182,16 @@ function beginGeomDrag(event, point, opts) {
           node: planPolygonFor("room", String(room.id || ""))
         }))
     : [];
+  // The dragged edge is a shared wall plane: whatever borders it must follow,
+  // so resolve neighbours and travel limits once, up front.
+  const edges = collectBoundaryEdges(variant, kind, id, startBounds, childRooms, floorBounds);
   const fadeNodes = collectFadeNodes(variant, kind, id, childRooms, startBounds);
+  followersForDeltas([edges.w, edges.e, edges.s, edges.n].map((edge) => ({ followers: edge.followers })))
+    .forEach((follower) => {
+      if (follower.kind === "room") {
+        els.planSvg.querySelectorAll(`[data-room-ref="${follower.id}"]`).forEach((node) => fadeNodes.push(node));
+      }
+    });
   state.geomDrag = {
     mode: opts.mode,
     handle: opts.handle || null,
@@ -4128,6 +4202,8 @@ function beginGeomDrag(event, point, opts) {
     startPoints,
     startBounds,
     floorBounds,
+    edges,
+    edgeDeltas: [],
     current: startPoints,
     currentBounds: startBounds,
     moved: false,
@@ -4135,7 +4211,8 @@ function beginGeomDrag(event, point, opts) {
     polygon: planPolygonFor(kind, id),
     childRooms,
     liveWalls: collectLiveWalls(variant, startBounds),
-    fadeNodes
+    fadeNodes,
+    statusBefore: els.runStatus ? els.runStatus.textContent : ""
   };
 
   try {
@@ -4150,7 +4227,6 @@ function beginGeomDrag(event, point, opts) {
   // Swap the static selection chrome for a live overlay we repaint per frame.
   removeGeomChrome();
   renderGeomOverlay(startBounds, kind, id, startPoints);
-  setStatus(`${opts.mode === "move" ? "Moving" : "Resizing"} ${selectionKindLabel(kind).toLowerCase()}`);
 }
 
 // Walls touching the dragged element's footprint get their endpoints re-aimed
@@ -4209,23 +4285,30 @@ function updateGeomDrag(event) {
 
   const dx = point.x - drag.startPoint.x;
   const dy = point.y - drag.startPoint.y;
-  const bounds = drag.mode === "move"
+  const rawBounds = drag.mode === "move"
     ? translateBoundsWithin(drag.startBounds, dx, dy, drag.floorBounds)
     : resizeBounds(drag.startBounds, drag.handle, dx, dy, drag.floorBounds);
+  // Boundary planes stop where a neighbour would drop below minimum size.
+  const bounds = clampBoundsToEdges(rawBounds, drag.startBounds, drag.edges, drag.mode);
   const points = remapPolygon(drag.startPoints, drag.startBounds, bounds);
 
   drag.current = points;
   drag.currentBounds = bounds;
-  if (Math.abs(dx) > 1e-3 || Math.abs(dy) > 1e-3) {
+  drag.edgeDeltas = boundaryEdgeDeltas(drag.edges, drag.startBounds, bounds);
+  // "Moved" means the snapped geometry actually changed — a 1-px click wiggle
+  // must not announce a drag, stack undo history, or store a no-op override.
+  if (!drag.moved && drag.edgeDeltas.length > 0) {
     drag.moved = true;
+    setStatus(`${drag.mode === "move" ? "Moving" : "Resizing"} ${selectionKindLabel(drag.kind).toLowerCase()}`);
   }
   if (drag.polygon) {
     drag.polygon.setAttribute("points", pointsToAttr(points));
     drag.polygon.classList.add("geom-editing");
   }
 
-  // Live-follow: child rooms (when dragging a unit) and abutting walls are
-  // re-aimed in place each frame — no full re-render, CAD-smooth.
+  // Live-follow: child rooms (when dragging a unit), neighbours sharing the
+  // dragged wall plane, and abutting walls are re-aimed in place each frame —
+  // no full re-render, CAD-smooth.
   const mapPoint = (p) => ({
     x: round(bounds.minX + ((Number(p.x) - drag.startBounds.minX) / drag.startBounds.width) * bounds.width),
     y: round(bounds.minY + ((Number(p.y) - drag.startBounds.minY) / drag.startBounds.height) * bounds.height)
@@ -4233,6 +4316,14 @@ function updateGeomDrag(event) {
   (drag.childRooms || []).forEach((child) => {
     if (child.node && child.points.length >= 3) {
       child.node.setAttribute("points", pointsToAttr(child.points.map(mapPoint)));
+    }
+  });
+  const allEdges = [drag.edges.w, drag.edges.e, drag.edges.s, drag.edges.n];
+  followersForDeltas(allEdges.map((edge) => ({ followers: edge.followers }))).forEach((follower) => {
+    // Shifts are applied from the follower's drag-start points, so a reversed
+    // drag (delta back to zero) restores the original outline exactly.
+    if (follower.node) {
+      follower.node.setAttribute("points", pointsToAttr(shiftFollowerPoints(follower, drag.edgeDeltas)));
     }
   });
   (drag.liveWalls || []).forEach((ref) => updateLiveWall(ref, mapPoint));
@@ -4272,7 +4363,7 @@ function finishGeomDrag() {
   }
   (drag.fadeNodes || []).forEach((node) => node.classList.remove("geom-stale"));
 
-  if (drag.moved) {
+  if (drag.moved && drag.edgeDeltas.length > 0) {
     // Record the pre-edit state first so a single Undo reverts this resize,
     // then store the override. Manual geometry edits never re-run the engine.
     pushUndoSnapshot(drag.snapshot);
@@ -4288,12 +4379,25 @@ function finishGeomDrag() {
           remapPolygon(child.points, drag.startBounds, drag.currentBounds));
       }
     });
+    // Neighbours that shared the dragged wall plane keep the plan watertight:
+    // their adjusted outlines are committed as overrides of their own.
+    followersForDeltas(drag.edgeDeltas).forEach((follower) => {
+      setGeometryOverride(
+        drag.variantId,
+        follower.kind,
+        follower.id,
+        shiftFollowerPoints(follower, drag.edgeDeltas));
+    });
+    state.editsSignature = state.lastRunInputSignature;
     saveDraft();
     const b = drag.currentBounds;
     setStatus(`${selectionKindLabel(drag.kind)} set to ${formatNumber(b.width, 1)} × ${formatNumber(b.height, 1)} m`);
     // A move/resize ends with a pointerup that the browser may also deliver as a
     // click; swallow that one so it does not reset the selection we just edited.
     state.suppressNextPlanClick = true;
+  } else if (drag.statusBefore) {
+    // A bare click (no movement) should not leave a stale "Moving room" status.
+    setStatus(drag.statusBefore);
   }
   renderAll();
 }
@@ -4502,6 +4606,472 @@ function geomHandlePositions(bounds) {
   ];
 }
 
+// --- Boundary followers ------------------------------------------------------
+// A dragged room edge is a wall plane shared with whatever sits across it. For
+// the plan to stay a plan (no overlaps, no gaps) every polygon with an edge on
+// that plane must follow the drag: the neighbour room shrinks as this one
+// grows, the parent unit stretches with its room, the corridor gives way.
+// These helpers find those polygons per edge and compute how far the plane may
+// travel before something is squeezed below its minimum dimension.
+
+const boundaryEps = 0.05;
+const boundaryMinOverlap = 0.15;
+
+// Intervals of the polygon's outline that run along the given axis line, e.g.
+// the vertical edge segments at x == lineCoord. Used to decide participation.
+function polygonEdgeIntervalsOnLine(points, axis, lineCoord) {
+  const perp = axis === "x" ? "y" : "x";
+  const intervals = [];
+  for (let i = 0; i < points.length; i += 1) {
+    const a = points[i];
+    const b = points[(i + 1) % points.length];
+    if (Math.abs(Number(a[axis]) - lineCoord) <= boundaryEps
+      && Math.abs(Number(b[axis]) - lineCoord) <= boundaryEps) {
+      const lo = Math.min(Number(a[perp]), Number(b[perp]));
+      const hi = Math.max(Number(a[perp]), Number(b[perp]));
+      if (hi - lo > 1e-6) {
+        intervals.push([lo, hi]);
+      }
+    }
+  }
+  return intervals;
+}
+
+function intervalOverlap(aLo, aHi, bLo, bHi) {
+  return Math.min(aHi, bHi) - Math.max(aLo, bLo);
+}
+
+// Every room/unit/corridor (except the dragged element and, for unit drags,
+// its own rooms, which scale with the unit instead) that shares the boundary
+// line. side = +1 when the polygon's body lies on the positive-axis side.
+function collectEdgeFollowers(variant, excludeIds, axis, lineCoord, spanLo, spanHi) {
+  const followers = [];
+  const visit = (items, kind) => {
+    (items || []).forEach((item) => {
+      const id = String(item.id || "");
+      if (!item.polygon || excludeIds.has(`${kind}:${id}`)) {
+        return;
+      }
+      const points = (item.polygon.points || []).map((p) => ({ x: Number(p.x), y: Number(p.y) }));
+      if (points.length < 3) {
+        return;
+      }
+      const intervals = polygonEdgeIntervalsOnLine(points, axis, lineCoord);
+      const touches = intervals.some(([lo, hi]) => intervalOverlap(lo, hi, spanLo, spanHi) > boundaryMinOverlap);
+      if (!touches) {
+        return;
+      }
+      const bounds = boundsOfPoints(points);
+      if (!bounds) {
+        return;
+      }
+      const center = axis === "x" ? bounds.minX + bounds.width / 2 : bounds.minY + bounds.height / 2;
+      const side = center >= lineCoord ? 1 : -1;
+      const farCoord = axis === "x"
+        ? (side > 0 ? bounds.maxX : bounds.minX)
+        : (side > 0 ? bounds.maxY : bounds.minY);
+      followers.push({
+        kind,
+        id,
+        points,
+        side,
+        farCoord,
+        node: planPolygonFor(kind, id)
+      });
+    });
+  };
+  visit(variant.units, "unit");
+  visit(variant.rooms, "room");
+  visit(variant.corridors, "corridor");
+  return followers;
+}
+
+// How far the boundary plane may travel: never past the floorplate, and never
+// so far that the dragged element or any follower drops below the minimum
+// room dimension.
+function boundaryLineRange(followers, axis, floorBounds) {
+  let min = floorBounds ? (axis === "x" ? floorBounds.minX : floorBounds.minY) : -Infinity;
+  let max = floorBounds ? (axis === "x" ? floorBounds.maxX : floorBounds.maxY) : Infinity;
+  followers.forEach((follower) => {
+    if (follower.side > 0) {
+      max = Math.min(max, follower.farCoord - geomMinDimension);
+    } else {
+      min = Math.max(min, follower.farCoord + geomMinDimension);
+    }
+  });
+  return { min, max };
+}
+
+// Move every follower vertex that sits on the boundary plane by its delta.
+// Vertices are matched against the ORIGINAL line position, so deltas apply
+// cleanly from the drag-start geometry each frame.
+function shiftFollowerPoints(follower, edgeDeltas) {
+  return follower.points.map((p) => {
+    let x = p.x;
+    let y = p.y;
+    edgeDeltas.forEach((edge) => {
+      if (edge.axis === "x") {
+        if (Math.abs(p.x - edge.line) <= boundaryEps && p.y >= edge.spanLo - boundaryEps && p.y <= edge.spanHi + boundaryEps) {
+          x = round(p.x + edge.delta);
+        }
+      } else if (Math.abs(p.y - edge.line) <= boundaryEps && p.x >= edge.spanLo - boundaryEps && p.x <= edge.spanHi + boundaryEps) {
+        y = round(p.y + edge.delta);
+      }
+    });
+    return { x, y };
+  });
+}
+
+// The four boundary planes of the dragged element, with followers and travel
+// limits resolved once at drag start.
+function collectBoundaryEdges(variant, kind, id, startBounds, childRooms, floorBounds) {
+  const excludeIds = new Set([`${kind}:${id}`]);
+  (childRooms || []).forEach((child) => excludeIds.add(`room:${child.id}`));
+  const make = (dir, axis, line, spanLo, spanHi) => {
+    const followers = collectEdgeFollowers(variant, excludeIds, axis, line, spanLo, spanHi);
+    const range = boundaryLineRange(followers, axis, floorBounds);
+    // The plane's current position is always legal, even when the engine
+    // produced a neighbour thinner than the minimum — never force a jump.
+    range.min = Math.min(range.min, line);
+    range.max = Math.max(range.max, line);
+    return { dir, axis, line, spanLo, spanHi, followers, range };
+  };
+  return {
+    w: make("w", "x", startBounds.minX, startBounds.minY, startBounds.maxY),
+    e: make("e", "x", startBounds.maxX, startBounds.minY, startBounds.maxY),
+    s: make("s", "y", startBounds.minY, startBounds.minX, startBounds.maxX),
+    n: make("n", "y", startBounds.maxY, startBounds.minX, startBounds.maxX)
+  };
+}
+
+// Clamp the freshly dragged bounds so no boundary plane leaves its legal
+// range. A resize clamps each edge independently; a move must clamp the
+// translation as a whole so the element stops at an obstacle instead of
+// squashing against it.
+function clampBoundsToEdges(bounds, start, edges, mode) {
+  if (mode === "move") {
+    const dxLo = Math.max(edges.w.range.min - start.minX, edges.e.range.min - start.maxX);
+    const dxHi = Math.min(edges.w.range.max - start.minX, edges.e.range.max - start.maxX);
+    const dyLo = Math.max(edges.s.range.min - start.minY, edges.n.range.min - start.maxY);
+    const dyHi = Math.min(edges.s.range.max - start.minY, edges.n.range.max - start.maxY);
+    const dx = clamp(bounds.minX - start.minX, Math.min(dxLo, 0), Math.max(dxHi, 0));
+    const dy = clamp(bounds.minY - start.minY, Math.min(dyLo, 0), Math.max(dyHi, 0));
+    return {
+      minX: round(start.minX + dx),
+      minY: round(start.minY + dy),
+      maxX: round(start.maxX + dx),
+      maxY: round(start.maxY + dy),
+      width: start.width,
+      height: start.height
+    };
+  }
+  const minX = clamp(bounds.minX, edges.w.range.min, edges.w.range.max);
+  const maxX = clamp(bounds.maxX, edges.e.range.min, edges.e.range.max);
+  const minY = clamp(bounds.minY, edges.s.range.min, edges.s.range.max);
+  const maxY = clamp(bounds.maxY, edges.n.range.min, edges.n.range.max);
+  return {
+    minX,
+    minY,
+    maxX: Math.max(maxX, minX + geomMinDimension),
+    maxY: Math.max(maxY, minY + geomMinDimension),
+    width: round(Math.max(maxX - minX, geomMinDimension)),
+    height: round(Math.max(maxY - minY, geomMinDimension))
+  };
+}
+
+// Per-edge plane deltas implied by the new bounds. Only edges that actually
+// moved are returned, each carrying its original line and span for matching.
+function boundaryEdgeDeltas(edges, startBounds, bounds) {
+  const moves = [
+    { dir: "w", value: bounds.minX - startBounds.minX },
+    { dir: "e", value: bounds.maxX - startBounds.maxX },
+    { dir: "s", value: bounds.minY - startBounds.minY },
+    { dir: "n", value: bounds.maxY - startBounds.maxY }
+  ];
+  return moves
+    .filter((move) => Math.abs(move.value) > 1e-6)
+    .map((move) => {
+      const edge = edges[move.dir];
+      return {
+        dir: move.dir,
+        axis: edge.axis,
+        line: edge.line,
+        spanLo: edge.spanLo,
+        spanHi: edge.spanHi,
+        delta: round(move.value),
+        followers: edge.followers
+      };
+    });
+}
+
+// Distinct followers across the supplied deltas; a corner drag can touch the
+// same neighbour on two planes, which must resolve to one combined shift.
+function followersForDeltas(edgeDeltas) {
+  const byKey = new Map();
+  edgeDeltas.forEach((edge) => {
+    edge.followers.forEach((follower) => {
+      const key = `${follower.kind}:${follower.id}`;
+      if (!byKey.has(key)) {
+        byKey.set(key, follower);
+      }
+    });
+  });
+  return Array.from(byKey.values());
+}
+
+// --- Direct wall dragging ----------------------------------------------------
+// In edit mode any straight interior wall is itself a handle: grab it and the
+// whole wall plane slides, with the rooms on both sides resizing in lockstep.
+// This is the move architects actually make — push a partition, not "scale a
+// room rectangle" — so it gets first-class treatment.
+
+function wallDragCandidate(variant, wallId) {
+  const wall = (variant.walls || []).find((item) => String(item.id || "") === String(wallId || ""));
+  if (!wall || !wall.centerline || !wall.centerline.start || !wall.centerline.end) {
+    return null;
+  }
+  const sx = Number(wall.centerline.start.x);
+  const sy = Number(wall.centerline.start.y);
+  const ex = Number(wall.centerline.end.x);
+  const ey = Number(wall.centerline.end.y);
+  let axis = null;
+  if (Math.abs(sx - ex) <= boundaryEps && Math.abs(sy - ey) > boundaryEps) {
+    axis = "x";
+  } else if (Math.abs(sy - ey) <= boundaryEps && Math.abs(sx - ex) > boundaryEps) {
+    axis = "y";
+  }
+  if (!axis) {
+    return null;
+  }
+  const line = axis === "x" ? round((sx + ex) / 2) : round((sy + ey) / 2);
+  const spanLo = axis === "x" ? Math.min(sy, ey) : Math.min(sx, ex);
+  const spanHi = axis === "x" ? Math.max(sy, ey) : Math.max(sx, ex);
+  return { wall, axis, line, spanLo, spanHi };
+}
+
+function beginWallDrag(event, point, wallId) {
+  const variant = selectedVariant(currentVisualOutput());
+  if (!variant || !variant.variantId) {
+    return false;
+  }
+  const candidate = wallDragCandidate(variant, wallId);
+  if (!candidate) {
+    return false;
+  }
+  const floorBounds = state.input && state.input.floorplate && state.input.floorplate.outer
+    ? boundsOfPoints(state.input.floorplate.outer.points)
+    : null;
+  // Facade walls trace the floorplate itself; that contour is an input
+  // constraint, edited from the brief, not by dragging the drawing.
+  if (floorBounds) {
+    const onFloorEdge = candidate.axis === "x"
+      ? Math.abs(candidate.line - floorBounds.minX) <= boundaryEps || Math.abs(candidate.line - floorBounds.maxX) <= boundaryEps
+      : Math.abs(candidate.line - floorBounds.minY) <= boundaryEps || Math.abs(candidate.line - floorBounds.maxY) <= boundaryEps;
+    if (onFloorEdge) {
+      setStatus("Facade wall — resize the floorplate from the Design Brief");
+      return false;
+    }
+  }
+  const followers = collectEdgeFollowers(
+    variant, new Set(), candidate.axis, candidate.line, candidate.spanLo, candidate.spanHi);
+  if (!followers.length) {
+    return false;
+  }
+  const range = boundaryLineRange(followers, candidate.axis, floorBounds);
+  range.min = Math.min(range.min, candidate.line);
+  range.max = Math.max(range.max, candidate.line);
+
+  const fadeNodes = [];
+  followers.forEach((follower) => {
+    if (follower.kind === "room") {
+      els.planSvg.querySelectorAll(`[data-room-ref="${follower.id}"]`).forEach((node) => fadeNodes.push(node));
+    }
+  });
+  (variant.doorsOpenings || []).forEach((door) => {
+    const p = door && door.location;
+    if (!p) {
+      return;
+    }
+    const onLine = candidate.axis === "x"
+      ? Math.abs(Number(p.x) - candidate.line) <= boundaryEps * 4
+      : Math.abs(Number(p.y) - candidate.line) <= boundaryEps * 4;
+    if (onLine) {
+      els.planSvg.querySelectorAll(`[data-select-kind="door"][data-select-id="${door.id}"]`)
+        .forEach((node) => fadeNodes.push(node));
+    }
+  });
+
+  state.wallDrag = {
+    variantId: variant.variantId,
+    axis: candidate.axis,
+    line: candidate.line,
+    spanLo: candidate.spanLo,
+    spanHi: candidate.spanHi,
+    followers,
+    range,
+    delta: 0,
+    moved: false,
+    startPoint: point,
+    snapshot: captureSnapshot(),
+    liveWalls: collectLiveWallsOnLine(variant, candidate),
+    fadeNodes,
+    statusBefore: els.runStatus ? els.runStatus.textContent : ""
+  };
+  try {
+    els.planSvg.setPointerCapture(event.pointerId);
+  } catch (_) {
+    // Pointer capture only smooths the drag.
+  }
+  els.previewFrame.classList.add("is-dragging");
+  fadeNodes.forEach((node) => node.classList.add("geom-stale"));
+  removeGeomChrome();
+  return true;
+}
+
+// Walls with an endpoint resting on the dragged plane: the collinear wall
+// itself plus every perpendicular wall that tees into it.
+function collectLiveWallsOnLine(variant, candidate) {
+  const refs = [];
+  (variant.walls || []).forEach((wall) => {
+    if (!wall || !wall.centerline || !wall.centerline.start || !wall.centerline.end) {
+      return;
+    }
+    const onLine = (p) => {
+      const main = candidate.axis === "x" ? Number(p.x) : Number(p.y);
+      const perp = candidate.axis === "x" ? Number(p.y) : Number(p.x);
+      return Math.abs(main - candidate.line) <= boundaryEps
+        && perp >= candidate.spanLo - boundaryEps && perp <= candidate.spanHi + boundaryEps;
+    };
+    const startIn = onLine(wall.centerline.start);
+    const endIn = onLine(wall.centerline.end);
+    if (!startIn && !endIn) {
+      return;
+    }
+    const parts = Array.from(els.planSvg.querySelectorAll(`[data-wall-ref="${wall.id}"]`));
+    if (parts.length) {
+      refs.push({ wall, startIn, endIn, parts, thickness: wallStrokeWidth(wall) });
+    }
+  });
+  return refs;
+}
+
+function updateWallDrag(event) {
+  const drag = state.wallDrag;
+  if (!drag) {
+    return;
+  }
+  event.preventDefault();
+  const point = clientToModelPoint(event);
+  if (!point) {
+    return;
+  }
+  const raw = (drag.axis === "x" ? point.x : point.y) - drag.line;
+  const target = clamp(geomSnap(drag.line + raw), drag.range.min, drag.range.max);
+  drag.delta = round(target - drag.line);
+  if (!drag.moved && Math.abs(drag.delta) > 1e-6) {
+    drag.moved = true;
+    setStatus("Moving wall");
+  }
+
+  const edgeDeltas = [{
+    axis: drag.axis,
+    line: drag.line,
+    spanLo: drag.spanLo,
+    spanHi: drag.spanHi,
+    delta: drag.delta,
+    followers: drag.followers
+  }];
+  drag.followers.forEach((follower) => {
+    if (follower.node) {
+      follower.node.setAttribute("points", pointsToAttr(shiftFollowerPoints(follower, edgeDeltas)));
+    }
+  });
+  const mapPoint = (p) => (drag.axis === "x"
+    ? { x: round(Number(p.x) + drag.delta), y: Number(p.y) }
+    : { x: Number(p.x), y: round(Number(p.y) + drag.delta) });
+  (drag.liveWalls || []).forEach((ref) => updateLiveWall(ref, mapPoint));
+
+  renderWallDragGuide(drag);
+  if (els.editReadout) {
+    const sides = wallDragSideReadout(drag);
+    els.editReadout.textContent = `Wall ${drag.axis === "x" ? "x" : "y"} ${formatNumber(drag.line + drag.delta, 2)} m`
+      + (sides ? ` · ${sides}` : "")
+      + ` · Δ ${drag.delta >= 0 ? "+" : ""}${formatNumber(drag.delta, 2)} m`;
+    els.editReadout.hidden = false;
+  }
+}
+
+// "3.1 m | 4.7 m" — the resulting clear dimensions either side of the plane,
+// taken from the tightest follower on each side.
+function wallDragSideReadout(drag) {
+  let below = null;
+  let above = null;
+  drag.followers.forEach((follower) => {
+    const depth = Math.abs(follower.farCoord - (drag.line + drag.delta));
+    if (follower.side > 0) {
+      above = above == null ? depth : Math.min(above, depth);
+    } else {
+      below = below == null ? depth : Math.min(below, depth);
+    }
+  });
+  if (below == null && above == null) {
+    return "";
+  }
+  const fmt = (value) => (value == null ? "—" : `${formatNumber(value, 1)} m`);
+  return `${fmt(below)} | ${fmt(above)}`;
+}
+
+function renderWallDragGuide(drag) {
+  removeWallDragGuide();
+  const overlay = svgEl("g", { class: "wall-drag-guide-group geom-drag-overlay", transform: "scale(1,-1)" });
+  const linePos = drag.line + drag.delta;
+  const guide = drag.axis === "x"
+    ? lineEl({ x: linePos, y: drag.spanLo }, { x: linePos, y: drag.spanHi }, "wall-drag-guide")
+    : lineEl({ x: drag.spanLo, y: linePos }, { x: drag.spanHi, y: linePos }, "wall-drag-guide");
+  overlay.appendChild(guide);
+  els.planSvg.appendChild(overlay);
+}
+
+function removeWallDragGuide() {
+  const existing = els.planSvg.querySelector(".wall-drag-guide-group");
+  if (existing) {
+    existing.remove();
+  }
+}
+
+function finishWallDrag() {
+  const drag = state.wallDrag;
+  if (!drag) {
+    return;
+  }
+  state.wallDrag = null;
+  els.previewFrame.classList.remove("is-dragging");
+  removeWallDragGuide();
+  (drag.fadeNodes || []).forEach((node) => node.classList.remove("geom-stale"));
+
+  if (drag.moved && Math.abs(drag.delta) > 1e-6) {
+    pushUndoSnapshot(drag.snapshot);
+    const edgeDeltas = [{
+      axis: drag.axis,
+      line: drag.line,
+      spanLo: drag.spanLo,
+      spanHi: drag.spanHi,
+      delta: drag.delta,
+      followers: drag.followers
+    }];
+    drag.followers.forEach((follower) => {
+      setGeometryOverride(drag.variantId, follower.kind, follower.id, shiftFollowerPoints(follower, edgeDeltas));
+    });
+    state.editsSignature = state.lastRunInputSignature;
+    saveDraft();
+    setStatus(`Wall moved ${drag.delta >= 0 ? "+" : ""}${formatNumber(drag.delta, 2)} m`);
+    state.suppressNextPlanClick = true;
+  } else if (drag.statusBefore) {
+    setStatus(drag.statusBefore);
+  }
+  renderAll();
+}
+
 function applyCanvasEdit(edit, point) {
   const input = ensureInputShape(edit.startInput);
   const floorBounds = boundsOfPoints(edit.startInput.floorplate.outer.points);
@@ -4512,12 +5082,15 @@ function applyCanvasEdit(edit, point) {
   if (edit.action === "floor-width" || edit.action === "floor-depth" || edit.action === "floor-size") {
     const dx = point.x - edit.startPoint.x;
     const dy = point.y - edit.startPoint.y;
+    // The floorplate snaps to the same 0.5 m grid the form steppers use, so a
+    // drag never produces "39.53 m" inputs that read like noise.
+    const snapHalf = (value) => Math.round(value * 2) / 2;
     const width = edit.action === "floor-depth"
       ? floorBounds.width
-      : clamp(round(floorBounds.width + dx), 8, 300);
+      : clamp(snapHalf(floorBounds.width + dx), 8, 300);
     const depth = edit.action === "floor-width"
       ? floorBounds.height
-      : clamp(round(floorBounds.height + dy), 8, 300);
+      : clamp(snapHalf(floorBounds.height + dy), 8, 300);
     resizeFloorplateInput(input, edit.startInput, width, depth);
     clampCoreIntoFloorplate(input);
     return input;
@@ -4566,16 +5139,17 @@ function applyCanvasEdit(edit, point) {
   if (edit.action === "core-move") {
     const dx = point.x - edit.startPoint.x;
     const dy = point.y - edit.startPoint.y;
-    const x = clamp(round(startCoreBounds.minX + dx), currentFloorBounds.minX, currentFloorBounds.maxX - startCoreBounds.width);
-    const y = clamp(round(startCoreBounds.minY + dy), currentFloorBounds.minY, currentFloorBounds.maxY - startCoreBounds.height);
+    // Snap to the same 0.1 m grid as room edits so the form reads clean numbers.
+    const x = clamp(geomSnap(startCoreBounds.minX + dx), currentFloorBounds.minX, currentFloorBounds.maxX - startCoreBounds.width);
+    const y = clamp(geomSnap(startCoreBounds.minY + dy), currentFloorBounds.minY, currentFloorBounds.maxY - startCoreBounds.height);
     core.polygon.points = rectPoints(x, y, startCoreBounds.width, startCoreBounds.height);
     refreshAccessFromCore(input);
     return input;
   }
 
   if (edit.action === "core-size") {
-    const width = clamp(round(point.x - startCoreBounds.minX), 1, currentFloorBounds.maxX - startCoreBounds.minX);
-    const depth = clamp(round(point.y - startCoreBounds.minY), 1, currentFloorBounds.maxY - startCoreBounds.minY);
+    const width = clamp(geomSnap(point.x - startCoreBounds.minX), 1, currentFloorBounds.maxX - startCoreBounds.minX);
+    const depth = clamp(geomSnap(point.y - startCoreBounds.minY), 1, currentFloorBounds.maxY - startCoreBounds.minY);
     core.polygon.points = rectPoints(startCoreBounds.minX, startCoreBounds.minY, width, depth);
     refreshAccessFromCore(input);
     return input;
@@ -4706,48 +5280,39 @@ function renderInputEditHandles(group, input) {
     return;
   }
 
-  const handleRadius = Math.max(Math.max(floorBounds.width, floorBounds.height) * 0.018, 0.42);
-  const handleInset = Math.max(handleRadius * 1.9, 0.9);
+  // Quiet, label-free grips that sit exactly on the constraint geometry: three
+  // on the floorplate boundary (E width, N depth, NE corner) and two on the
+  // core (centre move, corner resize). Everything else on the canvas is edited
+  // by grabbing the drawing itself, so the input chrome stays whisper-thin.
+  const handleRadius = geomHandleRadius();
   const floorGroup = svgEl("g", { class: "edit-handles" });
-  const floorWidthPoint = { x: floorBounds.maxX, y: floorBounds.minY + floorBounds.height / 2 };
-  const floorDepthPoint = { x: floorBounds.minX + floorBounds.width / 2, y: floorBounds.maxY - handleInset };
-  const floorSizePoint = { x: floorBounds.maxX, y: floorBounds.maxY - handleInset };
   floorGroup.appendChild(editHandle(
-    "floor-width",
-    floorWidthPoint.x,
-    floorWidthPoint.y,
-    handleRadius,
-    "Resize floorplate width"));
-  floorGroup.appendChild(editHandleLabel("Width", floorWidthPoint.x, floorWidthPoint.y, handleRadius, "left"));
+    "floor-width", floorBounds.maxX, floorBounds.minY + floorBounds.height / 2, handleRadius,
+    "Drag to set floorplate width", "ew"));
   floorGroup.appendChild(editHandle(
-    "floor-depth",
-    floorDepthPoint.x,
-    floorDepthPoint.y,
-    handleRadius,
-    "Resize floorplate depth"));
-  floorGroup.appendChild(editHandleLabel("Depth", floorDepthPoint.x, floorDepthPoint.y, handleRadius, "below"));
+    "floor-depth", floorBounds.minX + floorBounds.width / 2, floorBounds.maxY, handleRadius,
+    "Drag to set floorplate depth", "ns"));
   floorGroup.appendChild(editHandle(
-    "floor-size",
-    floorSizePoint.x,
-    floorSizePoint.y,
-    handleRadius * 1.1,
-    "Resize floorplate"));
-  floorGroup.appendChild(editHandleLabel("Resize", floorSizePoint.x, floorSizePoint.y, handleRadius * 1.1, "left-below"));
+    "floor-size", floorBounds.maxX, floorBounds.maxY, handleRadius * 1.05,
+    "Drag to resize the floorplate", "nesw"));
 
   const core = firstCore(input);
   const coreBounds = core && core.polygon ? boundsOfPoints(core.polygon.points) : null;
   if (coreBounds) {
-    const coreMovePoint = { x: coreBounds.minX + coreBounds.width / 2, y: coreBounds.minY + coreBounds.height / 2 };
-    const coreSizePoint = { x: coreBounds.maxX, y: coreBounds.maxY };
+    // The whole core is its own move handle. The grab surface is an invisible
+    // overlay appended here — above the walls — so a press inside the core
+    // can never be stolen by a wall's hit zone.
+    const grab = polygonEl(core.polygon.points, "core-grab-overlay", {
+      "data-edit-action": "core-move",
+      ...selectableAttributes("core", core.id || "core")
+    });
+    const grabTitle = svgEl("title");
+    grabTitle.textContent = "Drag to move the core";
+    grab.appendChild(grabTitle);
+    floorGroup.appendChild(grab);
     floorGroup.appendChild(editHandle(
-      "core-move",
-      coreMovePoint.x,
-      coreMovePoint.y,
-      handleRadius * 1.2,
-      "Move core"));
-    floorGroup.appendChild(editHandleLabel("Move", coreMovePoint.x, coreMovePoint.y, handleRadius * 1.2));
-    floorGroup.appendChild(editHandle("core-size", coreSizePoint.x, coreSizePoint.y, handleRadius, "Resize core"));
-    floorGroup.appendChild(editHandleLabel("Core size", coreSizePoint.x, coreSizePoint.y, handleRadius));
+      "core-size", coreBounds.maxX, coreBounds.maxY, handleRadius,
+      "Drag to resize the core", "nesw"));
   }
 
   group.appendChild(floorGroup);
@@ -4770,6 +5335,8 @@ function renderSelectionConstraintHandles(group, output) {
     // Rooms and units are resized directly: eight live grips + body drag-to-move.
     appendGeomResizeHandles(editGroup, bounds, detail.kind, detail.id);
   } else {
+    // Corridors and other generated shapes show a plain selection box; their
+    // long edges slide via direct wall dragging like everything else.
     editGroup.appendChild(svgEl("rect", {
       class: "edit-selection-box",
       x: round(bounds.minX),
@@ -4777,32 +5344,25 @@ function renderSelectionConstraintHandles(group, output) {
       width: round(bounds.width),
       height: round(bounds.height)
     }));
-    if (detail.kind === "corridor") {
-      const handleRadius = Math.max(Math.max(bounds.width, bounds.height) * 0.05, 0.18);
-      const horizontal = bounds.width >= bounds.height;
-      const x = horizontal ? bounds.minX + bounds.width / 2 : bounds.maxX;
-      const y = horizontal ? bounds.maxY : bounds.minY + bounds.height / 2;
-      editGroup.appendChild(editHandle("corridor-width", x, y, handleRadius, "Drag to set corridor width"));
-    }
   }
 
   group.appendChild(editGroup);
 }
 
-function editHandle(action, x, y, radius, label) {
-  const visible = Math.max(radius, 0.34);
+function editHandle(action, x, y, radius, label, cursor = "") {
+  const visible = Math.max(radius, 0.16);
   // The visible dot is small for a clean drawing, so wrap it in a generous invisible
   // grab halo: pointers landing anywhere in the halo still resolve to this handle via
   // closest("[data-edit-action]"), making resize/move drags forgiving to seize.
   const group = svgEl("g", {
-    class: `edit-handle-group edit-${action}`,
+    class: `edit-handle-group edit-${action}${cursor ? ` cursor-${cursor}` : ""}`,
     "data-edit-action": action
   });
   group.appendChild(svgEl("circle", {
     class: "edit-handle-hit",
     cx: round(x),
     cy: round(y),
-    r: round(Math.max(visible * 1.9, 0.85))
+    r: round(Math.max(visible * 2.1, 0.6))
   }));
   const handle = svgEl("circle", {
     class: `edit-handle edit-${action}`,
@@ -4818,127 +5378,9 @@ function editHandle(action, x, y, radius, label) {
   return group;
 }
 
-function editHandleLabel(text, x, y, radius, placement = "right") {
-  const offsetX = Math.max(radius * 1.55, 0.72);
-  const offsetY = Math.max(radius * 0.45, 0.28);
-  const placeLeft = placement.includes("left");
-  const placeBelow = placement.includes("below");
-  const label = svgEl("text", {
-    class: "edit-handle-label",
-    x: round(x + (placeLeft ? -offsetX : offsetX)),
-    y: round(-(y + (placeBelow ? -offsetY : offsetY))),
-    transform: "scale(1,-1)",
-    "text-anchor": placeLeft ? "end" : "start",
-    "font-size": "0.72"
-  });
-  label.textContent = text;
-  return label;
-}
-
-function renderPlanQuickActions(output, canvasBounds) {
-  if (!state.editMode || state.viewMode === "axon") {
-    return;
-  }
-
-  const detail = selectedElementDetails(output);
-  const actions = planActionsForDetail(detail);
-  if (!detail || actions.length === 0 || !detail.bounds || !canvasBounds) {
-    return;
-  }
-
-  const chips = actions.slice(0, 6).map(([action, label]) => ({
-    action,
-    label: shortPlanActionLabel(label),
-    title: label,
-    width: planActionChipWidth(shortPlanActionLabel(label))
-  }));
-  const maxPerRow = detail.kind === "core" ? 3 : 4;
-  const rows = [];
-  for (let index = 0; index < chips.length; index += maxPerRow) {
-    rows.push(chips.slice(index, index + maxPerRow));
-  }
-
-  const chipHeight = Math.max(canvasBounds.height * 0.04, 1.65);
-  const gap = Math.max(canvasBounds.width * 0.008, 0.34);
-  const rowGap = Math.max(canvasBounds.height * 0.008, 0.32);
-  const stripWidth = Math.max(...rows.map((row) => row.reduce((total, chip, index) => total + chip.width + (index ? gap : 0), 0)));
-  const centerX = detail.bounds.minX + detail.bounds.width / 2;
-  const minX = canvasBounds.minX + gap;
-  const maxX = canvasBounds.maxX - stripWidth - gap;
-  const x = clamp(centerX - stripWidth / 2, minX, Math.max(minX, maxX));
-  let y = -(detail.bounds.maxY + chipHeight + rowGap);
-  const topLimit = -canvasBounds.maxY - chipHeight - rowGap;
-  if (y < topLimit) {
-    y = -(detail.bounds.minY - rowGap);
-  }
-
-  const strip = svgEl("g", {
-    class: "plan-action-strip",
-    "aria-label": "Selected element edit actions"
-  });
-
-  let yOffset = 0;
-  rows.forEach((row) => {
-    let xOffset = 0;
-    row.forEach((chip) => {
-      strip.appendChild(planActionChip(chip.action, chip.label, chip.title, x + xOffset, y + yOffset, chip.width, chipHeight));
-      xOffset += chip.width + gap;
-    });
-    yOffset += chipHeight + rowGap;
-  });
-
-  els.planSvg.appendChild(strip);
-}
-
-function planActionChip(action, label, title, x, y, width, height) {
-  const group = svgEl("g", {
-    class: "plan-action-chip",
-    "data-plan-action": action,
-    role: "button",
-    tabindex: "0",
-    transform: `translate(${formatNumber(x, 3)},${formatNumber(y, 3)})`
-  });
-  group.appendChild(svgEl("rect", {
-    x: 0,
-    y: 0,
-    width: formatNumber(width, 3),
-    height: formatNumber(height, 3),
-    rx: formatNumber(Math.min(height / 2, 0.7), 3)
-  }));
-  const text = svgEl("text", {
-    x: formatNumber(width / 2, 3),
-    y: formatNumber(height / 2 + 0.22, 3),
-    "text-anchor": "middle",
-    "font-size": "0.68"
-  });
-  text.textContent = label;
-  group.appendChild(text);
-  const tooltip = svgEl("title");
-  tooltip.textContent = title;
-  group.appendChild(tooltip);
-  return group;
-}
-
-function planActionChipWidth(label) {
-  return clamp(2.6 + String(label || "").length * 0.46, 4.2, 10.8);
-}
-
-function shortPlanActionLabel(label) {
-  switch (label) {
-    case "More like this":
-      return "More";
-    case "Fewer like this":
-      return "Less";
-    case "Fit target area":
-      return "Fit";
-    case "Use as room minimum":
-      return "Room min";
-    case "Use as corridor width":
-      return "Corridor";
-    default:
-      return label;
-  }
-}
+// Canvas quick-action chips were retired deliberately: floating buttons over
+// the drawing hid the very rooms being edited. The same actions live in the
+// Selection inspector, and the drawing itself is now the manipulation surface.
 
 function renderLegend(hasVariant) {
   const items = [
@@ -5895,7 +6337,7 @@ function applyGeometryOverrides(variant) {
     return variant;
   }
   const overrides = state.geometryEdits[variant.variantId];
-  if (!overrides || (!overrides.room && !overrides.unit)) {
+  if (!overrides || (!overrides.room && !overrides.unit && !overrides.corridor)) {
     return variant;
   }
 
@@ -5925,7 +6367,28 @@ function applyGeometryOverrides(variant) {
   const result = {
     ...variant,
     units: overrideItems(variant.units, "unit"),
-    rooms: overrideItems(variant.rooms, "room")
+    rooms: overrideItems(variant.rooms, "room"),
+    corridors: (overrideItems(variant.corridors, "corridor") || []).map((corridor) => {
+      // An edited corridor's centerline is re-derived from its new outline so
+      // the dashed circulation line keeps tracking the polygon.
+      if (!corridor || !corridor.edited || !corridor.centerline) {
+        return corridor;
+      }
+      const bounds = boundsOfPoints(corridor.polygon ? corridor.polygon.points : null);
+      if (!bounds) {
+        return corridor;
+      }
+      const horizontal = bounds.width >= bounds.height;
+      const midY = round(bounds.minY + bounds.height / 2);
+      const midX = round(bounds.minX + bounds.width / 2);
+      return {
+        ...corridor,
+        width: round(horizontal ? bounds.height : bounds.width),
+        centerline: horizontal
+          ? { start: { x: round(bounds.minX), y: midY }, end: { x: round(bounds.maxX), y: midY } }
+          : { start: { x: midX, y: round(bounds.minY) }, end: { x: midX, y: round(bounds.maxY) } }
+      };
+    })
   };
 
   // Walls, doors, and labels are separate engine entities that would otherwise
@@ -5965,6 +6428,7 @@ function collectGeometryWarps(variant, overrides) {
   };
   push(variant.rooms, "room");
   push(variant.units, "unit");
+  push(variant.corridors, "corridor");
   // Most specific (smallest) region wins, so a wall inside an edited room moves
   // with the room even when its parent unit was edited too.
   warps.sort((a, b) => a.area - b.area);
