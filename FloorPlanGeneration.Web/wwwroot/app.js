@@ -34,6 +34,7 @@ const state = {
   // their variants: both signatures are the stringified generate request.
   editsSignature: "",
   lastRunInputSignature: "",
+  snapSuspended: false,
   // Direct, manual geometry edits the user makes on top of generated output,
   // keyed by variantId then kind ("room"/"unit") then element id. These are an
   // overlay on the engine result: they survive selection/zoom/undo but are
@@ -959,6 +960,12 @@ function handleEmptyPreviewAction(event) {
     return;
   }
   if (button.dataset.emptyAction === "reset") {
+    // Recover to a template that is known to generate — re-loading the very
+    // input that just failed would only reproduce the dead end.
+    const fallback = state.samples.find((sample) => sample.name === "rectangular-core");
+    if (fallback && els.sampleSelect.value !== fallback.name) {
+      els.sampleSelect.value = fallback.name;
+    }
     loadSelectedSample(true);
     return;
   }
@@ -1449,6 +1456,9 @@ function renderDimensionGuides(bounds, units = "m") {
   const offset = Math.max(maxDim * 0.075, 1.6);
   const labelGap = Math.max(maxDim * 0.024, 0.58);
   const tick = Math.max(maxDim * 0.012, 0.28);
+  // Dimension lettering scales with the plan so a 12 m cottage doesn't get
+  // billboard-sized text while a 60 m slab keeps legible labels.
+  const font = clamp(maxDim * 0.016, 0.3, 0.78);
   // Witness (extension) lines start with a small gap off the object and run just
   // past the dimension line, with 45-degree oblique tick slashes at each station —
   // the architectural convention (NKBA) instead of perpendicular crossbars.
@@ -1464,7 +1474,7 @@ function renderDimensionGuides(bounds, units = "m") {
   appendDimensionLine(group, bounds.minX, topY, bounds.maxX, topY);
   appendObliqueTick(group, bounds.minX, topY, tick);
   appendObliqueTick(group, bounds.maxX, topY, tick);
-  appendDimensionText(group, `${formatNumber(bounds.width, 1)} ${units || "m"}`, centerX, topY + labelGap);
+  appendDimensionText(group, `${formatNumber(bounds.width, 1)} ${units || "m"}`, centerX, topY + labelGap, "horizontal", font);
 
   const bottomY = bounds.minY - offset;
   appendDimensionLine(group, bounds.minX, bounds.minY - witnessGap, bounds.minX, bottomY - over, "dimension-witness");
@@ -1479,7 +1489,7 @@ function renderDimensionGuides(bounds, units = "m") {
   appendDimensionLine(group, rightX, bounds.minY, rightX, bounds.maxY);
   appendObliqueTick(group, rightX, bounds.minY, tick);
   appendObliqueTick(group, rightX, bounds.maxY, tick);
-  appendDimensionText(group, `${formatNumber(bounds.height, 1)} ${units || "m"}`, rightX + labelGap, centerY, "vertical");
+  appendDimensionText(group, `${formatNumber(bounds.height, 1)} ${units || "m"}`, rightX + labelGap, centerY, "vertical", font);
 
   const leftX = bounds.minX - offset;
   appendDimensionLine(group, bounds.minX - witnessGap, bounds.minY, leftX - over, bounds.minY, "dimension-witness");
@@ -1514,14 +1524,14 @@ function appendObliqueTick(group, x, y, size) {
   }));
 }
 
-function appendDimensionText(group, label, x, y, orientation = "horizontal") {
+function appendDimensionText(group, label, x, y, orientation = "horizontal", fontSize = 0.68) {
   const renderedY = round(-y);
   const text = svgEl("text", {
     class: `dimension-label dimension-label-${orientation}`,
     x: round(x),
     y: renderedY,
     "text-anchor": "middle",
-    "font-size": "0.68"
+    "font-size": formatNumber(fontSize, 2)
   });
   if (orientation === "vertical") {
     text.setAttribute("transform", `rotate(-90 ${round(x)} ${renderedY})`);
@@ -1543,11 +1553,12 @@ function renderScaleBar(group, bounds, units = "m", offset = 1.6) {
   const tick = Math.max(Math.max(bounds.width, bounds.height) * 0.008, 0.2);
   const scaleGroup = svgEl("g", { class: "scale-bar", "aria-hidden": "true" });
 
+  const font = clamp(Math.max(bounds.width, bounds.height) * 0.016, 0.3, 0.72);
   appendScaleBarLine(scaleGroup, x1, y, x2, y, "scale-bar-line");
   appendScaleBarLine(scaleGroup, x1, y - tick, x1, y + tick, "scale-bar-tick");
   appendScaleBarLine(scaleGroup, x2, y - tick, x2, y + tick, "scale-bar-tick");
-  appendScaleBarText(scaleGroup, "0", x1, y - tick * 1.7, "start");
-  appendScaleBarText(scaleGroup, `${formatNumber(length, length >= 10 ? 0 : 1)} ${units || "m"}`, x2, y - tick * 1.7, "end");
+  appendScaleBarText(scaleGroup, "0", x1, y - tick * 1.7, "start", font);
+  appendScaleBarText(scaleGroup, `${formatNumber(length, length >= 10 ? 0 : 1)} ${units || "m"}`, x2, y - tick * 1.7, "end", font);
   group.appendChild(scaleGroup);
 }
 
@@ -1572,13 +1583,13 @@ function appendScaleBarLine(group, x1, y1, x2, y2, className) {
   }));
 }
 
-function appendScaleBarText(group, label, x, y, anchor) {
+function appendScaleBarText(group, label, x, y, anchor, fontSize = 0.72) {
   const text = svgEl("text", {
     class: "scale-bar-label",
     x: round(x),
     y: round(-y),
     "text-anchor": anchor,
-    "font-size": "0.72"
+    "font-size": formatNumber(fontSize, 2)
   });
   text.textContent = label;
   group.appendChild(text);
@@ -2993,9 +3004,19 @@ function handleEditorKeyDown(event) {
     return;
   }
 
-  if (event.key === "Escape" && state.selection) {
-    state.selection = null;
-    renderAll();
+  if (event.key === "Escape") {
+    // Escape first abandons an in-flight drag (no commit, geometry restored),
+    // then — on a second press — clears the selection. CAD muscle memory.
+    if (state.geomDrag || state.wallDrag) {
+      event.preventDefault();
+      cancelActiveDrag();
+      return;
+    }
+    if (state.selection) {
+      state.selection = null;
+      renderAll();
+      return;
+    }
     return;
   }
 
@@ -3191,11 +3212,14 @@ function updateCanvasUi(output) {
   const detail = selectedElementDetails(output);
   const selectedSummary = selectionInlineSummary(detail);
   // Outside edit mode a selected room advertises the next step, so the path
-  // from "I picked a bedroom" to "I'm resizing it" is written on screen.
+  // from "I picked a bedroom" to "I'm resizing it" is written on screen. In
+  // edit mode the active selection outranks the floor/core summary.
   const editHint = !editActive && detail && (detail.kind === "room" || detail.kind === "unit")
     ? " — press E to edit"
     : "";
-  const text = editActive ? (state.editReadout || editSummary(state.input)) : selectedSummary + (selectedSummary ? editHint : "");
+  const text = editActive
+    ? (selectedSummary || state.editReadout || editSummary(state.input))
+    : selectedSummary + (selectedSummary ? editHint : "");
   els.editReadout.textContent = text || "";
   els.editReadout.hidden = !text;
 }
@@ -3657,7 +3681,9 @@ function inspectorMarkup(detail) {
     if (detail.unit) {
       rows.push(["Unit type", displayUnitType(detail.unit.type)]);
     }
-    if (detail.item.dimensions) {
+    if (detail.item.dimensions && !detail.item.edited) {
+      // Engine-reported dimensions go stale once the room is manually edited;
+      // the Size row above (from live bounds) is then the single source.
       rows.push([
         "Dimensions",
         `${formatNumber(detail.item.dimensions.width, 1)} x ${formatNumber(detail.item.dimensions.depth, 1)} m`
@@ -4132,6 +4158,11 @@ const geomMinDimension = 0.8;
 const geomSnapStep = 0.1;
 
 function geomSnap(value) {
+  // Shift held = free movement (the CAD convention for temporarily
+  // suspending the grid); drags set this flag from the live pointer event.
+  if (state.snapSuspended) {
+    return round(value);
+  }
   return round(Math.round(Number(value) / geomSnapStep) * geomSnapStep);
 }
 
@@ -4283,6 +4314,7 @@ function updateGeomDrag(event) {
     return;
   }
 
+  state.snapSuspended = Boolean(event.shiftKey);
   const dx = point.x - drag.startPoint.x;
   const dy = point.y - drag.startPoint.y;
   const rawBounds = drag.mode === "move"
@@ -4356,6 +4388,7 @@ function finishGeomDrag() {
     return;
   }
   state.geomDrag = null;
+  state.snapSuspended = false;
   els.previewFrame.classList.remove("is-dragging");
   removeGeomOverlay();
   if (drag.polygon) {
@@ -4965,6 +4998,7 @@ function updateWallDrag(event) {
   if (!point) {
     return;
   }
+  state.snapSuspended = Boolean(event.shiftKey);
   const raw = (drag.axis === "x" ? point.x : point.y) - drag.line;
   const target = clamp(geomSnap(drag.line + raw), drag.range.min, drag.range.max);
   drag.delta = round(target - drag.line);
@@ -5039,12 +5073,40 @@ function removeWallDragGuide() {
   }
 }
 
+// Abort whichever direct-manipulation drag is in flight without committing:
+// the next renderAll repaints every polygon and wall from unchanged state.
+function cancelActiveDrag() {
+  const geom = state.geomDrag;
+  const wall = state.wallDrag;
+  state.geomDrag = null;
+  state.wallDrag = null;
+  state.snapSuspended = false;
+  els.previewFrame.classList.remove("is-dragging");
+  removeGeomOverlay();
+  removeWallDragGuide();
+  [geom, wall].forEach((drag) => {
+    if (!drag) {
+      return;
+    }
+    (drag.fadeNodes || []).forEach((node) => node.classList.remove("geom-stale"));
+    if (drag.statusBefore) {
+      setStatus(drag.statusBefore);
+    }
+  });
+  if (geom && geom.polygon) {
+    geom.polygon.classList.remove("geom-editing");
+  }
+  state.suppressNextPlanClick = true;
+  renderAll();
+}
+
 function finishWallDrag() {
   const drag = state.wallDrag;
   if (!drag) {
     return;
   }
   state.wallDrag = null;
+  state.snapSuspended = false;
   els.previewFrame.classList.remove("is-dragging");
   removeWallDragGuide();
   (drag.fadeNodes || []).forEach((node) => node.classList.remove("geom-stale"));
