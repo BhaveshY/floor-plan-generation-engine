@@ -1,30 +1,97 @@
 :root {
   color-scheme: light;
-  --ink: #101820;
-  --ink-soft: #29323d;
-  --muted: #697583;
-  --faint: #8b96a3;
-  --line: #dce2e8;
-  --line-strong: #c8d1d9;
+
+  /* Ink / text — muted, professional */
+  --ink: #1b2430;
+  --ink-soft: #34404d;
+  --muted: #5b6b76;
+  --faint: #8693a0;
+
+  /* Hairline borders — rgba over ink so they read as true hairlines on white */
+  --line: rgba(16, 24, 32, 0.09);
+  --line-strong: rgba(16, 24, 32, 0.14);
+  --hairline: rgba(16, 24, 32, 0.08);
+  --hairline-strong: rgba(16, 24, 32, 0.12);
+
+  /* Surfaces — airy off-white app bg, pure-white panels */
   --panel: #ffffff;
-  --page: #f4f6f8;
-  --surface: #fafbfc;
-  --surface-warm: #fffdf8;
-  --teal: #007d78;
-  --teal-strong: #00635f;
-  --teal-soft: #e6f6f4;
-  --blue: #256fb5;
-  --blue-soft: #dcecff;
-  --amber: #b7791f;
-  --amber-soft: #fff2d4;
-  --rose: #bf3f55;
-  --rose-soft: #fde8ec;
-  --green: #2f8f4f;
-  --green-soft: #e7f5ea;
-  --violet: #8765b7;
-  --violet-soft: #efe7fb;
-  --shadow: 0 14px 34px rgba(15, 23, 42, 0.08);
-  --shadow-soft: 0 8px 22px rgba(15, 23, 42, 0.05);
+  --page: #f4f6f6;
+  --surface: #f7f9f9;
+  --surface-2: #fbfcfc;
+  --surface-warm: #fdfcf8;
+
+  /* Calm primary accent — one deep teal-green ramp */
+  --teal: #10796b;
+  --teal-fill: #10796b;
+  --teal-strong: #0f6f63;
+  --teal-hover: #0b5b52;
+  --teal-deep: #094a43;
+  --teal-soft: #e6f3f0;
+  --teal-tint: #f1f8f6;
+  --teal-ring: rgba(16, 121, 107, 0.18);
+  --accent-wash: var(--teal-tint);
+
+  /* Secondary status hues (chips/diagnostics) */
+  --blue: #2f6db0;
+  --blue-soft: #e7f0fb;
+  --amber: #9a6b15;
+  --amber-soft: #fbf2dd;
+  --rose: #b23b50;
+  --rose-soft: #fbe9ec;
+  --green: #2c8b54;
+  --green-soft: #e6f4ec;
+  --violet: #7d63b3;
+  --violet-soft: #efe8fb;
+
+  /* Soft, low shadows */
+  --shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
+  --shadow-soft: 0 6px 18px rgba(15, 23, 42, 0.05);
+  --shadow-raised: 0 12px 30px rgba(15, 23, 42, 0.08);
+  --shadow-press: 0 1px 2px rgba(16, 24, 32, 0.04);
+
+  /* Radius scale */
+  --radius-xs: 6px;
+  --radius-sm: 8px;
+  --radius-md: 10px;
+  --radius-lg: 12px;
+  --radius-xl: 14px;
+  --radius-pill: 999px;
+
+  /* Spacing scale (8px rhythm) */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-7: 32px;
+
+  /* System font stack only (CSP-safe, no external fonts) */
+  --font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: "Cascadia Mono", "SFMono-Regular", ui-monospace, Consolas, "Liberation Mono", monospace;
+
+  /* Type scale */
+  --fs-display: 22px;
+  --fs-h2: 16px;
+  --fs-h3: 14px;
+  --fs-body: 13px;
+  --fs-sm: 12px;
+  --fs-xs: 11px;
+  --fs-2xs: 10px;
+  /* Weights chosen so the hierarchy survives Windows/Segoe UI (which only ships
+     400/600/700) instead of collapsing the old 450/550/650/750/850 ramp. Calm,
+     not shouty: emphasis comes from size + colour + tracking, not black weights. */
+  --fw-regular: 400;
+  --fw-medium: 500;
+  --fw-semibold: 600;
+  --fw-bold: 680;
+  --fw-heavy: 760;
+
+  /* Quiet uppercase section-label treatment */
+  --label-size: 11px;
+  --label-weight: 600;
+  --label-tracking: 0.07em;
+  --label-color: var(--muted);
 }
 
 * {
@@ -42,12 +109,47 @@ body {
 
 body {
   margin: 0;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0, rgba(246, 248, 250, 0.96) 260px),
-    #f5f7f8;
+  background: var(--page);
   color: var(--ink);
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: var(--font-sans);
+  font-size: var(--fs-body);
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
   letter-spacing: 0;
+}
+
+/* Thin, unobtrusive scrollbars that read as a quiet pill — not the chunky default. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(16, 24, 32, 0.2) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 11px;
+  height: 11px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(16, 24, 32, 0.18);
+  border-radius: var(--radius-pill);
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(16, 24, 32, 0.3);
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Branded text selection. */
+::selection {
+  background: rgba(16, 121, 107, 0.18);
 }
 
 button,
@@ -67,23 +169,25 @@ button {
   border: 1px solid var(--line-strong);
   background: #fff;
   color: var(--ink);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   padding: 0 14px;
   cursor: pointer;
-  font-size: 13px;
-  font-weight: 750;
-  box-shadow: 0 1px 0 rgba(15, 23, 42, 0.04);
-  transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
+  font-size: var(--fs-body);
+  font-weight: var(--fw-bold);
+  box-shadow: var(--shadow-press);
+  transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease, box-shadow 140ms ease;
 }
 
 button:hover {
-  border-color: #9ba8b5;
-  background: #fbfcfd;
-  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.08);
+  border-color: var(--hairline-strong);
+  background: var(--surface-2);
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.07);
 }
 
-button:active {
-  transform: translateY(1px);
+button:focus-visible {
+  outline: 0;
+  border-color: var(--teal);
+  box-shadow: 0 0 0 3px var(--teal-ring);
 }
 
 button:disabled {
@@ -93,16 +197,25 @@ button:disabled {
   transform: none;
 }
 
+/* Subtle tactile press across every button — the small give Apple controls have. */
+button:active:not(:disabled) {
+  transform: translateY(0.5px);
+}
+
 button.primary {
-  background: linear-gradient(180deg, #078d87, var(--teal));
-  border-color: var(--teal);
+  background: var(--teal-fill);
+  border-color: var(--teal-fill);
   color: #fff;
-  box-shadow: 0 10px 22px rgba(0, 125, 120, 0.22);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), 0 1px 2px rgba(9, 74, 67, 0.26);
 }
 
 button.primary:hover {
-  background: linear-gradient(180deg, #087c77, var(--teal-strong));
-  border-color: var(--teal-strong);
+  background: var(--teal-hover);
+  border-color: var(--teal-hover);
+}
+
+button.primary:focus-visible {
+  box-shadow: 0 0 0 3px var(--teal-ring), inset 0 1px 0 rgba(255, 255, 255, 0.16), 0 1px 2px rgba(9, 74, 67, 0.26);
 }
 
 h1,
@@ -115,12 +228,13 @@ p {
 h1 {
   font-size: 22px;
   line-height: 1.1;
-  letter-spacing: 0;
+  letter-spacing: -0.014em;
 }
 
 h2 {
   font-size: 16px;
   line-height: 1.2;
+  letter-spacing: -0.006em;
 }
 
 h3 {
@@ -135,10 +249,10 @@ h3 {
 }
 
 .topbar {
-  min-height: 76px;
-  padding: 14px 24px;
-  background: rgba(255, 255, 255, 0.96);
-  border-bottom: 1px solid var(--line);
+  min-height: 72px;
+  padding: 13px 24px;
+  background: rgba(255, 255, 255, 0.88);
+  border-bottom: 1px solid var(--hairline);
   display: flex;
   gap: 20px;
   align-items: center;
@@ -157,16 +271,17 @@ h3 {
 }
 
 .mark {
-  width: 38px;
-  height: 38px;
-  border-radius: 8px;
-  background: linear-gradient(145deg, #005f5c, #0b2228);
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-sm);
+  background: linear-gradient(150deg, var(--teal), var(--teal-deep));
   color: #fff;
   display: grid;
   place-items: center;
-  font-size: 19px;
-  font-weight: 850;
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1), 0 8px 18px rgba(12, 18, 25, 0.22);
+  font-size: 17px;
+  font-weight: var(--fw-heavy);
+  letter-spacing: 0.02em;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12), 0 6px 14px rgba(9, 74, 67, 0.2);
 }
 
 .brand p,
@@ -201,44 +316,64 @@ h3 {
 }
 
 .top-nav {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 14px;
-  flex: 1 1 auto;
-  min-width: 260px;
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
 }
 
 .top-nav a,
 .top-nav span {
-  min-height: 42px;
+  min-height: 34px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 0 18px;
-  border-radius: 8px;
-  color: var(--ink-soft);
-  font-size: 13px;
-  font-weight: 750;
+  padding: 0 16px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  box-shadow: none;
+  color: var(--muted);
+  font-size: var(--fs-body);
+  font-weight: var(--fw-semibold);
   text-decoration: none;
-  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.04);
+  transition: background-color 140ms ease, color 140ms ease;
 }
 
 .top-nav a:hover,
 .top-nav span:hover {
-  background: var(--surface);
+  background: rgba(16, 24, 32, 0.04);
+  color: var(--ink-soft);
 }
 
 .top-nav a.active {
   color: #fff;
-  border-color: #004b49;
-  background: linear-gradient(180deg, #006f6b, #004d4a);
-  box-shadow: 0 8px 22px rgba(0, 91, 88, 0.22);
+  border-color: transparent;
+  background: var(--teal-fill);
+  box-shadow: 0 2px 8px rgba(16, 121, 107, 0.24);
 }
 
-.top-nav span {
-  border: 1px solid var(--line);
-  background: #fff;
+.top-nav a.active:hover {
+  background: var(--teal-hover);
+  color: #fff;
+}
+
+.user-avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius-pill);
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--hairline);
+  background: linear-gradient(150deg, var(--surface), #fff);
+  color: var(--ink-soft);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-heavy);
+  letter-spacing: 0.02em;
 }
 
 .workspace {
@@ -246,16 +381,16 @@ h3 {
   grid-template-columns: minmax(300px, 360px) minmax(680px, 1fr) minmax(320px, 360px);
   grid-template-areas:
     "setup plan review";
-  gap: 14px;
-  padding: 12px 16px 16px 0;
+  gap: var(--sp-4);
+  padding: var(--sp-4);
   align-items: stretch;
 }
 
 .panel {
   background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 0;
-  box-shadow: none;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
   overflow: hidden;
   min-width: 0;
 }
@@ -264,11 +399,9 @@ h3 {
   grid-area: setup;
   max-height: calc(100vh - 92px);
   min-height: calc(100vh - 92px);
-  border-left: 0;
-  border-top: 0;
-  border-radius: 0 10px 10px 0;
+  border-radius: var(--radius-lg);
   position: sticky;
-  top: 76px;
+  top: 88px;
   overflow: auto;
 }
 
@@ -283,10 +416,10 @@ h3 {
 .plan-panel {
   grid-area: plan;
   margin-top: 0;
-  border-radius: 10px;
-  box-shadow: 0 10px 26px rgba(15, 23, 42, 0.06);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-raised);
   display: grid;
-  grid-template-rows: auto minmax(640px, calc(100vh - 250px)) auto auto;
+  grid-template-rows: auto minmax(460px, calc(100vh - 274px)) auto auto;
 }
 
 .review-panel {
@@ -294,7 +427,7 @@ h3 {
   max-height: calc(100vh - 92px);
   min-height: calc(100vh - 92px);
   margin-top: 0;
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-soft);
   overflow: auto;
 }
@@ -302,14 +435,14 @@ h3 {
 .schedule-panel {
   grid-area: schedule;
   margin-bottom: 0;
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-soft);
 }
 
 .hypergraph-panel {
   grid-area: hypergraph;
   margin-bottom: 14px;
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-soft);
 }
 
@@ -319,14 +452,14 @@ h3 {
 }
 
 .panel-head {
-  min-height: 64px;
-  border-bottom: 1px solid var(--line);
-  padding: 14px 16px;
+  min-height: 60px;
+  border-bottom: 1px solid var(--hairline);
+  padding: var(--sp-4);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  background: linear-gradient(180deg, #fff, #fbfcfd);
+  gap: var(--sp-3);
+  background: var(--panel);
 }
 
 .setup-panel > .panel-head,
@@ -358,7 +491,7 @@ h3 {
   align-items: center;
   padding: 3px;
   border: 1px solid var(--line);
-  border-radius: 7px;
+  border-radius: var(--radius-sm);
   background: var(--surface);
 }
 
@@ -367,6 +500,9 @@ h3 {
   border-color: transparent;
   background: transparent;
   box-shadow: none;
+  color: var(--muted);
+  font-weight: var(--fw-medium);
+  transition: color 140ms ease, background-color 140ms ease, box-shadow 140ms ease;
 }
 
 .mode-tabs button:hover {
@@ -375,10 +511,11 @@ h3 {
 }
 
 .mode-tabs button.active {
-  border-color: #bfe4e0;
-  color: var(--teal);
+  border-color: transparent;
+  color: var(--ink);
   background: #fff;
-  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.08);
+  font-weight: var(--fw-semibold);
+  box-shadow: 0 1px 2px rgba(16, 24, 32, 0.16), 0 1px 1px rgba(16, 24, 32, 0.06);
 }
 
 .canvas-tools {
@@ -388,44 +525,91 @@ h3 {
   bottom: 16px;
   transform: translateX(-50%);
   display: inline-flex;
-  gap: 6px;
-  padding: 7px;
-  border: 1px solid rgba(16, 24, 32, 0.12);
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.94);
-  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.09);
-  backdrop-filter: blur(10px);
+  align-items: center;
+  gap: 2px;
+  padding: 5px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-pill);
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.16), 0 2px 6px rgba(15, 23, 42, 0.07);
+  backdrop-filter: blur(16px) saturate(1.12);
 }
 
 .canvas-tools button {
-  min-width: 42px;
-  min-height: 42px;
-  padding: 0 12px;
+  min-width: 40px;
+  min-height: 36px;
+  padding: 0 13px;
   color: var(--ink-soft);
   border-color: transparent;
   background: transparent;
   box-shadow: none;
+  border-radius: var(--radius-pill);
   font-size: 12px;
-  font-weight: 900;
+  font-weight: 800;
+  letter-spacing: 0.01em;
 }
 
-.canvas-tools button[data-canvas-action="edit-toggle"] {
+.canvas-tools button[data-canvas-action="edit-toggle"],
+.canvas-tools button[data-canvas-action="labels-toggle"] {
   width: auto;
-  min-width: 64px;
+  min-width: 60px;
 }
 
 .canvas-tools button:hover {
-  border-color: rgba(16, 24, 32, 0.12);
-  background: #f7fafb;
+  border-color: transparent;
+  color: var(--ink);
+  background: rgba(16, 24, 32, 0.06);
   box-shadow: none;
 }
 
 .canvas-tools button[aria-pressed="true"],
 .canvas-tools button.active {
-  border-color: rgba(0, 111, 107, 0.24);
-  color: #005c59;
-  background: #e5f7f5;
-  box-shadow: inset 0 0 0 1px rgba(0, 111, 107, 0.08);
+  border-color: transparent;
+  color: #fff;
+  background: var(--teal-fill);
+  box-shadow: 0 2px 8px rgba(16, 121, 107, 0.28);
+}
+
+.canvas-tools button[aria-pressed="true"]:hover,
+.canvas-tools button.active:hover {
+  color: #fff;
+  background: var(--teal-hover);
+}
+
+.canvas-tools .tool-divider {
+  width: 1px;
+  height: 20px;
+  margin: 0 4px;
+  background: var(--hairline-strong);
+}
+
+.canvas-tools .canvas-zoom {
+  min-width: 48px;
+  padding: 0 2px;
+  text-align: center;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  user-select: none;
+}
+
+.canvas-tools button[data-canvas-action="fullscreen"] {
+  width: auto;
+  min-width: 86px;
+}
+
+.canvas-tools button[data-canvas-action="grid-toggle"],
+.canvas-tools button[data-canvas-action="undo"],
+.canvas-tools button[data-canvas-action="redo"] {
+  width: auto;
+  min-width: 52px;
+}
+
+.canvas-tools button:disabled,
+.canvas-tools button.is-disabled {
+  opacity: 0.36;
+  pointer-events: none;
 }
 
 .guided-steps {
@@ -484,20 +668,28 @@ h3 {
 }
 
 .setup-form {
-  padding: 14px;
+  padding: var(--sp-5) var(--sp-4) var(--sp-4);
   display: grid;
-  gap: 14px;
-  background: #fbfcfd;
+  gap: 0;
+  background: #fff;
 }
 
+/* Sections group by whitespace + a hairline, not nested boxes — the panel is the
+   only card. Quiet legends lead each group (macOS System Settings cadence). */
 fieldset {
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 12px;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
   margin: 0;
   display: grid;
-  gap: 10px;
-  background: #fff;
+  gap: var(--sp-3);
+  background: transparent;
+}
+
+fieldset + fieldset {
+  margin-top: var(--sp-5);
+  padding-top: var(--sp-5);
+  border-top: 1px solid var(--hairline);
 }
 
 fieldset:last-child {
@@ -510,18 +702,18 @@ fieldset[hidden] {
 
 legend {
   padding: 0;
-  margin: 0 0 6px;
-  color: var(--ink);
-  font-size: 13px;
-  font-weight: 850;
+  margin: 0 0 2px;
+  color: var(--faint);
+  font-size: 11px;
+  font-weight: var(--fw-semibold);
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.08em;
 }
 
 .brief-prompt {
   min-height: 118px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   padding: 12px;
   color: var(--ink);
   background: #fff;
@@ -537,16 +729,69 @@ legend {
   outline: 0;
 }
 
+.prompt-generate {
+  margin-top: 10px;
+  width: 100%;
+  justify-content: center;
+}
+
+.prompt-understood {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.prompt-understood[hidden] {
+  display: none;
+}
+
+.prompt-understood-lead {
+  color: var(--faint);
+  font-size: 11px;
+  font-weight: var(--fw-semibold);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-right: 2px;
+}
+
+.prompt-understood-empty {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.prompt-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 9px;
+  border: 1px solid var(--teal-ring);
+  border-radius: var(--radius-pill);
+  background: var(--teal-tint);
+  color: var(--teal-strong);
+  font-size: 11px;
+  font-weight: var(--fw-semibold);
+  letter-spacing: 0.005em;
+  white-space: nowrap;
+}
+
+.prompt-chip-note {
+  border-color: rgba(154, 107, 21, 0.28);
+  background: var(--amber-soft);
+  color: var(--amber);
+}
+
 .technical-grid {
   display: none;
 }
 
 .field {
   display: grid;
-  gap: 5px;
+  gap: 6px;
   color: var(--muted);
   font-size: 11px;
-  font-weight: 760;
+  font-weight: var(--fw-semibold);
 }
 
 .field span,
@@ -566,14 +811,15 @@ select,
 input {
   width: 100%;
   min-width: 0;
-  border: 1px solid var(--line);
-  border-radius: 5px;
-  background: #fff;
+  min-height: 40px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
   color: var(--ink);
-  padding: 0 10px;
-  font-size: 13px;
+  padding: 0 12px;
+  font-size: var(--fs-body);
   outline: 0;
-  box-shadow: inset 0 1px 0 rgba(15, 23, 42, 0.02);
+  box-shadow: inset 0 1px 1px rgba(16, 24, 32, 0.03);
   transition: border-color 140ms ease, box-shadow 140ms ease, background-color 140ms ease;
 }
 
@@ -586,20 +832,26 @@ select:focus,
 input:focus,
 textarea:focus {
   border-color: var(--teal);
-  box-shadow: 0 0 0 3px rgba(0, 125, 120, 0.13);
+  background: #fff;
+  box-shadow: 0 0 0 3px var(--teal-ring);
 }
 
 select {
   appearance: none;
-  background-image:
-    linear-gradient(45deg, transparent 50%, #56616e 50%),
-    linear-gradient(135deg, #56616e 50%, transparent 50%);
-  background-position:
-    calc(100% - 16px) 16px,
-    calc(100% - 11px) 16px;
-  background-size: 5px 5px, 5px 5px;
+  padding-right: 32px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath \
+d='M1 1.5 6 6.5 11 1.5' fill='none' stroke='%235b6b76' stroke-width='1.6' \
+stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
-  padding-right: 30px;
+  background-position: right 12px center;
+  background-size: 11px;
+}
+
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  appearance: none;
+  margin: 0;
 }
 
 input[type="checkbox"] {
@@ -607,6 +859,173 @@ input[type="checkbox"] {
   height: 16px;
   min-height: 16px;
   accent-color: var(--teal);
+}
+
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  min-height: 26px;
+  height: 26px;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  cursor: pointer;
+}
+
+input[type="range"]::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: var(--radius-pill);
+  background: linear-gradient(90deg, var(--teal) 0 var(--range-fill, 50%), #e3e9e8 var(--range-fill, 50%) 100%);
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  margin-top: -6px;
+  border-radius: var(--radius-pill);
+  background: #fff;
+  border: 2px solid var(--teal);
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.18);
+}
+
+input[type="range"]::-moz-range-track {
+  height: 6px;
+  border-radius: var(--radius-pill);
+  background: #e3e9e8;
+}
+
+input[type="range"]::-moz-range-progress {
+  height: 6px;
+  border-radius: var(--radius-pill);
+  background: var(--teal);
+}
+
+input[type="range"]::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: var(--radius-pill);
+  background: #fff;
+  border: 2px solid var(--teal);
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.18);
+}
+
+.stepper {
+  display: inline-grid;
+  grid-template-columns: 38px 1fr 38px;
+  align-items: center;
+  width: 100%;
+  min-height: 40px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-pill);
+  background: #fff;
+  overflow: hidden;
+}
+
+.stepper button {
+  height: 40px;
+  width: 100%;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--ink-soft);
+  font-size: 17px;
+  font-weight: var(--fw-heavy);
+  line-height: 1;
+}
+
+.stepper button:first-child {
+  border-right: 1px solid var(--hairline);
+}
+
+.stepper button:last-child {
+  border-left: 1px solid var(--hairline);
+}
+
+.stepper button:hover {
+  background: var(--teal-tint);
+  color: var(--teal-strong);
+  box-shadow: none;
+}
+
+.stepper input {
+  min-height: 38px;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+  text-align: center;
+  font-weight: var(--fw-heavy);
+  font-variant-numeric: tabular-nums;
+}
+
+.stepper input:focus {
+  box-shadow: none;
+  background: transparent;
+}
+
+.pref-list {
+  display: grid;
+  gap: 7px;
+}
+
+.pref-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  background: #fff;
+  color: var(--ink-soft);
+  font-size: var(--fs-body);
+  font-weight: var(--fw-semibold);
+  cursor: pointer;
+  transition: border-color 140ms ease, background-color 140ms ease;
+}
+
+.pref-row:hover {
+  border-color: var(--hairline-strong);
+}
+
+.pref-row:has(input:checked) {
+  border-color: var(--teal-ring);
+  background: var(--teal-tint);
+}
+
+.pref-row input[type="checkbox"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  min-height: 18px;
+  flex: 0 0 auto;
+  margin: 0;
+  border: 1.5px solid var(--line-strong);
+  border-radius: 5px;
+  background: #fff;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+
+.pref-row input[type="checkbox"]:checked {
+  background-color: var(--teal);
+  border-color: var(--teal);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath \
+d='M2.5 6.4 5 8.9 9.5 3.6' fill='none' stroke='%23fff' stroke-width='2' \
+stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 11px;
 }
 
 .field-grid {
@@ -815,10 +1234,11 @@ textarea.dragging {
 
 .preview-frame {
   position: relative;
-  min-height: 500px;
-  background: #fff;
+  min-height: 420px;
+  background:
+    radial-gradient(135% 100% at 50% 14%, #fcfdfe 0%, #f1f4f6 60%, #e8edef 100%);
   border-top: 1px solid var(--line);
-  box-shadow: inset 0 0 0 1px rgba(16, 24, 32, 0.045);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65), inset 0 0 64px rgba(15, 23, 42, 0.05);
   overflow: hidden;
 }
 
@@ -844,6 +1264,58 @@ textarea.dragging {
 
 .preview-frame.is-dragging {
   cursor: grabbing;
+}
+
+/* Pan affordances: grab cursor with the pan tool or while Space is held, and a
+   closed-hand cursor mid-drag. Scoped to the canvas so the toolbar stays clickable. */
+.preview-frame[data-canvas-tool="pan"] #planSvg,
+.preview-frame.space-pan #planSvg {
+  cursor: grab;
+}
+
+.preview-frame.is-panning,
+.preview-frame.is-panning #planSvg {
+  cursor: grabbing;
+}
+
+/* Full-screen editor shell: the preview frame fills the display, grows its canvas,
+   and lifts the toolbar clear of the bottom edge. Both the class (set on
+   fullscreenchange) and the :fullscreen pseudo are styled for browser coverage. */
+.preview-frame.is-fullscreen,
+.preview-frame:fullscreen {
+  min-height: 100vh;
+  height: 100vh;
+  border-top: none;
+  background:
+    radial-gradient(140% 110% at 50% 12%, #fdfefe 0%, #eef2f4 62%, #e4eaec 100%);
+}
+
+.preview-frame.is-fullscreen .canvas-tools,
+.preview-frame:fullscreen .canvas-tools {
+  bottom: 28px;
+}
+
+.preview-frame.is-fullscreen #planSvg,
+.preview-frame:fullscreen #planSvg {
+  height: 100vh;
+}
+
+/* Reference modelling grid (toggle): 1 m minor lines with emphasised 5 m majors,
+   drawn in model units inside the Y-flipped group so it tracks the plan exactly. */
+.plan-grid {
+  pointer-events: none;
+}
+
+.grid-line {
+  fill: none;
+  stroke: rgba(36, 52, 66, 0.10);
+  stroke-width: 0.012;
+  vector-effect: non-scaling-stroke;
+}
+
+.grid-line-major {
+  stroke: rgba(36, 52, 66, 0.20);
+  stroke-width: 0.02;
 }
 
 .preview-frame.is-edit-mode {
@@ -910,11 +1382,85 @@ textarea.dragging {
   display: none;
 }
 
+.title-block {
+  position: absolute;
+  z-index: 2;
+  left: 16px;
+  bottom: 16px;
+  min-width: 172px;
+  padding: 10px 13px 11px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.97);
+  box-shadow: var(--shadow-soft);
+  backdrop-filter: blur(8px);
+  pointer-events: none;
+}
+
+.title-block[hidden] {
+  display: none;
+}
+
+.title-block-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 7px;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.title-block-head strong {
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 850;
+  letter-spacing: 0.07em;
+}
+
+.title-block-head span {
+  color: var(--faint);
+  font-size: 9.5px;
+  font-weight: 750;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.title-block-schedule {
+  margin: 0;
+  display: grid;
+  gap: 4px;
+  padding-top: 8px;
+}
+
+.title-block-schedule div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.title-block-schedule dt {
+  margin: 0;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.title-block-schedule dd {
+  margin: 0;
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 850;
+  font-variant-numeric: tabular-nums;
+}
+
 #planSvg {
   display: block;
   width: 100%;
   height: 100%;
-  min-height: 500px;
+  min-height: 420px;
   filter: none;
   shape-rendering: geometricPrecision;
   touch-action: none;
@@ -945,8 +1491,8 @@ textarea.dragging {
   opacity: 0.22;
 }
 
-#planSvg[data-view-mode="plan"] .unit-label,
-#planSvg[data-view-mode="plan"] .room-label {
+.preview-frame:not(.labels-on) #planSvg[data-view-mode="plan"] .unit-label,
+.preview-frame:not(.labels-on) #planSvg[data-view-mode="plan"] .room-label {
   display: none;
 }
 
@@ -988,6 +1534,24 @@ textarea.dragging {
 .edit-handle:hover {
   fill: #d9fffb;
   stroke: var(--teal-strong);
+}
+
+/* Forgiving, invisible grab halo so a handle is easy to seize without pixel-hunting. */
+.edit-handle-hit {
+  fill: transparent;
+  pointer-events: all;
+}
+
+.edit-handle-group {
+  pointer-events: all;
+}
+
+/* Hovering anywhere in the grab halo lifts and brightens the handle it belongs to. */
+.edit-handle-group:hover .edit-handle {
+  fill: #d9fffb;
+  stroke: var(--teal-strong);
+  stroke-width: 0.6;
+  filter: drop-shadow(0 2px 4px rgba(13, 79, 75, 0.5));
 }
 
 .edit-handle-label {
@@ -1040,11 +1604,36 @@ textarea.dragging {
   cursor: move;
 }
 
-.edit-floor-width,
-.edit-floor-depth,
+.edit-floor-width {
+  cursor: ew-resize;
+}
+
+.edit-floor-depth {
+  cursor: ns-resize;
+}
+
 .edit-floor-size,
 .edit-core-size {
   cursor: nwse-resize;
+}
+
+/* Live dimension badge that tracks the cursor during a resize/move drag. */
+.drag-readout {
+  pointer-events: none;
+}
+
+.drag-readout-bg {
+  fill: rgba(13, 79, 75, 0.96);
+  stroke: rgba(255, 255, 255, 0.85);
+  stroke-width: 0.03;
+  vector-effect: non-scaling-stroke;
+  filter: drop-shadow(0 1px 2px rgba(15, 23, 42, 0.35));
+}
+
+.drag-readout-text {
+  fill: #ffffff;
+  font-weight: 800;
+  letter-spacing: 0.01em;
 }
 
 .plan-action-strip {
@@ -1091,7 +1680,7 @@ textarea.dragging {
   place-items: center;
   color: var(--muted);
   font-size: 14px;
-  font-weight: 800;
+  font-weight: var(--fw-medium);
   pointer-events: none;
 }
 
@@ -1225,7 +1814,8 @@ textarea.dragging {
 .section-title span {
   color: var(--teal);
   font-size: 12px;
-  font-weight: 850;
+  font-weight: var(--fw-bold);
+  letter-spacing: 0.01em;
 }
 
 .variant-list,
@@ -1254,25 +1844,85 @@ textarea.dragging {
 }
 
 .inspector-card {
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 12px;
-  background: #fff;
-  box-shadow: 0 1px 0 rgba(15, 23, 42, 0.03);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-md);
+  padding: 13px;
+  background: var(--panel);
+  box-shadow: var(--shadow-press);
 }
 
 .inspector-kicker {
-  color: var(--teal);
-  font-size: 11px;
-  font-weight: 850;
+  color: var(--teal-strong);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-heavy);
+  letter-spacing: var(--label-tracking);
   text-transform: uppercase;
+}
+
+/* Reference-style constraint rows (icon + label + value + status pill).
+   Available for the inspector; selection inspector currently uses .inspector-row. */
+.constraint-row {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 38px;
+  padding: 6px 10px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  background: #fff;
+}
+
+.constraint-row .constraint-icon svg {
+  width: 16px;
+  height: 16px;
+  display: block;
+  color: var(--muted);
+}
+
+.constraint-row .constraint-label {
+  min-width: 0;
+  color: var(--ink-soft);
+  font-size: var(--fs-body);
+  font-weight: var(--fw-semibold);
+}
+
+.constraint-row .constraint-value {
+  color: var(--ink);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-heavy);
+  font-variant-numeric: tabular-nums;
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 9px;
+  border-radius: var(--radius-pill);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-heavy);
+  white-space: nowrap;
+  color: var(--green);
+  background: var(--green-soft);
+}
+
+.status-pill::before {
+  content: "";
+  width: 5px;
+  height: 9px;
+  margin-top: -2px;
+  border: solid currentColor;
+  border-width: 0 1.8px 1.8px 0;
+  transform: rotate(43deg);
 }
 
 .inspector-title {
   margin-top: 4px;
   color: var(--ink);
   font-size: 14px;
-  font-weight: 900;
+  font-weight: var(--fw-bold);
   line-height: 1.25;
   overflow-wrap: anywhere;
 }
@@ -1434,54 +2084,57 @@ textarea.dragging {
 
 .room-schedule-group {
   display: grid;
-  gap: 5px;
-  padding: 6px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: #fbfcfd;
+  gap: 1px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  margin-bottom: 8px;
+  overflow: hidden;
 }
 
 .room-schedule-unit {
   width: 100%;
-  min-height: 42px;
-  padding: 8px 9px;
+  min-height: 40px;
+  padding: 8px 10px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  border: 1px solid transparent;
-  border-radius: 6px;
+  border: 0;
+  border-radius: var(--radius-xs);
   color: var(--ink);
-  background: #fff;
+  background: var(--teal-tint);
   box-shadow: none;
   text-align: left;
 }
 
 .room-schedule-unit:hover,
 .room-schedule-unit.active {
-  border-color: rgba(0, 125, 120, 0.32);
-  background: #eefaf8;
+  background: var(--teal-soft);
 }
 
 .room-schedule-unit.orphan {
   pointer-events: none;
+  background: var(--surface);
 }
 
 .room-schedule-unit span {
   min-width: 0;
   display: grid;
-  gap: 3px;
+  gap: 2px;
 }
 
 .room-schedule-unit strong {
-  font-size: 12px;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-heavy);
   line-height: 1.2;
   overflow-wrap: anywhere;
 }
 
 .room-schedule-unit small {
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--fs-xs);
   line-height: 1.25;
   overflow-wrap: anywhere;
 }
@@ -1489,86 +2142,101 @@ textarea.dragging {
 .room-schedule-unit em {
   flex: 0 0 auto;
   color: var(--teal-strong);
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-style: normal;
-  font-weight: 850;
+  font-weight: var(--fw-heavy);
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
 .room-schedule-row {
   width: 100%;
-  min-height: 44px;
-  padding: 8px 9px;
+  min-height: 38px;
+  padding: 7px 10px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  border: 1px solid transparent;
-  border-radius: 6px;
+  border: 0;
+  border-radius: var(--radius-xs);
   background: #fff;
   box-shadow: none;
   text-align: left;
+  transition: background-color 120ms ease;
+}
+
+.room-schedule-row:nth-of-type(even) {
+  background: rgba(16, 24, 32, 0.022);
 }
 
 .room-schedule-row:hover {
-  border-color: rgba(0, 125, 120, 0.24);
-  background: #fbfefe;
+  background: var(--teal-tint);
   box-shadow: none;
 }
 
 .room-schedule-row.active {
-  border-color: rgba(0, 125, 120, 0.48);
-  background: #eaf8f6;
+  background: var(--teal-soft);
+  box-shadow: inset 2px 0 0 var(--teal);
 }
 
 .room-schedule-row.has-notes {
-  border-color: rgba(183, 120, 20, 0.28);
-  background: #fffaf0;
+  box-shadow: inset 2px 0 0 var(--amber);
 }
 
 .room-schedule-row span {
   min-width: 0;
   display: grid;
-  gap: 3px;
+  gap: 2px;
 }
 
 .room-schedule-row strong {
   color: var(--ink);
-  font-size: 12px;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-bold);
   line-height: 1.2;
   overflow-wrap: anywhere;
 }
 
 .room-schedule-row small {
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--fs-xs);
   line-height: 1.25;
   overflow-wrap: anywhere;
 }
 
 .room-schedule-row em {
   flex: 0 0 auto;
-  color: var(--teal-strong);
-  font-size: 12px;
+  color: var(--ink-soft);
+  font-size: var(--fs-sm);
   font-style: normal;
-  font-weight: 850;
+  font-weight: var(--fw-heavy);
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
 .room-schedule-total {
-  min-height: 38px;
-  padding: 8px 10px 0;
-  border-top: 1px solid var(--line);
+  min-height: 40px;
+  margin-top: 6px;
+  padding: 10px 10px 0;
+  border-top: 1.5px solid var(--line-strong);
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 .room-schedule-total strong {
   color: var(--ink);
+  font-size: var(--fs-h3);
+  font-weight: var(--fw-heavy);
+  font-variant-numeric: tabular-nums;
+  text-transform: none;
+  letter-spacing: 0;
   white-space: nowrap;
 }
 
@@ -1579,7 +2247,7 @@ textarea.dragging {
   width: 100%;
   height: auto;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   padding: 11px;
   background: #fff;
 }
@@ -1705,7 +2373,7 @@ textarea.dragging {
 .empty-list {
   color: var(--muted);
   font-size: 13px;
-  font-weight: 750;
+  font-weight: var(--fw-medium);
   background: var(--surface);
 }
 
@@ -2220,11 +2888,14 @@ pre {
   background: #0e1a25;
 }
 
+/* Exterior shell reads as the heaviest line on the sheet. Drawn in real model
+   metres (no non-scaling hairline) so it stays proportional at every zoom; the
+   white fill is painted over the inner half, leaving a ~0.2 m poché edge. */
 .boundary {
-  fill: #fdfdfb;
-  stroke: #0e1216;
-  stroke-width: 0.3;
-  vector-effect: non-scaling-stroke;
+  fill: #ffffff;
+  stroke: #0b0f13;
+  stroke-width: 0.4;
+  paint-order: stroke fill;
 }
 
 .fixed {
@@ -2235,8 +2906,8 @@ pre {
 }
 
 .corridor {
-  fill: rgba(244, 239, 221, 0.72);
-  stroke: rgba(99, 91, 73, 0.34);
+  fill: rgba(241, 241, 238, 0.72);
+  stroke: rgba(90, 92, 95, 0.28);
   stroke-width: 0.08;
   vector-effect: non-scaling-stroke;
 }
@@ -2259,9 +2930,9 @@ pre {
 }
 
 .room {
-  fill: rgba(252, 252, 249, 0.86);
-  stroke: rgba(16, 24, 32, 0.18);
-  stroke-width: 0.045;
+  fill: #fcfcfa;
+  stroke: rgba(16, 24, 32, 0.12);
+  stroke-width: 0.04;
   vector-effect: non-scaling-stroke;
 }
 
@@ -2289,17 +2960,25 @@ pre {
   vector-effect: non-scaling-stroke;
 }
 
+/* Construction-document poché: walls are real footprint polygons (centerline offset
+   by half their thickness in app.js). Each carries its own data-driven thickness, and
+   the geometry is drawn in real model metres, so the fill reads as 45-degree hatched
+   poché held between a crisp double-line outline (the two wall faces) rather than a
+   single flat band. Base = light hatch; demising/exterior swap in the heavier tile and
+   a darker face line for the structural hierarchy. */
 .wall {
-  stroke: rgba(19, 23, 27, 0.86);
-  stroke-width: 0.1;
-  stroke-linecap: square;
+  fill: url(#wallPocheLight);
+  stroke: rgba(17, 21, 26, 0.92);
+  stroke-width: 0.022;
+  stroke-linejoin: miter;
+  shape-rendering: geometricPrecision;
   vector-effect: non-scaling-stroke;
 }
 
 .wall-exterior,
 .wall-unit_boundary {
-  stroke: #11161b;
-  stroke-width: 0.19;
+  fill: url(#wallPocheHeavy);
+  stroke: #0c1116;
 }
 
 .wall-hit {
@@ -2310,11 +2989,12 @@ pre {
 }
 
 .wall-room_partition {
-  stroke: rgba(36, 42, 48, 0.74);
+  fill: url(#wallPocheLight);
 }
 
 .wall-unit_demising {
-  stroke: #11171c;
+  fill: url(#wallPocheHeavy);
+  stroke: #0e1318;
 }
 
 .dimension-guides {
@@ -2323,58 +3003,88 @@ pre {
 
 .dimension-line,
 .dimension-tick {
-  stroke: rgba(51, 61, 72, 0.24);
-  stroke-width: 0.045;
+  stroke: rgba(43, 53, 64, 0.46);
+  stroke-width: 0.05;
+  vector-effect: non-scaling-stroke;
+}
+
+.dimension-tick {
+  stroke: rgba(43, 53, 64, 0.62);
+}
+
+.dimension-witness {
+  stroke: rgba(43, 53, 64, 0.4);
+  stroke-width: 0.035;
   vector-effect: non-scaling-stroke;
 }
 
 .dimension-label {
-  fill: rgba(38, 49, 59, 0.46);
+  fill: rgba(31, 41, 51, 0.84);
   paint-order: stroke;
-  stroke: rgba(248, 250, 251, 0.92);
-  stroke-width: 0.12;
+  stroke: rgba(244, 247, 248, 0.94);
+  stroke-width: 0.16;
   stroke-linejoin: round;
-  font-size: 0.68px;
+  font-size: 0.66px;
   font-weight: 800;
-  letter-spacing: 0;
+  letter-spacing: 0.01em;
 }
 
+/* Near-monochrome "paper" zoning: high-lightness, low-chroma washes so the sheet
+   reads as a construction drawing (walls + labels dominate) rather than a
+   saturated infographic. Wet rooms skew faintly cool, living/sleeping faintly
+   warm — just enough to distinguish program at a glance. */
 .room.room-bedroom {
-  fill: rgba(247, 250, 251, 0.92);
+  fill: rgba(243, 241, 235, 0.55);
 }
 
 .room.room-bathroom {
-  fill: rgba(251, 248, 245, 0.94);
+  fill: rgba(228, 236, 238, 0.6);
 }
 
 .room.room-kitchen {
-  fill: rgba(247, 249, 249, 0.94);
+  fill: rgba(230, 237, 232, 0.6);
 }
 
 .room.room-living {
-  fill: rgba(252, 251, 247, 0.96);
+  fill: rgba(247, 243, 233, 0.55);
 }
 
 .room.room-balcony {
-  fill: rgba(248, 250, 247, 0.9);
+  fill: rgba(233, 239, 232, 0.5);
 }
 
 .room.room-service,
 .room.room-general {
-  fill: rgba(249, 249, 247, 0.92);
+  fill: rgba(237, 239, 236, 0.5);
+}
+
+#planSvg[data-view-mode="plan"] .room,
+#planSvg[data-view-mode="plan"] .unit,
+#planSvg[data-view-mode="plan"] .corridor {
+  cursor: pointer;
+}
+
+#planSvg[data-view-mode="plan"] .room {
+  transition: fill 120ms ease;
+}
+
+#planSvg[data-view-mode="plan"] .room:hover {
+  fill: rgba(16, 121, 107, 0.12);
 }
 
 .room-label {
-  fill: rgba(18, 27, 36, 0.68);
-  stroke: rgba(255, 255, 255, 0.76);
-  stroke-width: 0.08;
-  font-weight: 850;
+  fill: rgba(17, 24, 32, 0.92);
+  stroke: rgba(252, 252, 250, 0.7);
+  stroke-width: 0.06;
+  font-weight: 700;
+  letter-spacing: 0.04em;
 }
 
 .room-label-meta {
-  fill: rgba(18, 27, 36, 0.52);
-  font-size: 0.82em;
-  font-weight: 700;
+  fill: rgba(42, 52, 62, 0.78);
+  font-size: 0.78em;
+  font-weight: 600;
+  letter-spacing: 0.01em;
 }
 
 .plan-visual-layer,
@@ -2383,60 +3093,125 @@ pre {
 }
 
 .fixture {
-  fill: rgba(249, 251, 252, 0.62);
-  stroke: rgba(44, 55, 64, 0.72);
-  stroke-width: 0.07;
+  fill: rgba(247, 250, 251, 0.78);
+  stroke: rgba(40, 51, 60, 0.82);
+  stroke-width: 0.06;
   stroke-linecap: round;
   stroke-linejoin: round;
   vector-effect: non-scaling-stroke;
   pointer-events: none;
 }
 
+/* Soft tonal area-rug under seating/sleeping zones; sits behind furniture for depth. */
+.fixture-rug {
+  fill: rgba(228, 222, 208, 0.42);
+  stroke: rgba(150, 138, 116, 0.4);
+  stroke-width: 0.04;
+}
+
 .fixture-bed {
-  fill: rgba(238, 245, 248, 0.86);
+  fill: rgba(235, 243, 247, 0.95);
 }
 
-.fixture-pillow,
+.fixture-headboard {
+  fill: rgba(196, 208, 215, 0.96);
+}
+
+.fixture-pillow {
+  fill: rgba(255, 255, 255, 0.96);
+}
+
 .fixture-sink,
-.fixture-toilet {
-  fill: rgba(255, 255, 255, 0.9);
+.fixture-toilet,
+.fixture-wc {
+  fill: rgba(255, 255, 255, 0.96);
+  stroke: rgba(40, 51, 60, 0.8);
 }
 
+.fixture-nightstand,
 .fixture-wardrobe,
 .fixture-counter {
-  fill: rgba(216, 225, 229, 0.72);
+  fill: rgba(208, 219, 224, 0.9);
 }
 
-.fixture-appliance {
-  fill: rgba(247, 248, 248, 0.92);
-  stroke: rgba(38, 48, 57, 0.72);
+.fixture-appliance,
+.fixture-stove,
+.fixture-fridge {
+  fill: rgba(244, 246, 247, 0.96);
+  stroke: rgba(36, 46, 55, 0.8);
 }
 
 .fixture-table {
-  fill: rgba(248, 245, 235, 0.86);
+  fill: rgba(246, 240, 226, 0.95);
+  stroke: rgba(120, 96, 60, 0.7);
 }
 
 .fixture-chair,
 .fixture-sofa {
-  fill: rgba(224, 234, 238, 0.86);
+  fill: rgba(214, 227, 232, 0.95);
+}
+
+/* Media unit / TV bank: dark face reads instantly as the focal wall of a living room. */
+.fixture-tv {
+  fill: rgba(38, 46, 56, 0.9);
+  stroke: rgba(20, 26, 33, 0.9);
 }
 
 .fixture-bath,
 .fixture-shower {
-  fill: rgba(255, 250, 245, 0.92);
-  stroke: rgba(61, 72, 82, 0.68);
+  fill: rgba(252, 248, 243, 0.95);
+  stroke: rgba(55, 66, 76, 0.78);
 }
 
 .fixture-plant {
-  fill: rgba(103, 143, 104, 0.45);
-  stroke: rgba(55, 94, 58, 0.72);
+  fill: rgba(103, 143, 104, 0.5);
+  stroke: rgba(55, 94, 58, 0.78);
+}
+
+/* Cooktop burner rings: filled discs (stroke would be a sub-px hairline at this radius),
+   drawn only on large kitchens so dense floorplates stay uncluttered. */
+.fixture-burner {
+  fill: rgba(58, 69, 79, 0.34);
+  stroke: rgba(38, 48, 57, 0.55);
+}
+
+/* Fixture line details (e.g. shower drain X): model-unit scaling stroke, no vector-effect,
+   so the linework thickens with zoom instead of vanishing to a hairline. */
+.fixture-detail {
+  fill: none;
+  stroke: rgba(61, 72, 82, 0.5);
+  stroke-width: 0.035;
+  stroke-linecap: round;
+  pointer-events: none;
 }
 
 .daylight-band {
-  fill: rgba(234, 218, 160, 0.28);
-  stroke: rgba(119, 101, 50, 0.38);
-  stroke-width: 0.055;
-  vector-effect: non-scaling-stroke;
+  fill: rgba(202, 223, 233, 0.5);
+  stroke: none;
+  pointer-events: none;
+}
+
+.window-frame {
+  fill: none;
+  stroke: rgba(26, 36, 47, 0.88);
+  stroke-width: 0.05;
+  stroke-linecap: butt;
+  pointer-events: none;
+}
+
+.window-mullion {
+  fill: none;
+  stroke: rgba(60, 82, 98, 0.7);
+  stroke-width: 0.03;
+  stroke-linecap: butt;
+  pointer-events: none;
+}
+
+.window-jamb {
+  fill: none;
+  stroke: rgba(26, 36, 47, 0.88);
+  stroke-width: 0.06;
+  stroke-linecap: butt;
   pointer-events: none;
 }
 
@@ -2464,6 +3239,28 @@ pre {
   pointer-events: none;
 }
 
+.north-arrow {
+  pointer-events: none;
+}
+
+.north-arrow-needle {
+  fill: rgba(27, 36, 48, 0.82);
+  stroke: rgba(255, 255, 255, 0.85);
+  stroke-width: 0.04;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.north-arrow-label {
+  fill: rgba(27, 36, 48, 0.78);
+  paint-order: stroke;
+  stroke: rgba(244, 247, 248, 0.9);
+  stroke-width: 0.12;
+  stroke-linejoin: round;
+  font-weight: 850;
+  letter-spacing: 0.02em;
+}
+
 .entry-markers {
   pointer-events: none;
 }
@@ -2478,11 +3275,9 @@ pre {
 
 .wall-backdrop {
   fill: none;
-  stroke: rgba(248, 250, 251, 0.9);
-  stroke-width: 0.36;
-  stroke-linecap: square;
+  stroke: #ffffff;
+  stroke-linecap: butt;
   stroke-linejoin: miter;
-  vector-effect: non-scaling-stroke;
   pointer-events: none;
 }
 
@@ -2523,25 +3318,25 @@ pre {
   pointer-events: all;
 }
 
+/* Doors draw in real model metres (no non-scaling hairline). The white gap is
+   sized to the host wall thickness so it cleanly cuts the poché, and the leaf +
+   swing arc render as visible scaling linework instead of sub-pixel ghosts. */
 .door-gap {
-  stroke: #f8fafb;
+  stroke: #fcfcfa;
   stroke-linecap: butt;
-  vector-effect: non-scaling-stroke;
 }
 
 .door-leaf {
-  stroke: #333b44;
-  stroke-width: 0.075;
+  stroke: #1b222a;
+  stroke-width: 0.05;
   stroke-linecap: square;
-  vector-effect: non-scaling-stroke;
 }
 
 .door-swing {
   fill: none;
-  stroke: rgba(51, 59, 68, 0.72);
-  stroke-width: 0.055;
-  stroke-dasharray: 0.35 0.18;
-  vector-effect: non-scaling-stroke;
+  stroke: rgba(33, 41, 50, 0.6);
+  stroke-width: 0.03;
+  stroke-dasharray: 0.16 0.1;
 }
 
 .door-marker {
@@ -2812,6 +3607,10 @@ pre {
   }
 
   .svg-label {
+    display: none;
+  }
+
+  .title-block {
     display: none;
   }
 }

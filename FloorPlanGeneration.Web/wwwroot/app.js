@@ -6,7 +6,18 @@ const state = {
   selectedVariantId: "",
   viewMode: "plan",
   zoom: 1,
+  panX: 0,
+  panY: 0,
+  canvasTool: "select",
+  gridVisible: false,
+  isFullscreen: false,
+  spaceHeld: false,
+  panDrag: null,
+  viewFrame: null,
+  undoStack: [],
+  redoStack: [],
   editMode: false,
+  labelsVisible: true,
   editReadout: "",
   setupStep: "floorplate",
   inputDirty: false,
@@ -25,6 +36,13 @@ const state = {
 const draftKey = "floor-engine-web-draft-v2";
 const unitTypes = ["studio", "one_bed", "two_bed"];
 const setupSteps = ["floorplate", "core", "rules", "mix", "generate"];
+// Hard ceiling (in model metres) for any plan label so a bad data value can
+// never render the meter-tall SVG text overlays that this canvas used to show.
+const maxPlanLabelFontSize = 0.85;
+// Canvas zoom ceiling. Raised well past 4x so the detailed room furniture can be
+// inspected closely in the editor; pan keeps the zoomed view navigable.
+const maxZoom = 8;
+const undoStackLimit = 60;
 
 const els = {
   sampleSelect: document.getElementById("sampleSelect"),
@@ -35,6 +53,8 @@ const els = {
   setupNextBtn: document.getElementById("setupNextBtn"),
   setupGenerateBtn: document.getElementById("setupGenerateBtn"),
   projectName: document.getElementById("projectName"),
+  promptGenerateBtn: document.getElementById("promptGenerateBtn"),
+  promptUnderstood: document.getElementById("promptUnderstood"),
   floorWidth: document.getElementById("floorWidth"),
   floorDepth: document.getElementById("floorDepth"),
   coreX: document.getElementById("coreX"),
@@ -67,6 +87,8 @@ const els = {
   planSvg: document.getElementById("planSvg"),
   previewFrame: document.querySelector(".preview-frame"),
   editReadout: document.getElementById("editReadout"),
+  zoomLevel: document.getElementById("zoomLevel"),
+  planTitleBlock: document.getElementById("planTitleBlock"),
   emptyPreview: document.getElementById("emptyPreview"),
   legendRow: document.getElementById("legendRow"),
   metricsRow: document.getElementById("metricsRow"),
@@ -126,6 +148,7 @@ function bindEvents() {
   els.inputFile.addEventListener("change", openInputFile);
   els.setupForm.addEventListener("input", handleSetupInput);
   els.setupForm.addEventListener("change", handleSetupInput);
+  els.setupForm.addEventListener("click", handleStepperClick);
   els.setupStepButtons.forEach((button) => button.addEventListener("click", () => setSetupStep(button.dataset.setupStepButton)));
   els.setupPrevBtn.addEventListener("click", () => moveSetupStep(-1));
   els.setupNextBtn.addEventListener("click", () => moveSetupStep(1));
@@ -133,6 +156,9 @@ function bindEvents() {
     await runEngine(false);
     navigateToHash("#plan");
   });
+  if (els.promptGenerateBtn) {
+    els.promptGenerateBtn.addEventListener("click", () => generateFromPrompt());
+  }
   els.inputEditor.addEventListener("input", saveDraft);
   els.formatBtn.addEventListener("click", formatInput);
   els.downloadInputBtn.addEventListener("click", () => downloadText("floor-plan-input.json", els.inputEditor.value));
@@ -155,11 +181,22 @@ function bindEvents() {
   window.addEventListener("pointermove", handlePlanPointerMove);
   window.addEventListener("pointerup", finishPlanPointerEdit);
   window.addEventListener("pointercancel", finishPlanPointerEdit);
+  els.planSvg.addEventListener("wheel", handleCanvasWheel, { passive: false });
+  els.planSvg.addEventListener("pointerdown", handleCanvasPanDown);
+  window.addEventListener("pointermove", handleCanvasPanMove);
+  window.addEventListener("pointerup", handleCanvasPanUp);
+  window.addEventListener("pointercancel", handleCanvasPanUp);
+  document.addEventListener("keydown", handleEditorKeyDown);
+  document.addEventListener("keyup", handleEditorKeyUp);
+  document.addEventListener("fullscreenchange", handleFullscreenChange);
+  document.addEventListener("webkitfullscreenchange", handleFullscreenChange);
   els.selectionInspector.addEventListener("click", handleInspectorAction);
   els.roomScheduleList.addEventListener("click", handleRoomScheduleClick);
   els.variantSelect.addEventListener("change", () => {
     state.selectedVariantId = els.variantSelect.value;
     state.zoom = 1;
+    state.panX = 0;
+    state.panY = 0;
     renderAll();
   });
 
@@ -169,6 +206,19 @@ function bindEvents() {
   });
   els.inputEditor.addEventListener("dragleave", () => els.inputEditor.classList.remove("dragging"));
   els.inputEditor.addEventListener("drop", openDroppedInputFile);
+
+  let resizeFrame = 0;
+  window.addEventListener("resize", () => {
+    if (resizeFrame) {
+      return;
+    }
+    resizeFrame = requestAnimationFrame(() => {
+      resizeFrame = 0;
+      if (els.planSvg.getAttribute("viewBox")) {
+        renderPreview(currentVisualOutput());
+      }
+    });
+  });
 }
 
 async function loadSamples() {
@@ -202,6 +252,10 @@ function restoreDraft() {
 
     const parsed = JSON.parse(draft.inputJson);
     setInput(parsed);
+    if (typeof draft.brief === "string") {
+      state.brief = draft.brief;
+      els.projectName.value = draft.brief;
+    }
     if (draft.sampleName && state.samples.some((sample) => sample.name === draft.sampleName)) {
       els.sampleSelect.value = draft.sampleName;
     }
@@ -218,6 +272,7 @@ function saveDraft() {
     localStorage.setItem(draftKey, JSON.stringify({
       inputJson: els.inputEditor.value,
       sampleName: els.sampleSelect.value,
+      brief: state.brief,
       savedAt: new Date().toISOString()
     }));
   } catch (_) {
@@ -227,12 +282,17 @@ function saveDraft() {
 
 function setInput(input, options = {}) {
   state.input = ensureInputShape(clone(input));
+  state.brief = (state.input.project && state.input.project.name) || "";
   state.inputRevision += 1;
   state.runSerial += 1;
   state.inputDirty = false;
   clearAutoGenerate();
   state.dragEdit = null;
   state.selection = null;
+  // A fresh document starts its own edit history; never let undo/redo reach back
+  // into a previously loaded plan (or replay a stale redo onto this one).
+  state.undoStack = [];
+  state.redoStack = [];
   state.editReadout = state.editMode ? editSummary(state.input) : "";
   if (!options.preserveResponse) {
     state.response = null;
@@ -250,11 +310,37 @@ function handleSetupInput() {
     return;
   }
 
+  // A new user edit starts a fresh history branch: any pending redo is now stale and
+  // must not be replayable onto this edit. (This entry point only fires on genuine
+  // user input — programmatic form sync sets state.syncing and returns above.)
+  state.redoStack = [];
   syncInputFromForm();
   setEditorFromInput(state.input);
   saveDraft();
   markInputDirty("Updating plan", 650);
   renderAll();
+}
+
+function handleStepperClick(event) {
+  const button = event.target.closest ? event.target.closest(".stepper [data-step]") : null;
+  if (!button) {
+    return;
+  }
+
+  const input = button.closest(".stepper") ? button.closest(".stepper").querySelector("input") : null;
+  if (!input) {
+    return;
+  }
+
+  event.preventDefault();
+  const direction = Number(button.dataset.step) || 0;
+  const stepAmount = Number(input.step) || 1;
+  const min = input.min === "" ? Number.NEGATIVE_INFINITY : Number(input.min);
+  const max = input.max === "" ? Number.POSITIVE_INFINITY : Number(input.max);
+  const current = Number(input.value);
+  const base = Number.isFinite(current) ? current : (Number.isFinite(min) ? min : 0);
+  input.value = String(clamp(round(base + direction * stepAmount), min, max));
+  input.dispatchEvent(new Event("input", { bubbles: true }));
 }
 
 function syncFormFromInput(input) {
@@ -267,7 +353,7 @@ function syncFormFromInput(input) {
     const rules = input.rules || {};
     const project = input.project || {};
 
-    els.projectName.value = project.name || "";
+    els.projectName.value = (typeof state.brief === "string" && state.brief.length) ? state.brief : (project.name || "");
     els.floorWidth.value = fieldNumber(floorBounds ? floorBounds.width : 42);
     els.floorDepth.value = fieldNumber(floorBounds ? floorBounds.height : 22);
     els.coreX.value = fieldNumber(coreBounds ? coreBounds.minX : 18);
@@ -305,7 +391,9 @@ function syncInputFromForm() {
   const scaleX = floorBounds.width > 0 ? width / floorBounds.width : 1;
   const scaleY = floorBounds.height > 0 ? depth / floorBounds.height : 1;
 
-  input.project.name = els.projectName.value.trim() || "Floor Plan Project";
+  const briefText = els.projectName.value.trim();
+  state.brief = briefText;
+  input.project.name = projectNameFromBrief(briefText);
   input.project.id = slugify(input.project.name);
   input.project.seed = Math.trunc(readNumber(els.seedInput, input.project.seed || 1));
   input.project.units = input.project.units || "m";
@@ -395,6 +483,218 @@ function readUnitMixFromForm(input) {
       weight: prior.weight || (type === "two_bed" ? 0.8 : 1.0)
     };
   });
+}
+
+// ---------------------------------------------------------------------------
+// Prompt -> floor plan. A deterministic, CSP-safe natural-language parser that
+// maps a written brief onto the existing input schema, then reuses the same
+// form -> input pipeline the manual controls drive. No external model call.
+// ---------------------------------------------------------------------------
+function parsePrompt(text) {
+  const t = ` ${String(text || "").toLowerCase()} `;
+  const intent = { understood: [] };
+  const note = (label) => { if (label && !intent.understood.includes(label)) { intent.understood.push(label); } };
+
+  const types = [];
+  if (/\bstudios?\b/.test(t)) { types.push("studio"); }
+  if (/\b(?:1|one)[\s-]?(?:bed|bedroom|bhk|br)s?\b/.test(t)) { types.push("one_bed"); }
+  if (/\b(?:2|two)[\s-]?(?:bed|bedroom|bhk|br)s?\b/.test(t)) { types.push("two_bed"); }
+  if (/\b(?:3|three|4|four)[\s-]?(?:bed|bedroom|bhk|br)s?\b/.test(t)) { types.push("two_bed"); }
+  const mixTypes = [...new Set(types)];
+  if (mixTypes.length) {
+    intent.mix = {};
+    const base = Math.floor(100 / mixTypes.length);
+    mixTypes.forEach((type, index) => {
+      intent.mix[type] = index === mixTypes.length - 1 ? 100 - base * (mixTypes.length - 1) : base;
+    });
+    note(`${mixTypes.map(unitTypeLabel).join(" + ")} units`);
+  }
+
+  const wh = t.match(/(\d{2,3}(?:\.\d+)?)\s*(?:m|metres?|meters?)?\s*(?:x|by|×)\s*(\d{2,3}(?:\.\d+)?)/);
+  if (wh) {
+    intent.width = Number(wh[1]);
+    intent.depth = Number(wh[2]);
+    note(`${round(intent.width)}×${round(intent.depth)} m plate`);
+  } else {
+    const wide = t.match(/(\d{2,3}(?:\.\d+)?)\s*(?:m|metres?|meters?)?\s*(?:wide|width|frontage)/);
+    if (wide) { intent.width = Number(wide[1]); note(`${round(intent.width)} m wide`); }
+    const deep = t.match(/(\d{2,3}(?:\.\d+)?)\s*(?:m|metres?|meters?)?\s*(?:deep|depth)/);
+    if (deep) { intent.depth = Number(deep[1]); note(`${round(intent.depth)} m deep`); }
+    const area = t.match(/(\d{3,5})\s*(?:sqm|sq\.?\s?m|m2|m²|square\s?(?:metres?|meters?))/);
+    if (area && !Number.isFinite(intent.width)) {
+      const value = Number(area[1]);
+      intent.depth = Number.isFinite(intent.depth) ? intent.depth : 22;
+      intent.width = Math.round(value / intent.depth);
+      note(`~${value} m² plate`);
+    }
+  }
+
+  const bedDay = /(?:daylight|sunlit|sunny|bright|natural light|naturally lit)[^.]{0,24}(?:bed|bedroom)/.test(t)
+    || /(?:bed|bedroom)[^.]{0,24}(?:daylight|sunlight|natural light|window)/.test(t);
+  const bedDark = /(?:interior|internal|windowless|no daylight)[^.]{0,18}(?:bed|bedroom)/.test(t);
+  if (bedDark) { intent.daylightBedrooms = false; note("interior bedrooms ok"); }
+  else if (bedDay) { intent.daylightBedrooms = true; note("daylight bedrooms"); }
+  const livingDay = /(?:daylight|sunlit|bright|natural light|open)[^.]{0,24}(?:living|lounge)/.test(t)
+    || /(?:living|lounge)[^.]{0,24}(?:daylight|sunlight|natural light|bright)/.test(t);
+  if (livingDay) { intent.daylightLiving = true; note("daylight living"); }
+
+  // Corridor width is clamped to a buildable band so a vague brief can never
+  // starve the unit bands of depth. 1.8 m is the engine default; "wide" nudges
+  // up, "narrow" down, both within code-sane limits.
+  const corr = t.match(/(\d(?:\.\d+)?)\s*(?:m|metres?|meters?)?\s*(?:wide\s*)?corridor/);
+  if (corr) { intent.corridor = clamp(Number(corr[1]), 1.2, 2.6); note(`${fieldNumber(intent.corridor)} m corridors`); }
+  else if (/(?:wide|generous|broad)[^.]{0,14}corridor|corridor[^.]{0,14}(?:wide|generous)/.test(t)) {
+    intent.corridor = 2; note("wide corridors");
+  } else if (/(?:narrow|tight|slim|lean)[^.]{0,14}corridor/.test(t)) {
+    intent.corridor = 1.4; note("tight corridors");
+  }
+
+  // Minimum unit area is capped at 50 so the global floor never exceeds the
+  // smallest unit type's usable window (studio tops out at ~55 m²), which would
+  // make that type impossible to place. "spacious"/"compact" stay feasible.
+  const unitArea = t.match(/units?[^.]{0,18}?(?:at least\s*)?(\d{2,3})\s*(?:sqm|sq\.?\s?m|m2|m²)/);
+  if (unitArea) { intent.minUnit = clamp(Number(unitArea[1]), 16, 50); note(`units ≥ ${fieldNumber(intent.minUnit)} m²`); }
+  else if (/(?:spacious|large|generous|luxury|premium)[^.]{0,18}(?:unit|apartment|flat|home|residence|studio|bed|dwelling)/.test(t)
+    || /(?:unit|apartment|flat|studio|home)s?[^.]{0,12}(?:spacious|large|generous)/.test(t)) {
+    intent.minUnit = 38; note("spacious units");
+  } else if (/(?:compact|efficient|micro|affordable|small)[^.]{0,18}(?:unit|apartment|flat|home|residence|studio|bed|dwelling)/.test(t)
+    || /high[\s-]?density/.test(t)) {
+    intent.minUnit = 22; note("compact units");
+  }
+
+  const variants = t.match(/(\d{1,2})\s*(?:variant|option|layout|scheme|alternative)s?/);
+  if (variants) { intent.variants = clamp(Number(variants[1]), 1, 20); note(`${intent.variants} variants`); }
+
+  // "Strict" validation rejects any unit whose achieved area drifts outside its
+  // narrow per-type window, which reliably yields zero buildable variants. So a
+  // compliance brief maps to "balanced" — it still enforces every code minimum
+  // (corridor, room, daylight, unit area) but tolerates real-world area drift.
+  if (/\b(?:strict|rigorous|code[\s-]?compliant|conservative|regulation|compliant)\b/.test(t)) {
+    intent.strictness = "balanced"; note("code-aware rules");
+  } else if (/\b(?:relaxed|loose|exploratory|experimental|flexible)\b/.test(t)) {
+    intent.strictness = "relaxed"; note("relaxed rules");
+  }
+
+  return intent;
+}
+
+function unitTypeLabel(type) {
+  return { studio: "Studio", one_bed: "1-Bed", two_bed: "2-Bed" }[type] || type;
+}
+
+function applyPromptToForm(intent) {
+  // The floorplate is a site constraint, not a stylistic choice, so it is only
+  // touched when the brief actually names dimensions; everything else resets to
+  // a feasible engine default when unmentioned, making each prompt reproducible.
+  if (Number.isFinite(intent.width)) { els.floorWidth.value = fieldNumber(clamp(intent.width, 8, 200)); }
+  if (Number.isFinite(intent.depth)) { els.floorDepth.value = fieldNumber(clamp(intent.depth, 8, 120)); }
+  els.minCorridorWidth.value = fieldNumber(Number.isFinite(intent.corridor) ? intent.corridor : 1.8);
+  els.minUnitArea.value = fieldNumber(Number.isFinite(intent.minUnit) ? intent.minUnit : 25);
+  els.variantInput.value = String(Number.isFinite(intent.variants) ? clamp(Math.trunc(intent.variants), 1, 20) : 4);
+  els.strictnessInput.value = intent.strictness || "balanced";
+  els.daylightBedrooms.checked = typeof intent.daylightBedrooms === "boolean" ? intent.daylightBedrooms : true;
+  els.daylightLiving.checked = typeof intent.daylightLiving === "boolean" ? intent.daylightLiving : true;
+  const mix = intent.mix || { studio: 35, one_bed: 45, two_bed: 20 };
+  unitTypes.forEach((type) => {
+    const row = document.querySelector(`.mix-row[data-unit-type="${type}"]`);
+    const field = row ? row.querySelector('[data-field="targetRatio"]') : null;
+    if (field) { field.value = String(mix[type] || 0); }
+  });
+}
+
+// A short label is already a project name; a long brief is a sentence to be
+// generated from, so it gets condensed into a clean, drawing-ready title rather
+// than being stamped verbatim into the sheet's title block.
+function projectNameFromBrief(text) {
+  if (!text) { return "Floor Plan Project"; }
+  if (text.length <= 42 && !/[.!?]/.test(text)) { return text; }
+  return deriveProjectName(parsePrompt(text), text);
+}
+
+function deriveProjectName(intent, text) {
+  const parts = [];
+  if (intent.mix) { parts.push(Object.keys(intent.mix).map(unitTypeLabel).join("/")); }
+  if (Number.isFinite(intent.width) && Number.isFinite(intent.depth)) {
+    parts.push(`${round(intent.width)}×${round(intent.depth)}m`);
+  }
+  if (parts.length) { return `${parts.join(" · ")} Residence`; }
+  const words = String(text || "").replace(/[^\w\s-]/g, " ").split(/\s+/).filter(Boolean).slice(0, 6);
+  return words.length ? words.map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ") : "Floor Plan Project";
+}
+
+function renderPromptUnderstood(intent, text) {
+  const host = els.promptUnderstood;
+  if (!host) { return; }
+  host.textContent = "";
+  if (!text) { host.hidden = true; return; }
+  host.hidden = false;
+  const chips = (intent && intent.understood) || [];
+  if (!chips.length) {
+    const empty = document.createElement("span");
+    empty.className = "prompt-understood-empty";
+    empty.textContent = "No specific constraints found — generating from the current settings.";
+    host.appendChild(empty);
+    return;
+  }
+  const lead = document.createElement("span");
+  lead.className = "prompt-understood-lead";
+  lead.textContent = "Understood";
+  host.appendChild(lead);
+  chips.forEach((label) => {
+    const chip = document.createElement("span");
+    chip.className = "prompt-chip";
+    chip.textContent = label;
+    host.appendChild(chip);
+  });
+}
+
+function appendPromptNote(message) {
+  const host = els.promptUnderstood;
+  if (!host) { return; }
+  host.hidden = false;
+  const node = document.createElement("span");
+  node.className = "prompt-chip prompt-chip-note";
+  node.textContent = message;
+  host.appendChild(node);
+}
+
+// Safety net: if a brief turns out to be over-constrained for its plate and no
+// variant validates, step strictness one notch looser and regenerate once, then
+// say so plainly. A designer relaxes the brief to fit the site; so do we — but
+// only one step, never silently, and never in a loop.
+async function relaxStrictnessIfNoVariants() {
+  const order = ["strict", "balanced", "relaxed"];
+  const current = state.response;
+  // Only relax when variants were actually generated but every one failed
+  // validation (a rules-too-tight signal). A zero-variant result means the plate
+  // geometry itself is infeasible, which looser validation cannot rescue.
+  if (!current || (current.validVariantCount || 0) > 0 || (current.variantCount || 0) === 0) { return; }
+  const next = order[order.indexOf(els.strictnessInput.value || "balanced") + 1];
+  if (!next) { return; }
+  els.strictnessInput.value = next;
+  syncInputFromForm();
+  setEditorFromInput(state.input);
+  saveDraft();
+  await runEngine(false);
+  if (state.response && (state.response.validVariantCount || 0) > 0) {
+    appendPromptNote(`Relaxed to ${next} rules to fit this plate`);
+  }
+}
+
+async function generateFromPrompt() {
+  const text = els.projectName.value.trim();
+  const intent = parsePrompt(text);
+  // Generating a fresh plan from a prompt starts a new edit history.
+  state.undoStack = [];
+  state.redoStack = [];
+  applyPromptToForm(intent);
+  syncInputFromForm();
+  setEditorFromInput(state.input);
+  saveDraft();
+  renderPromptUnderstood(intent, text);
+  await runEngine(false);
+  await relaxStrictnessIfNoVariants();
+  navigateToHash("#plan");
 }
 
 async function openInputFile() {
@@ -552,6 +852,7 @@ function renderAll() {
   renderSetupGuide(output);
   renderVariantSelect(visualOutput);
   renderPreview(visualOutput);
+  renderPlanTitleBlock(visualOutput);
   renderMetrics(visualOutput);
   renderVariants(visualOutput);
   renderDiagnostics(output);
@@ -842,6 +1143,7 @@ function renderVariantSelect(output) {
 
 function renderPreview(output) {
   clearSvg();
+  renderSvgDefs();
   updateModeButtons();
   const variant = selectedVariant(output);
   const input = state.input;
@@ -867,9 +1169,13 @@ function renderPreview(output) {
   if (state.viewMode !== "axon") {
     renderDimensionGuides(bounds, metadata && metadata.projectUnits);
   }
+  if (state.viewMode === "plan") {
+    renderNorthArrow(bounds);
+  }
 
   const group = svgEl("g", { transform: previewTransform() });
   els.planSvg.appendChild(group);
+  renderPlanGrid(group, bounds);
 
   if (input && input.floorplate && input.floorplate.outer) {
     group.appendChild(polygonEl(input.floorplate.outer.points, selectableClass("boundary", "floorplate", "floorplate"), {
@@ -938,21 +1244,148 @@ function renderPreview(output) {
   renderInputEditHandles(group, input);
   renderSelectionConstraintHandles(group, output);
   renderPlanQuickActions(output, bounds);
+  renderDragReadout(bounds);
   renderLegend(Boolean(variant));
 }
 
+// Live dimension badge that follows the cursor during a resize/move drag, so the
+// editor reads its result in place (like CAD/Figma) instead of only in the sidebar.
+// Purely presentational — it reads the already-edited input, never mutates geometry.
+function renderDragReadout(bounds) {
+  const edit = state.dragEdit;
+  if (!edit || !edit.lastPoint || state.viewMode !== "plan" || !bounds) {
+    return;
+  }
+
+  const text = dragReadoutText(edit, state.input);
+  if (!text) {
+    return;
+  }
+
+  const maxDim = Math.max(bounds.width, bounds.height);
+  const font = clamp(maxDim * 0.022, 0.46, 1.05);
+  const padX = font * 0.55;
+  const padY = font * 0.4;
+  const boxWidth = text.length * font * 0.6 + padX * 2;
+  const boxHeight = font + padY * 2;
+  const anchorX = edit.lastPoint.x + font * 1.1;
+  // planSvg space is y-down (labels are appended here, not into the flipped group),
+  // so negate the model y and lift the badge above the cursor.
+  const topY = -edit.lastPoint.y - boxHeight - font * 0.5;
+  const badge = svgEl("g", { class: "drag-readout", "aria-hidden": "true" });
+  badge.appendChild(svgEl("rect", {
+    class: "drag-readout-bg",
+    x: round(anchorX),
+    y: round(topY),
+    width: round(boxWidth),
+    height: round(boxHeight),
+    rx: round(font * 0.35),
+    ry: round(font * 0.35)
+  }));
+  const label = svgEl("text", {
+    class: "drag-readout-text",
+    x: round(anchorX + padX),
+    y: round(topY + padY + font * 0.82),
+    "font-size": formatNumber(font, 2)
+  });
+  label.textContent = text;
+  badge.appendChild(label);
+  els.planSvg.appendChild(badge);
+}
+
+function dragReadoutText(edit, input) {
+  if (!edit || !input) {
+    return "";
+  }
+
+  const floorBounds = input.floorplate && input.floorplate.outer
+    ? boundsOfPoints(input.floorplate.outer.points)
+    : null;
+  const core = firstCore(input);
+  const coreBounds = core && core.polygon ? boundsOfPoints(core.polygon.points) : null;
+  switch (edit.action) {
+    case "floor-width":
+      return floorBounds ? `${formatNumber(floorBounds.width, 1)} m wide` : "";
+    case "floor-depth":
+      return floorBounds ? `${formatNumber(floorBounds.height, 1)} m deep` : "";
+    case "floor-size":
+      return floorBounds
+        ? `${formatNumber(floorBounds.width, 1)} × ${formatNumber(floorBounds.height, 1)} m`
+        : "";
+    case "core-size":
+      return coreBounds
+        ? `Core ${formatNumber(coreBounds.width, 1)} × ${formatNumber(coreBounds.height, 1)} m`
+        : "";
+    case "core-move":
+      return coreBounds
+        ? `Core @ ${formatNumber(coreBounds.minX, 1)}, ${formatNumber(coreBounds.minY, 1)} m`
+        : "";
+    default:
+      return state.editReadout || "";
+  }
+}
+
 function previewViewBox(bounds, zoom) {
-  const pad = Math.max(bounds.width, bounds.height) * 0.06;
-  const baseWidth = bounds.width + pad * 2;
-  const baseHeight = bounds.height + pad * 2;
-  const safeZoom = clamp(Number(zoom) || 1, 1, 4);
-  const boxWidth = baseWidth / safeZoom;
-  const boxHeight = baseHeight / safeZoom;
-  const centerX = bounds.minX + bounds.width / 2;
-  const centerY = -(bounds.minY + bounds.height / 2);
-  return [centerX - boxWidth / 2, centerY - boxHeight / 2, boxWidth, boxHeight]
+  const maxDim = Math.max(bounds.width, bounds.height);
+  // Reserve a margin big enough for the dimension strings + scale bar drawn by
+  // renderDimensionGuides so they live inside the viewBox instead of being
+  // clipped off into the letterbox gutters.
+  const offset = Math.max(maxDim * 0.075, 1.6);
+  const labelGap = Math.max(maxDim * 0.024, 0.58);
+  const margin = offset + labelGap + 0.85;
+  // SVG space is Y-flipped by the group transform, so the plan spans
+  // [-maxY, -minY]; pad symmetrically around that.
+  let minX = bounds.minX - margin;
+  let minY = -bounds.maxY - margin;
+  let width = bounds.width + margin * 2;
+  let height = bounds.height + margin * 2;
+
+  // Expand the short axis so the viewBox aspect matches the canvas element.
+  // With preserveAspectRatio "meet" the drawing then fills the frame edge to
+  // edge and stays centred, removing the dead band above and below the plan.
+  const frameAspect = previewFrameAspect();
+  const contentAspect = height > 0 ? width / height : frameAspect;
+  if (frameAspect > 0 && contentAspect > frameAspect) {
+    const target = width / frameAspect;
+    minY -= (target - height) / 2;
+    height = target;
+  } else if (frameAspect > 0) {
+    const target = height * frameAspect;
+    minX -= (target - width) / 2;
+    width = target;
+  }
+
+  const safeZoom = clamp(Number(zoom) || 1, 1, maxZoom);
+  const fullCenterX = minX + width / 2;
+  const fullCenterY = minY + height / 2;
+  // Record the fit-frame (zoom = 1) so pan/wheel handlers can map screen points
+  // to model space and convert a desired centre back into a pan offset.
+  state.viewFrame = { centerX: fullCenterX, centerY: fullCenterY, width, height };
+  const viewWidth = width / safeZoom;
+  const viewHeight = height / safeZoom;
+  // Pan is stored relative to the fit centre; clamp it so the plan can never be
+  // dragged entirely out of view (limit shrinks to zero as zoom returns to 1).
+  const panLimitX = Math.max((width - viewWidth) / 2, 0);
+  const panLimitY = Math.max((height - viewHeight) / 2, 0);
+  const panX = clamp(Number(state.panX) || 0, -panLimitX, panLimitX);
+  const panY = clamp(Number(state.panY) || 0, -panLimitY, panLimitY);
+  state.panX = panX;
+  state.panY = panY;
+  const centerX = fullCenterX + panX;
+  const centerY = fullCenterY + panY;
+  return [centerX - viewWidth / 2, centerY - viewHeight / 2, viewWidth, viewHeight]
     .map((value) => formatNumber(value, 3))
     .join(" ");
+}
+
+function previewFrameAspect() {
+  const el = els.planSvg;
+  const width = el ? el.clientWidth : 0;
+  const height = el ? el.clientHeight : 0;
+  if (width > 0 && height > 0) {
+    return width / height;
+  }
+  return 1.6;
 }
 
 function previewTransform() {
@@ -971,26 +1404,44 @@ function renderDimensionGuides(bounds, units = "m") {
   const offset = Math.max(maxDim * 0.075, 1.6);
   const labelGap = Math.max(maxDim * 0.024, 0.58);
   const tick = Math.max(maxDim * 0.012, 0.28);
+  // Witness (extension) lines start with a small gap off the object and run just
+  // past the dimension line, with 45-degree oblique tick slashes at each station —
+  // the architectural convention (NKBA) instead of perpendicular crossbars.
+  const witnessGap = Math.max(maxDim * 0.009, 0.16);
+  const over = tick * 0.6;
   const centerX = bounds.minX + bounds.width / 2;
   const centerY = bounds.minY + bounds.height / 2;
   const group = svgEl("g", { class: "dimension-guides", "aria-hidden": "true" });
 
   const topY = bounds.maxY + offset;
+  appendDimensionLine(group, bounds.minX, bounds.maxY + witnessGap, bounds.minX, topY + over, "dimension-witness");
+  appendDimensionLine(group, bounds.maxX, bounds.maxY + witnessGap, bounds.maxX, topY + over, "dimension-witness");
   appendDimensionLine(group, bounds.minX, topY, bounds.maxX, topY);
-  appendDimensionLine(group, bounds.minX, topY - tick, bounds.minX, topY + tick, "dimension-tick");
-  appendDimensionLine(group, bounds.maxX, topY - tick, bounds.maxX, topY + tick, "dimension-tick");
+  appendObliqueTick(group, bounds.minX, topY, tick);
+  appendObliqueTick(group, bounds.maxX, topY, tick);
   appendDimensionText(group, `${formatNumber(bounds.width, 1)} ${units || "m"}`, centerX, topY + labelGap);
 
   const bottomY = bounds.minY - offset;
+  appendDimensionLine(group, bounds.minX, bounds.minY - witnessGap, bounds.minX, bottomY - over, "dimension-witness");
+  appendDimensionLine(group, bounds.maxX, bounds.minY - witnessGap, bounds.maxX, bottomY - over, "dimension-witness");
   appendDimensionLine(group, bounds.minX, bottomY, bounds.maxX, bottomY);
-  appendDimensionLine(group, bounds.minX, bottomY - tick, bounds.minX, bottomY + tick, "dimension-tick");
-  appendDimensionLine(group, bounds.maxX, bottomY - tick, bounds.maxX, bottomY + tick, "dimension-tick");
+  appendObliqueTick(group, bounds.minX, bottomY, tick);
+  appendObliqueTick(group, bounds.maxX, bottomY, tick);
 
   const rightX = bounds.maxX + offset;
+  appendDimensionLine(group, bounds.maxX + witnessGap, bounds.minY, rightX + over, bounds.minY, "dimension-witness");
+  appendDimensionLine(group, bounds.maxX + witnessGap, bounds.maxY, rightX + over, bounds.maxY, "dimension-witness");
   appendDimensionLine(group, rightX, bounds.minY, rightX, bounds.maxY);
-  appendDimensionLine(group, rightX - tick, bounds.minY, rightX + tick, bounds.minY, "dimension-tick");
-  appendDimensionLine(group, rightX - tick, bounds.maxY, rightX + tick, bounds.maxY, "dimension-tick");
+  appendObliqueTick(group, rightX, bounds.minY, tick);
+  appendObliqueTick(group, rightX, bounds.maxY, tick);
   appendDimensionText(group, `${formatNumber(bounds.height, 1)} ${units || "m"}`, rightX + labelGap, centerY, "vertical");
+
+  const leftX = bounds.minX - offset;
+  appendDimensionLine(group, bounds.minX - witnessGap, bounds.minY, leftX - over, bounds.minY, "dimension-witness");
+  appendDimensionLine(group, bounds.minX - witnessGap, bounds.maxY, leftX - over, bounds.maxY, "dimension-witness");
+  appendDimensionLine(group, leftX, bounds.minY, leftX, bounds.maxY);
+  appendObliqueTick(group, leftX, bounds.minY, tick);
+  appendObliqueTick(group, leftX, bounds.maxY, tick);
   renderScaleBar(group, bounds, units || "m", offset);
 
   els.planSvg.appendChild(group);
@@ -1003,6 +1454,18 @@ function appendDimensionLine(group, x1, y1, x2, y2, className = "dimension-line"
     y1: round(-y1),
     x2: round(x2),
     y2: round(-y2)
+  }));
+}
+
+function appendObliqueTick(group, x, y, size) {
+  // 45-degree slash centred on the witness station (architectural dimension tick).
+  const half = size * 0.7;
+  group.appendChild(svgEl("line", {
+    class: "dimension-tick",
+    x1: round(x - half),
+    y1: round(-(y - half)),
+    x2: round(x + half),
+    y2: round(-(y + half))
   }));
 }
 
@@ -1074,6 +1537,35 @@ function appendScaleBarText(group, label, x, y, anchor) {
   });
   text.textContent = label;
   group.appendChild(text);
+}
+
+function renderNorthArrow(bounds) {
+  if (!bounds || bounds.width <= 0 || bounds.height <= 0) {
+    return;
+  }
+
+  const maxDim = Math.max(bounds.width, bounds.height);
+  const size = clamp(maxDim * 0.03, 0.85, 1.7);
+  const offset = Math.max(maxDim * 0.075, 1.6);
+  const cx = bounds.maxX + offset * 0.58;
+  const baseY = bounds.maxY + offset * 0.18;
+  const group = svgEl("g", { class: "north-arrow", "aria-hidden": "true" });
+  group.appendChild(polygonEl([
+    { x: cx, y: -(baseY + size) },
+    { x: cx - size * 0.32, y: -baseY },
+    { x: cx, y: -(baseY + size * 0.3) },
+    { x: cx + size * 0.32, y: -baseY }
+  ], "north-arrow-needle"));
+  const label = svgEl("text", {
+    class: "north-arrow-label",
+    x: round(cx),
+    y: round(-(baseY + size + size * 0.52)),
+    "text-anchor": "middle",
+    "font-size": formatNumber(size * 0.6, 2)
+  });
+  label.textContent = "N";
+  group.appendChild(label);
+  els.planSvg.appendChild(group);
 }
 
 function renderInputAccessMarkers(group, input, bounds) {
@@ -1168,33 +1660,57 @@ function renderDaylightAndWindowBands(layer, variant, floorBounds) {
     }
 
     const side = closestFacadeSide(bounds, floorBounds);
-    const inset = Math.min(Math.max(Math.min(bounds.width, bounds.height) * 0.09, 0.12), 0.5);
-    const thickness = Math.min(Math.max(Math.min(bounds.width, bounds.height) * 0.12, 0.16), 0.42);
-    if (side === "left" || side === "right") {
-      const height = bounds.height - inset * 2;
-      if (height <= 0.1) {
-        return;
-      }
-      layer.appendChild(rectEl(
-        side === "right" ? bounds.maxX - thickness - inset * 0.25 : bounds.minX + inset * 0.25,
-        bounds.minY + inset,
-        thickness,
-        height,
-        "daylight-band"));
-      return;
-    }
-
-    const width = bounds.width - inset * 2;
-    if (width <= 0.1) {
-      return;
-    }
-    layer.appendChild(rectEl(
-      bounds.minX + inset,
-      side === "top" ? bounds.maxY - thickness - inset * 0.25 : bounds.minY + inset * 0.25,
-      width,
-      thickness,
-      "daylight-band"));
+    appendWindowSymbol(layer, bounds, side);
   });
+}
+
+// Draws a glazed window symbol (sill + glass pane + mullion + jambs) set into
+// the facade wall of a daylit room, the way a real plan shows openings.
+function appendWindowSymbol(layer, bounds, side) {
+  const horizontal = side === "top" || side === "bottom";
+  const span = horizontal ? bounds.width : bounds.height;
+  if (span < 0.85) {
+    return;
+  }
+
+  const inset = clamp(span * 0.16, 0.16, 0.6);
+  const a = (horizontal ? bounds.minX : bounds.minY) + inset;
+  const b = (horizontal ? bounds.maxX : bounds.maxY) - inset;
+  if (b - a < 0.4) {
+    return;
+  }
+
+  const t = 0.12;
+  let edge;
+  if (side === "top") {
+    edge = bounds.maxY;
+  } else if (side === "bottom") {
+    edge = bounds.minY;
+  } else if (side === "left") {
+    edge = bounds.minX;
+  } else {
+    edge = bounds.maxX;
+  }
+
+  const lo = horizontal ? { x: a, y: edge } : { x: edge, y: a };
+  const hi = horizontal ? { x: b, y: edge } : { x: edge, y: b };
+  if (horizontal) {
+    layer.appendChild(rectEl(a, edge - t, b - a, t * 2, "daylight-band"));
+  } else {
+    layer.appendChild(rectEl(edge - t, a, t * 2, b - a, "daylight-band"));
+  }
+  layer.appendChild(lineEl(offsetAcross(lo, side, -t), offsetAcross(hi, side, -t), "window-frame"));
+  layer.appendChild(lineEl(offsetAcross(lo, side, t), offsetAcross(hi, side, t), "window-frame"));
+  layer.appendChild(lineEl(lo, hi, "window-mullion"));
+  layer.appendChild(lineEl(offsetAcross(lo, side, -t), offsetAcross(lo, side, t), "window-jamb"));
+  layer.appendChild(lineEl(offsetAcross(hi, side, -t), offsetAcross(hi, side, t), "window-jamb"));
+}
+
+function offsetAcross(point, side, amount) {
+  const horizontal = side === "top" || side === "bottom";
+  return horizontal
+    ? { x: point.x, y: point.y + amount }
+    : { x: point.x + amount, y: point.y };
 }
 
 function closestFacadeSide(roomBounds, floorBounds) {
@@ -1254,100 +1770,167 @@ function appendRoomFixture(group, room) {
 
 function appendBedroomFixture(group, bounds) {
   const inner = insetBounds(bounds, fixturePadding(bounds));
+  if (inner.width < 0.6 || inner.height < 0.6) {
+    return;
+  }
   const horizontal = inner.width >= inner.height;
-  const bedWidth = horizontal ? inner.width * 0.48 : inner.width * 0.68;
-  const bedHeight = horizontal ? inner.height * 0.68 : inner.height * 0.46;
-  const bedX = horizontal
-    ? inner.minX + inner.width * 0.08
-    : inner.minX + (inner.width - bedWidth) / 2;
-  const bedY = horizontal
-    ? inner.minY + (inner.height - bedHeight) / 2
-    : inner.minY + inner.height * 0.08;
-  appendFixtureRect(group, bedX, bedY, bedWidth, bedHeight, "fixture-bed");
+  const x0 = inner.minX;
+  const y0 = inner.minY;
+  const w = inner.width;
+  const h = inner.height;
+  const roomy = w * h >= 9;
 
+  if (roomy) {
+    const r = Math.min(w, h) * 0.08;
+    appendFixtureRect(group, x0 + r, y0 + r, w - r * 2, h - r * 2, "fixture-rug", roundedAttr(0.22));
+  }
+
+  // Reserve a wall band for the wardrobe so the bed never collides with it.
+  const bandW = horizontal ? w * 0.82 : w;
+  const bandH = horizontal ? h : h * 0.82;
+  const bedW = horizontal ? bandW * 0.5 : bandW * 0.6;
+  const bedH = horizontal ? bandH * 0.66 : bandH * 0.5;
+  const bedX = horizontal ? x0 : x0 + (bandW - bedW) / 2;
+  const bedY = horizontal ? y0 + (bandH - bedH) / 2 : y0;
+  appendFixtureRect(group, bedX, bedY, bedW, bedH, "fixture-bed", roundedAttr(0.09));
+
+  // Headboard strip, a turned-down duvet fold line, and two pillows at the head.
+  const head = Math.max(Math.min(bedW, bedH) * 0.14, 0.07);
   if (horizontal) {
-    appendFixtureRect(group, bedX + bedWidth * 0.08, bedY + bedHeight * 0.14, bedWidth * 0.22, bedHeight * 0.28, "fixture-pillow");
-    appendFixtureRect(group, bedX + bedWidth * 0.08, bedY + bedHeight * 0.58, bedWidth * 0.22, bedHeight * 0.28, "fixture-pillow");
-    appendFixtureRect(group, inner.maxX - inner.width * 0.15, inner.minY + inner.height * 0.12, inner.width * 0.1, inner.height * 0.76, "fixture-wardrobe");
+    appendFixtureRect(group, bedX, bedY, head, bedH, "fixture-headboard");
+    appendFixtureLine(group, bedX + bedW * 0.68, bedY, bedX + bedW * 0.68, bedY + bedH);
+    appendFixtureRect(group, bedX + head * 1.3, bedY + bedH * 0.1, bedW * 0.17, bedH * 0.33, "fixture-pillow", roundedAttr(0.05));
+    appendFixtureRect(group, bedX + head * 1.3, bedY + bedH * 0.57, bedW * 0.17, bedH * 0.33, "fixture-pillow", roundedAttr(0.05));
   } else {
-    appendFixtureRect(group, bedX + bedWidth * 0.15, bedY + bedHeight * 0.68, bedWidth * 0.28, bedHeight * 0.22, "fixture-pillow");
-    appendFixtureRect(group, bedX + bedWidth * 0.57, bedY + bedHeight * 0.68, bedWidth * 0.28, bedHeight * 0.22, "fixture-pillow");
-    appendFixtureRect(group, inner.minX + inner.width * 0.12, inner.maxY - inner.height * 0.16, inner.width * 0.76, inner.height * 0.1, "fixture-wardrobe");
+    appendFixtureRect(group, bedX, bedY, bedW, head, "fixture-headboard");
+    appendFixtureLine(group, bedX, bedY + bedH * 0.68, bedX + bedW, bedY + bedH * 0.68);
+    appendFixtureRect(group, bedX + bedW * 0.1, bedY + head * 1.3, bedW * 0.33, bedH * 0.17, "fixture-pillow", roundedAttr(0.05));
+    appendFixtureRect(group, bedX + bedW * 0.57, bedY + head * 1.3, bedW * 0.33, bedH * 0.17, "fixture-pillow", roundedAttr(0.05));
+  }
+
+  // Nightstands beside the head, sized to the gap so they stay inside the room.
+  if (roomy) {
+    if (horizontal) {
+      const gap = (bandH - bedH) / 2;
+      const ns = Math.min(gap * 0.8, bedW * 0.22);
+      if (ns > 0.16) {
+        appendFixtureRect(group, bedX, bedY - gap / 2 - ns / 2, ns, ns, "fixture-nightstand");
+        appendFixtureRect(group, bedX, bedY + bedH + gap / 2 - ns / 2, ns, ns, "fixture-nightstand");
+      }
+    } else {
+      const gap = (bandW - bedW) / 2;
+      const ns = Math.min(gap * 0.8, bedH * 0.22);
+      if (ns > 0.16) {
+        appendFixtureRect(group, bedX - gap / 2 - ns / 2, bedY, ns, ns, "fixture-nightstand");
+        appendFixtureRect(group, bedX + bedW + gap / 2 - ns / 2, bedY, ns, ns, "fixture-nightstand");
+      }
+    }
+  }
+
+  // Wardrobe filling the reserved wall band, with sliding-door split lines.
+  if (horizontal) {
+    const wx = x0 + w * 0.86;
+    appendFixtureRect(group, wx, y0 + h * 0.06, w * 0.12, h * 0.88, "fixture-wardrobe");
+    appendDoorSplits(group, wx, y0 + h * 0.06, w * 0.12, h * 0.88, false, 3);
+  } else {
+    const wy = y0 + h * 0.86;
+    appendFixtureRect(group, x0 + w * 0.06, wy, w * 0.88, h * 0.12, "fixture-wardrobe");
+    appendDoorSplits(group, x0 + w * 0.06, wy, w * 0.88, h * 0.12, true, 3);
   }
 }
 
 function appendBathroomFixture(group, bounds) {
-  const inner = insetBounds(bounds, fixturePadding(bounds) * 0.85);
-  const fixtureSize = Math.min(inner.width, inner.height);
-  const bathWidth = Math.min(inner.width * 0.48, fixtureSize * 0.9);
-  const bathHeight = Math.min(inner.height * 0.34, fixtureSize * 0.62);
-  appendFixtureRect(group, inner.minX, inner.maxY - bathHeight, bathWidth, bathHeight, "fixture-bath");
-  appendFixtureRect(
-    group,
-    inner.minX,
-    inner.minY,
-    Math.min(fixtureSize * 0.38, inner.width * 0.42),
-    Math.min(fixtureSize * 0.38, inner.height * 0.42),
-    "fixture-shower");
-  appendFixtureCircle(group, inner.maxX - inner.width * 0.22, inner.minY + inner.height * 0.26, fixtureSize * 0.09, "fixture-toilet");
-  appendFixtureRect(
-    group,
-    inner.maxX - inner.width * 0.33,
-    inner.maxY - inner.height * 0.32,
-    inner.width * 0.25,
-    inner.height * 0.18,
-    "fixture-sink");
+  const inner = insetBounds(bounds, fixturePadding(bounds) * 0.8);
+  if (inner.width < 0.5 || inner.height < 0.5) {
+    return;
+  }
+  const horizontal = inner.width >= inner.height;
+  const x0 = inner.minX;
+  const y0 = inner.minY;
+  const w = inner.width;
+  const h = inner.height;
+  const fit = Math.min(w, h);
+  const big = w * h >= 4.5;
+
+  // Wet wall hosts a tub (roomy) or a shower (tight); WC + vanity basin opposite.
+  if (horizontal) {
+    if (big) {
+      const tubH = h * 0.42;
+      appendFixtureRect(group, x0, y0, w * 0.5, tubH, "fixture-bath", roundedAttr(0.16));
+      appendFixtureEllipse(group, x0 + w * 0.14, y0 + tubH * 0.5, w * 0.045, tubH * 0.2, "fixture-detail");
+    } else {
+      appendShower(group, x0, y0, Math.min(w * 0.42, fit * 0.7), Math.min(h * 0.5, fit * 0.7));
+    }
+    appendToilet(group, x0 + w * 0.04, y0 + h - fit * 0.46, fit * 0.42);
+    appendBasin(group, x0 + w - w * 0.34, y0 + h - h * 0.34, w * 0.3, h * 0.24);
+  } else {
+    if (big) {
+      const tubW = w * 0.42;
+      appendFixtureRect(group, x0, y0, tubW, h * 0.5, "fixture-bath", roundedAttr(0.16));
+      appendFixtureEllipse(group, x0 + tubW * 0.5, y0 + h * 0.14, tubW * 0.2, h * 0.045, "fixture-detail");
+    } else {
+      appendShower(group, x0, y0, Math.min(w * 0.5, fit * 0.7), Math.min(h * 0.42, fit * 0.7));
+    }
+    appendToilet(group, x0 + w - fit * 0.46, y0 + h * 0.04, fit * 0.42);
+    appendBasin(group, x0 + w - w * 0.34, y0 + h - h * 0.3, w * 0.3, h * 0.24);
+  }
 }
 
 function appendKitchenFixture(group, bounds) {
-  const inner = insetBounds(bounds, fixturePadding(bounds) * 0.75);
+  const inner = insetBounds(bounds, fixturePadding(bounds) * 0.7);
+  if (inner.width < 0.6 || inner.height < 0.6) {
+    return;
+  }
   const horizontal = inner.width >= inner.height;
+  const x0 = inner.minX;
+  const y0 = inner.minY;
+  const w = inner.width;
+  const h = inner.height;
+  const depth = Math.min(Math.min(w, h) * 0.32, 0.85);
+
+  // A run of counter along one wall carries a double sink, a hob, and a fridge.
   if (horizontal) {
-    const counterHeight = inner.height * 0.25;
-    appendFixtureRect(group, inner.minX, inner.minY, inner.width, counterHeight, "fixture-counter");
-    appendFixtureRect(
-      group,
-      inner.minX + inner.width * 0.12,
-      inner.minY + counterHeight * 0.18,
-      counterHeight * 0.58,
-      counterHeight * 0.58,
-      "fixture-sink");
-    appendFixtureRect(
-      group,
-      inner.maxX - counterHeight * 0.9,
-      inner.minY + counterHeight * 0.16,
-      counterHeight * 0.62,
-      counterHeight * 0.62,
-      "fixture-appliance");
+    appendFixtureRect(group, x0, y0, w, depth, "fixture-counter");
+    appendDoubleSink(group, x0 + w * 0.08, y0 + depth * 0.2, w * 0.17, depth * 0.6, true);
+    appendHob(group, x0 + w * 0.4, y0 + depth * 0.16, Math.min(w * 0.2, depth * 1.5), depth * 0.68);
+    appendFixtureRect(group, x0 + w - depth * 1.05, y0, depth, depth * 1.2, "fixture-fridge");
+    appendFixtureLine(group, x0 + w - depth * 1.05, y0 + depth * 0.55, x0 + w - depth * 0.05, y0 + depth * 0.55);
   } else {
-    const counterWidth = inner.width * 0.25;
-    appendFixtureRect(group, inner.minX, inner.minY, counterWidth, inner.height, "fixture-counter");
-    appendFixtureRect(
-      group,
-      inner.minX + counterWidth * 0.18,
-      inner.minY + inner.height * 0.12,
-      counterWidth * 0.58,
-      counterWidth * 0.58,
-      "fixture-sink");
-    appendFixtureRect(
-      group,
-      inner.minX + counterWidth * 0.16,
-      inner.maxY - counterWidth * 0.9,
-      counterWidth * 0.62,
-      counterWidth * 0.62,
-      "fixture-appliance");
+    appendFixtureRect(group, x0, y0, depth, h, "fixture-counter");
+    appendDoubleSink(group, x0 + depth * 0.2, y0 + h * 0.08, depth * 0.6, h * 0.17, false);
+    appendHob(group, x0 + depth * 0.16, y0 + h * 0.4, depth * 0.68, Math.min(h * 0.2, depth * 1.5));
+    appendFixtureRect(group, x0, y0 + h - depth * 1.05, depth * 1.2, depth, "fixture-fridge");
+    appendFixtureLine(group, x0 + depth * 0.55, y0 + h - depth * 1.05, x0 + depth * 0.55, y0 + h - depth * 0.05);
   }
 }
 
 function appendLivingFixture(group, bounds) {
   const inner = insetBounds(bounds, fixturePadding(bounds));
-  const sofaHeight = Math.max(inner.height * 0.16, 0.28);
-  appendFixtureRect(group, inner.minX + inner.width * 0.08, inner.minY + inner.height * 0.12, inner.width * 0.44, sofaHeight, "fixture-sofa");
-  appendFixtureEllipse(group, inner.minX + inner.width * 0.5, inner.minY + inner.height * 0.52, inner.width * 0.16, inner.height * 0.11, "fixture-table");
-  if (inner.width * inner.height >= 14) {
-    appendFixtureEllipse(group, inner.maxX - inner.width * 0.22, inner.maxY - inner.height * 0.24, inner.width * 0.12, inner.height * 0.1, "fixture-table");
-    appendFixtureRect(group, inner.maxX - inner.width * 0.34, inner.maxY - inner.height * 0.25, inner.width * 0.06, inner.height * 0.12, "fixture-chair");
-    appendFixtureRect(group, inner.maxX - inner.width * 0.1, inner.maxY - inner.height * 0.25, inner.width * 0.06, inner.height * 0.12, "fixture-chair");
+  if (inner.width < 0.7 || inner.height < 0.7) {
+    return;
+  }
+  const horizontal = inner.width >= inner.height;
+  const x0 = inner.minX;
+  const y0 = inner.minY;
+  const w = inner.width;
+  const h = inner.height;
+
+  // Anchor rug under the seating zone, then a sofa facing a media unit across a table.
+  if (w * h >= 10) {
+    const r = Math.min(w, h) * 0.06;
+    const rw = (horizontal ? w * 0.62 : w) - r * 2;
+    const rh = (horizontal ? h : h * 0.62) - r * 2;
+    appendFixtureRect(group, x0 + r, y0 + r, rw, rh, "fixture-rug", roundedAttr(0.18));
+  }
+
+  if (horizontal) {
+    appendSofa(group, x0 + w * 0.03, y0 + h * 0.16, w * 0.13, h * 0.66, false);
+    appendFixtureRect(group, x0 + w * 0.24, y0 + h * 0.36, w * 0.12, h * 0.28, "fixture-table", roundedAttr(0.05));
+    appendFixtureRect(group, x0 + w * 0.47, y0 + h * 0.2, w * 0.05, h * 0.6, "fixture-tv");
+  } else {
+    appendSofa(group, x0 + w * 0.16, y0 + h * 0.03, w * 0.66, h * 0.13, true);
+    appendFixtureRect(group, x0 + w * 0.36, y0 + h * 0.24, w * 0.28, h * 0.12, "fixture-table", roundedAttr(0.05));
+    appendFixtureRect(group, x0 + w * 0.2, y0 + h * 0.47, w * 0.6, h * 0.05, "fixture-tv");
   }
 }
 
@@ -1369,18 +1952,112 @@ function appendUtilityFixture(group, bounds) {
 
 function appendGeneralRoomFixture(group, bounds) {
   const inner = insetBounds(bounds, fixturePadding(bounds));
-  appendFixtureEllipse(group, inner.minX + inner.width * 0.5, inner.minY + inner.height * 0.52, inner.width * 0.15, inner.height * 0.11, "fixture-table");
+  if (inner.width < 0.7 || inner.height < 0.7) {
+    return;
+  }
+  const cx = inner.minX + inner.width * 0.5;
+  const cy = inner.minY + inner.height * 0.5;
+  const tw = inner.width * 0.34;
+  const th = inner.height * 0.26;
+  appendFixtureRect(group, cx - tw / 2, cy - th / 2, tw, th, "fixture-table", roundedAttr(0.05));
+  const chairW = Math.min(tw * 0.26, 0.5);
+  const chairH = Math.min(th * 0.34, 0.5);
+  if (chairW > 0.16 && chairH > 0.16) {
+    appendFixtureRect(group, cx - tw * 0.28, cy - th / 2 - chairH * 1.1, chairW, chairH, "fixture-chair");
+    appendFixtureRect(group, cx + tw * 0.28 - chairW, cy - th / 2 - chairH * 1.1, chairW, chairH, "fixture-chair");
+    appendFixtureRect(group, cx - tw * 0.28, cy + th / 2 + chairH * 0.1, chairW, chairH, "fixture-chair");
+    appendFixtureRect(group, cx + tw * 0.28 - chairW, cy + th / 2 + chairH * 0.1, chairW, chairH, "fixture-chair");
+  }
+}
+
+// --- Furniture sub-helpers: small composable pieces the room fixtures assemble. ---
+
+function roundedAttr(radius) {
+  return { rx: round(radius), ry: round(radius) };
+}
+
+function appendFixtureLine(group, x1, y1, x2, y2, className = "fixture-detail") {
+  group.appendChild(lineEl({ x: x1, y: y1 }, { x: x2, y: y2 }, className));
+}
+
+function appendDoorSplits(group, x, y, width, height, horizontal, count) {
+  for (let i = 1; i < count; i += 1) {
+    if (horizontal) {
+      const ly = y + (height / count) * i;
+      appendFixtureLine(group, x, ly, x + width, ly);
+    } else {
+      const lx = x + (width / count) * i;
+      appendFixtureLine(group, lx, y, lx, y + height);
+    }
+  }
+}
+
+function appendToilet(group, x, y, size) {
+  if (size < 0.18) {
+    return;
+  }
+  const w = size * 0.62;
+  appendFixtureRect(group, x + (size - w) / 2, y, w, size * 0.3, "fixture-wc", roundedAttr(0.03));
+  appendFixtureEllipse(group, x + size / 2, y + size * 0.62, size * 0.32, size * 0.34, "fixture-wc");
+}
+
+function appendBasin(group, x, y, width, height) {
+  if (width < 0.2 || height < 0.16) {
+    return;
+  }
+  appendFixtureRect(group, x, y, width, height, "fixture-counter", roundedAttr(0.04));
+  appendFixtureEllipse(group, x + width / 2, y + height / 2, width * 0.32, height * 0.34, "fixture-sink");
+}
+
+function appendShower(group, x, y, width, height) {
+  if (width < 0.24 || height < 0.24) {
+    return;
+  }
+  appendFixtureRect(group, x, y, width, height, "fixture-shower", roundedAttr(0.04));
+  appendFixtureLine(group, x, y, x + width, y + height);
+  appendFixtureLine(group, x + width, y, x, y + height);
+  appendFixtureCircle(group, x + width / 2, y + height / 2, Math.min(width, height) * 0.08, "fixture-detail");
+}
+
+function appendHob(group, x, y, width, height) {
+  appendFixtureRect(group, x, y, width, height, "fixture-stove", roundedAttr(0.03));
+  if (Math.min(width, height) > 0.3) {
+    [0.3, 0.7].forEach((fx) => [0.3, 0.7].forEach((fy) =>
+      appendFixtureCircle(group, x + width * fx, y + height * fy, Math.min(width, height) * 0.13, "fixture-burner")));
+  }
+}
+
+function appendDoubleSink(group, x, y, width, height, horizontal) {
+  appendFixtureRect(group, x, y, width, height, "fixture-sink", roundedAttr(0.03));
+  if (horizontal && width > 0.3) {
+    appendFixtureLine(group, x + width / 2, y, x + width / 2, y + height);
+  } else if (!horizontal && height > 0.3) {
+    appendFixtureLine(group, x, y + height / 2, x + width, y + height / 2);
+  }
+}
+
+function appendSofa(group, x, y, width, height, horizontal) {
+  appendFixtureRect(group, x, y, width, height, "fixture-sofa", roundedAttr(0.06));
+  if (horizontal) {
+    appendFixtureLine(group, x, y, x + width, y);
+    appendFixtureLine(group, x + width / 3, y + height * 0.34, x + width / 3, y + height);
+    appendFixtureLine(group, x + (width * 2) / 3, y + height * 0.34, x + (width * 2) / 3, y + height);
+  } else {
+    appendFixtureLine(group, x, y, x, y + height);
+    appendFixtureLine(group, x + width * 0.34, y + height / 3, x + width, y + height / 3);
+    appendFixtureLine(group, x + width * 0.34, y + (height * 2) / 3, x + width, y + (height * 2) / 3);
+  }
 }
 
 function fixturePadding(bounds) {
   return Math.min(Math.max(Math.min(bounds.width, bounds.height) * 0.12, 0.14), 0.65);
 }
 
-function appendFixtureRect(group, x, y, width, height, className) {
+function appendFixtureRect(group, x, y, width, height, className, attributes = {}) {
   if (width <= 0.04 || height <= 0.04) {
     return;
   }
-  group.appendChild(rectEl(x, y, width, height, `fixture ${className}`));
+  group.appendChild(rectEl(x, y, width, height, `fixture ${className}`, attributes));
 }
 
 function appendFixtureCircle(group, cx, cy, radius, className) {
@@ -1427,7 +2104,7 @@ function renderSelectedRoomHalo(group, variant) {
     halo.appendChild(rectEl(bounds.minX, bounds.minY, bounds.width, bounds.height, "room-selected-halo"));
   }
 
-  const radius = Math.max(Math.max(bounds.width, bounds.height) * 0.014, 0.12);
+  const radius = clamp(Math.max(bounds.width, bounds.height) * 0.011, 0.09, 0.16);
   if (state.editMode) {
     selectedHaloGripPoints(bounds).forEach((point) => {
       halo.appendChild(svgEl("circle", {
@@ -1492,16 +2169,80 @@ function renderWallSegment(group, wall) {
 
   const attributes = selectableAttributes("wall", wall.id);
   const thickness = wallStrokeWidth(wall);
-  group.appendChild(lineEl(wall.centerline.start, wall.centerline.end, "wall-backdrop"));
-  group.appendChild(lineEl(
-    wall.centerline.start,
-    wall.centerline.end,
-    selectableClass(`wall wall-${safeClassToken(wall.layerType || "partition")}`, "wall", wall.id),
-    {
+  const wallClass = selectableClass(`wall wall-${safeClassToken(wall.layerType || "partition")}`, "wall", wall.id);
+
+  // A white halo keeps the wall crisp where it abuts a dark fixture or another wall.
+  group.appendChild(lineEl(wall.centerline.start, wall.centerline.end, "wall-backdrop", {
+    "stroke-width": formatNumber(thickness + 0.07, 3)
+  }));
+
+  // Construction-document poché: each wall is drawn as its real footprint polygon
+  // (centerline offset by half its data-driven thickness, in real model metres) so it
+  // carries a crisp double-line outline with a hatch-pattern fill between the faces,
+  // rather than a single flat stroke. Ends are extended by half-thickness so abutting
+  // walls overlap and corners read solid. Degenerate walls fall back to a stroke.
+  const footprint = wallFootprint(wall, thickness);
+  if (footprint) {
+    group.appendChild(polygonEl(footprint, wallClass, attributes));
+  } else {
+    group.appendChild(lineEl(wall.centerline.start, wall.centerline.end, wallClass, {
       ...attributes,
       "stroke-width": formatNumber(thickness, 3)
     }));
+  }
   group.appendChild(lineEl(wall.centerline.start, wall.centerline.end, "wall-hit", attributes));
+}
+
+function wallFootprint(wall, thickness) {
+  const direction = wallDirection(wall);
+  if (!direction) {
+    return null;
+  }
+
+  const start = wall.centerline.start;
+  const end = wall.centerline.end;
+  const half = thickness / 2;
+  const ext = thickness / 2;
+  const sx = Number(start.x) - direction.ux * ext;
+  const sy = Number(start.y) - direction.uy * ext;
+  const ex = Number(end.x) + direction.ux * ext;
+  const ey = Number(end.y) + direction.uy * ext;
+  const nx = direction.nx * half;
+  const ny = direction.ny * half;
+  return [
+    { x: sx + nx, y: sy + ny },
+    { x: ex + nx, y: ey + ny },
+    { x: ex - nx, y: ey - ny },
+    { x: sx - nx, y: sy - ny }
+  ];
+}
+
+function renderSvgDefs() {
+  const defs = svgEl("defs");
+  // 45-degree poché hatch tiled in real model metres so it scales with the plan.
+  // Heavy tile (denser) for demising/structure, light tile for partitions.
+  defs.appendChild(buildHatchPattern("wallPocheHeavy", 0.05, 0.026));
+  defs.appendChild(buildHatchPattern("wallPocheLight", 0.058, 0.018));
+  els.planSvg.appendChild(defs);
+}
+
+function buildHatchPattern(id, gap, weight) {
+  const pattern = svgEl("pattern", {
+    id,
+    patternUnits: "userSpaceOnUse",
+    width: formatNumber(gap, 3),
+    height: formatNumber(gap, 3),
+    patternTransform: "rotate(45)"
+  });
+  pattern.appendChild(svgEl("line", {
+    x1: 0,
+    y1: 0,
+    x2: 0,
+    y2: formatNumber(gap, 3),
+    stroke: "#1b2026",
+    "stroke-width": formatNumber(weight, 3)
+  }));
+  return pattern;
 }
 
 function renderDoorOpening(group, door, wall, bounds) {
@@ -1536,7 +2277,7 @@ function renderDoorOpening(group, door, wall, bounds) {
 
   const width = clamp(Number(door.width) || 0.9, 0.45, 2.4);
   const half = width / 2;
-  const swing = Math.max(width * 0.9, 0.62);
+  const swing = clamp(width, 0.6, 1.1);
   const swingSign = doorSwingSign(door, direction, bounds);
   const p1 = { x: location.x - direction.ux * half, y: location.y - direction.uy * half };
   const p2 = { x: location.x + direction.ux * half, y: location.y + direction.uy * half };
@@ -1595,7 +2336,7 @@ function wallStrokeWidth(wall) {
 }
 
 function renderRoomLabels(variant) {
-  if (!state.editMode || state.viewMode !== "circulation") {
+  if (!state.labelsVisible || state.viewMode !== "plan") {
     return;
   }
 
@@ -1618,15 +2359,22 @@ function renderRoomLabels(variant) {
       "font-size": formatNumber(fontSize, 2)
     });
     const title = svgEl("tspan", { x: round(centerX), dy: 0 });
-    title.textContent = compactRoomLabel(room);
+    title.textContent = densePlan ? compactRoomLabel(room) : planRoomLabelName(room);
     text.appendChild(title);
-    if (!densePlan && Math.min(bounds.width, bounds.height) >= 3.6) {
+    const minSpan = Math.min(bounds.width, bounds.height);
+    const showMeta = densePlan ? minSpan >= 2.1 : minSpan >= 2.6;
+    if (showMeta) {
       const meta = svgEl("tspan", {
         class: "room-label-meta",
         x: round(centerX),
         dy: formatNumber(fontSize * 1.3, 2)
       });
-      meta.textContent = roomDimensionText(room, bounds);
+      const areaValue = Number(room && room.area);
+      // Dense plans get a compact area line (e.g. "6.5 m2"); sparse plans get the
+      // fuller W x D dimension string, which has room to breathe.
+      meta.textContent = densePlan && Number.isFinite(areaValue) && areaValue > 0
+        ? `${formatNumber(areaValue, 1)} m²`
+        : roomDimensionText(room, bounds, 2);
       text.appendChild(meta);
     }
     els.planSvg.appendChild(text);
@@ -1641,7 +2389,9 @@ function shouldShowRoomLabel(room, bounds, densePlan) {
   const minDimension = Math.min(bounds.width, bounds.height);
   const area = Number(room && room.area) || bounds.width * bounds.height;
   if (densePlan) {
-    return minDimension >= 2.75 && area >= 7;
+    // A construction document labels every habitable room; only skip closets and
+    // slivers too small to seat even a compact tag without colliding with walls.
+    return minDimension >= 1.7 && area >= 3.2;
   }
 
   return minDimension >= 1.9 && area >= 4.5;
@@ -1649,8 +2399,8 @@ function shouldShowRoomLabel(room, bounds, densePlan) {
 
 function roomLabelFontSize(bounds, densePlan) {
   const minDimension = Math.min(bounds.width, bounds.height);
-  const max = densePlan ? 0.5 : 0.66;
-  const min = densePlan ? 0.34 : 0.4;
+  const max = Math.min(densePlan ? 0.46 : 0.6, maxPlanLabelFontSize);
+  const min = densePlan ? 0.32 : 0.38;
   return clamp(minDimension * 0.15, min, max);
 }
 
@@ -1684,12 +2434,17 @@ function displayRoomType(room) {
   return displayUnitType(room && (room.roomType || room.type || "room"));
 }
 
-function roomDimensionText(room, bounds) {
+function planRoomLabelName(room) {
+  const type = displayRoomType(room);
+  return String(type || compactRoomLabel(room)).toUpperCase();
+}
+
+function roomDimensionText(room, bounds, digits = 1) {
   const dimensions = room && room.dimensions ? room.dimensions : {};
   const width = Number(dimensions.width) || (bounds ? bounds.width : 0);
   const depth = Number(dimensions.depth) || (bounds ? bounds.height : 0);
   if (width > 0 && depth > 0) {
-    return `${formatNumber(width, 1)} x ${formatNumber(depth, 1)}`;
+    return `${formatNumber(width, digits)} x ${formatNumber(depth, digits)}`;
   }
 
   const area = Number(room && room.area);
@@ -1730,6 +2485,8 @@ function setViewMode(mode) {
 
   state.viewMode = mode;
   state.zoom = 1;
+  state.panX = 0;
+  state.panY = 0;
   if (mode === "axon") {
     state.editMode = false;
     state.dragEdit = null;
@@ -1755,12 +2512,42 @@ function handleCanvasAction(action) {
     return;
   }
 
+  if (action === "labels-toggle") {
+    state.labelsVisible = !state.labelsVisible;
+    renderAll();
+    setStatus(state.labelsVisible ? "Room labels on" : "Room labels off");
+    return;
+  }
+
+  if (action === "grid-toggle") {
+    state.gridVisible = !state.gridVisible;
+    renderAll();
+    setStatus(state.gridVisible ? "Reference grid on" : "Reference grid off");
+    return;
+  }
+
+  if (action === "fullscreen") {
+    toggleFullscreen();
+    return;
+  }
+
+  if (action === "undo") {
+    undoEdit();
+    return;
+  }
+
+  if (action === "redo") {
+    redoEdit();
+    return;
+  }
+
   if (!els.planSvg.getAttribute("viewBox")) {
     setStatus("Generate a plan before using canvas tools");
     return;
   }
 
   if (action === "select") {
+    state.canvasTool = "select";
     state.editMode = false;
     state.dragEdit = null;
     state.editReadout = "";
@@ -1770,20 +2557,23 @@ function handleCanvasAction(action) {
   }
 
   if (action === "pan") {
+    state.canvasTool = "pan";
     state.editMode = false;
     state.dragEdit = null;
     state.editReadout = "";
     renderAll();
-    setStatus("Pan tool");
+    setStatus("Pan tool — drag to move the view");
     return;
   }
 
   if (action === "zoom-in") {
-    state.zoom = clamp(state.zoom * 1.25, 1, 4);
+    state.zoom = clamp(state.zoom * 1.25, 1, maxZoom);
   } else if (action === "zoom-out") {
-    state.zoom = clamp(state.zoom / 1.25, 1, 4);
+    state.zoom = clamp(state.zoom / 1.25, 1, maxZoom);
   } else if (action === "fit") {
     state.zoom = 1;
+    state.panX = 0;
+    state.panY = 0;
   } else {
     return;
   }
@@ -1860,6 +2650,326 @@ function handlePlanActionKeyDown(event) {
   runSelectedPlanAction(planAction.dataset.planAction);
 }
 
+function setCanvasButtonState(action, active) {
+  const button = els.canvasButtons.find((candidate) => candidate.dataset.canvasAction === action);
+  if (!button) {
+    return;
+  }
+  button.classList.toggle("active", Boolean(active));
+  button.setAttribute("aria-pressed", active ? "true" : "false");
+}
+
+function setCanvasButtonDisabled(action, disabled) {
+  const button = els.canvasButtons.find((candidate) => candidate.dataset.canvasAction === action);
+  if (!button) {
+    return;
+  }
+  // Moving focus off a button before disabling it keeps a keyboard user anchored in
+  // the toolbar instead of dropping focus to <body> (e.g. the last Undo emptying the stack).
+  if (disabled && document.activeElement === button) {
+    const fallback = els.canvasButtons.find((candidate) => candidate !== button && !candidate.disabled);
+    if (fallback) {
+      fallback.focus();
+    } else {
+      button.blur();
+    }
+  }
+  button.disabled = Boolean(disabled);
+  button.classList.toggle("is-disabled", Boolean(disabled));
+}
+
+function toggleFullscreen() {
+  const el = els.previewFrame;
+  if (!el) {
+    return;
+  }
+  const current = document.fullscreenElement || document.webkitFullscreenElement;
+  if (current) {
+    const exit = document.exitFullscreen || document.webkitExitFullscreen;
+    if (exit) {
+      exit.call(document);
+    }
+    return;
+  }
+  const request = el.requestFullscreen || el.webkitRequestFullscreen;
+  if (!request) {
+    setStatus("Full screen is not supported in this browser");
+    return;
+  }
+  const result = request.call(el);
+  if (result && typeof result.catch === "function") {
+    result.catch(() => setStatus("Full screen request was blocked by the browser"));
+  }
+}
+
+function handleFullscreenChange() {
+  const current = document.fullscreenElement || document.webkitFullscreenElement;
+  state.isFullscreen = Boolean(current && current === els.previewFrame);
+  // The canvas just changed size; recompute the aspect-matched viewBox and chrome.
+  renderAll();
+  setStatus(state.isFullscreen ? "Full screen editor" : "Exited full screen");
+}
+
+function zoomAround(factor, clientX, clientY) {
+  if (!els.planSvg.getAttribute("viewBox") || !state.viewFrame) {
+    return;
+  }
+  const rect = els.planSvg.getBoundingClientRect();
+  if (!rect.width || !rect.height) {
+    return;
+  }
+  const newZoom = clamp(state.zoom * factor, 1, maxZoom);
+  if (Math.abs(newZoom - state.zoom) < 1e-4) {
+    return;
+  }
+  const frame = state.viewFrame;
+  const curW = frame.width / state.zoom;
+  const curH = frame.height / state.zoom;
+  const curX = frame.centerX + (Number(state.panX) || 0) - curW / 2;
+  const curY = frame.centerY + (Number(state.panY) || 0) - curH / 2;
+  const fx = clamp((clientX - rect.left) / rect.width, 0, 1);
+  const fy = clamp((clientY - rect.top) / rect.height, 0, 1);
+  const anchorX = curX + fx * curW;
+  const anchorY = curY + fy * curH;
+  const newW = frame.width / newZoom;
+  const newH = frame.height / newZoom;
+  state.zoom = newZoom;
+  state.panX = (anchorX - fx * newW) + newW / 2 - frame.centerX;
+  state.panY = (anchorY - fy * newH) + newH / 2 - frame.centerY;
+  renderAll();
+}
+
+function handleCanvasWheel(event) {
+  if (state.viewMode === "axon" || !els.planSvg.getAttribute("viewBox")) {
+    return;
+  }
+  event.preventDefault();
+  const factor = event.deltaY < 0 ? 1.12 : 1 / 1.12;
+  zoomAround(factor, event.clientX, event.clientY);
+}
+
+function canvasPanAllowed(event) {
+  if (state.viewMode === "axon" || !els.planSvg.getAttribute("viewBox")) {
+    return false;
+  }
+  if (event.target.closest && event.target.closest("[data-edit-action]")) {
+    return false;
+  }
+  const toolPan = state.canvasTool === "pan" && !state.editMode;
+  return toolPan || state.spaceHeld || event.button === 1;
+}
+
+function handleCanvasPanDown(event) {
+  if (!canvasPanAllowed(event)) {
+    return;
+  }
+  const rect = els.planSvg.getBoundingClientRect();
+  const vb = (els.planSvg.getAttribute("viewBox") || "").split(/\s+/).map(Number);
+  if (vb.length !== 4 || !rect.width || !rect.height) {
+    return;
+  }
+  event.preventDefault();
+  state.panDrag = {
+    clientX: event.clientX,
+    clientY: event.clientY,
+    panX: Number(state.panX) || 0,
+    panY: Number(state.panY) || 0,
+    scaleX: vb[2] / rect.width,
+    scaleY: vb[3] / rect.height,
+    viewW: vb[2],
+    viewH: vb[3]
+  };
+  try {
+    els.planSvg.setPointerCapture(event.pointerId);
+  } catch (_) {
+    // Pointer capture is a smoothness nicety, not a requirement.
+  }
+  els.previewFrame.classList.add("is-panning");
+}
+
+function handleCanvasPanMove(event) {
+  const drag = state.panDrag;
+  if (!drag || !state.viewFrame) {
+    return;
+  }
+  event.preventDefault();
+  const frame = state.viewFrame;
+  const limitX = Math.max((frame.width - drag.viewW) / 2, 0);
+  const limitY = Math.max((frame.height - drag.viewH) / 2, 0);
+  const panX = clamp(drag.panX - (event.clientX - drag.clientX) * drag.scaleX, -limitX, limitX);
+  const panY = clamp(drag.panY - (event.clientY - drag.clientY) * drag.scaleY, -limitY, limitY);
+  state.panX = panX;
+  state.panY = panY;
+  // Re-aim the viewBox directly for a smooth drag without a full canvas re-render.
+  const vx = frame.centerX + panX - drag.viewW / 2;
+  const vy = frame.centerY + panY - drag.viewH / 2;
+  els.planSvg.setAttribute("viewBox", `${formatNumber(vx, 3)} ${formatNumber(vy, 3)} `
+    + `${formatNumber(drag.viewW, 3)} ${formatNumber(drag.viewH, 3)}`);
+}
+
+function handleCanvasPanUp() {
+  if (!state.panDrag) {
+    return;
+  }
+  state.panDrag = null;
+  els.previewFrame.classList.remove("is-panning");
+  renderAll();
+}
+
+function isTextEntryTarget(target) {
+  if (!target || !target.tagName) {
+    return false;
+  }
+  const tag = target.tagName.toLowerCase();
+  return tag === "input" || tag === "textarea" || tag === "select" || Boolean(target.isContentEditable);
+}
+
+function isInteractiveTarget(target) {
+  if (isTextEntryTarget(target)) {
+    return true;
+  }
+  const tag = target && target.tagName ? target.tagName.toLowerCase() : "";
+  return tag === "button" || tag === "a";
+}
+
+const canvasKeyShortcuts = {
+  "+": "zoom-in",
+  "=": "zoom-in",
+  "-": "zoom-out",
+  _: "zoom-out",
+  "0": "fit",
+  f: "fullscreen",
+  g: "grid-toggle",
+  e: "edit-toggle",
+  l: "labels-toggle",
+  v: "select",
+  h: "pan"
+};
+
+function handleEditorKeyDown(event) {
+  if (event.code === "Space") {
+    if (location.hash === "#plan" && !isInteractiveTarget(event.target)) {
+      if (!event.repeat) {
+        state.spaceHeld = true;
+        els.previewFrame.classList.add("space-pan");
+      }
+      event.preventDefault();
+    }
+    return;
+  }
+
+  if (isTextEntryTarget(event.target) || location.hash !== "#plan") {
+    return;
+  }
+
+  if (event.ctrlKey || event.metaKey) {
+    const key = event.key.toLowerCase();
+    if (key === "z") {
+      event.preventDefault();
+      if (event.shiftKey) {
+        redoEdit();
+      } else {
+        undoEdit();
+      }
+    } else if (key === "y") {
+      event.preventDefault();
+      redoEdit();
+    }
+    return;
+  }
+
+  const action = canvasKeyShortcuts[event.key.toLowerCase()] || canvasKeyShortcuts[event.key];
+  if (action) {
+    event.preventDefault();
+    handleCanvasAction(action);
+    return;
+  }
+
+  if (event.key === "Escape" && state.selection) {
+    state.selection = null;
+    renderAll();
+    return;
+  }
+
+  const arrows = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, 1], ArrowDown: [0, -1] };
+  if (arrows[event.key] && state.zoom > 1 && state.viewFrame) {
+    event.preventDefault();
+    const step = (state.viewFrame.width / state.zoom) * 0.12;
+    state.panX = (Number(state.panX) || 0) + arrows[event.key][0] * step;
+    state.panY = (Number(state.panY) || 0) + arrows[event.key][1] * step;
+    renderAll();
+  }
+}
+
+function handleEditorKeyUp(event) {
+  if (event.code === "Space") {
+    state.spaceHeld = false;
+    els.previewFrame.classList.remove("space-pan");
+  }
+}
+
+function pushUndoSnapshot(input) {
+  if (!input) {
+    return;
+  }
+  state.undoStack.push(clone(input));
+  if (state.undoStack.length > undoStackLimit) {
+    state.undoStack.shift();
+  }
+  state.redoStack = [];
+}
+
+function undoEdit() {
+  if (!state.undoStack.length) {
+    setStatus("Nothing to undo");
+    return;
+  }
+  state.redoStack.push(clone(state.input));
+  applyInputFromHistory(state.undoStack.pop(), "Undid last edit");
+}
+
+function redoEdit() {
+  if (!state.redoStack.length) {
+    setStatus("Nothing to redo");
+    return;
+  }
+  state.undoStack.push(clone(state.input));
+  applyInputFromHistory(state.redoStack.pop(), "Redid edit");
+}
+
+function applyInputFromHistory(input, label) {
+  state.input = clone(input);
+  syncFormFromInput(state.input);
+  setEditorFromInput(state.input);
+  saveDraft();
+  state.editReadout = state.editMode ? editSummary(state.input) : "";
+  markInputDirty(label, 120);
+  renderAll();
+  setStatus(label);
+}
+
+function renderPlanGrid(group, bounds) {
+  if (!state.gridVisible || state.viewMode === "axon" || !bounds) {
+    return;
+  }
+  const minor = 1;
+  const major = 5;
+  const layer = svgEl("g", { class: "plan-grid" });
+  const startX = Math.floor(bounds.minX / minor) * minor;
+  const endX = Math.ceil(bounds.maxX / minor) * minor;
+  const startY = Math.floor(bounds.minY / minor) * minor;
+  const endY = Math.ceil(bounds.maxY / minor) * minor;
+  for (let x = startX; x <= endX + 1e-6; x += minor) {
+    const isMajor = Math.abs(x / major - Math.round(x / major)) < 1e-6;
+    layer.appendChild(lineEl({ x, y: bounds.minY }, { x, y: bounds.maxY }, isMajor ? "grid-line grid-line-major" : "grid-line"));
+  }
+  for (let y = startY; y <= endY + 1e-6; y += minor) {
+    const isMajor = Math.abs(y / major - Math.round(y / major)) < 1e-6;
+    layer.appendChild(lineEl({ x: bounds.minX, y }, { x: bounds.maxX, y }, isMajor ? "grid-line grid-line-major" : "grid-line"));
+  }
+  group.appendChild(layer);
+}
+
 function updateCanvasUi(output) {
   const editActive = Boolean(state.editMode && state.viewMode !== "axon");
   const editToggle = els.canvasButtons.find((button) => button.dataset.canvasAction === "edit-toggle");
@@ -1868,7 +2978,28 @@ function updateCanvasUi(output) {
     editToggle.setAttribute("aria-pressed", editActive ? "true" : "false");
   }
 
+  const labelsActive = Boolean(state.labelsVisible);
+  const labelsToggle = els.canvasButtons.find((button) => button.dataset.canvasAction === "labels-toggle");
+  if (labelsToggle) {
+    labelsToggle.classList.toggle("active", labelsActive);
+    labelsToggle.setAttribute("aria-pressed", labelsActive ? "true" : "false");
+  }
+
+  setCanvasButtonState("grid-toggle", state.gridVisible);
+  setCanvasButtonState("fullscreen", state.isFullscreen);
+  setCanvasButtonState("select", state.canvasTool === "select" && !editActive);
+  setCanvasButtonState("pan", state.canvasTool === "pan" && !editActive);
+  setCanvasButtonDisabled("undo", state.undoStack.length === 0);
+  setCanvasButtonDisabled("redo", state.redoStack.length === 0);
+
   els.previewFrame.classList.toggle("is-edit-mode", editActive);
+  els.previewFrame.classList.toggle("labels-on", labelsActive);
+  els.previewFrame.classList.toggle("grid-on", Boolean(state.gridVisible));
+  els.previewFrame.classList.toggle("is-fullscreen", Boolean(state.isFullscreen));
+  els.previewFrame.dataset.canvasTool = state.canvasTool;
+  if (els.zoomLevel) {
+    els.zoomLevel.textContent = `${Math.round(clamp(state.zoom, 1, maxZoom) * 100)}%`;
+  }
   const selectedSummary = selectionInlineSummary(selectedElementDetails(output));
   const text = editActive ? (state.editReadout || editSummary(state.input)) : selectedSummary;
   els.editReadout.textContent = text || "";
@@ -2699,6 +3830,7 @@ function handlePlanPointerMove(event) {
     return;
   }
 
+  state.dragEdit.lastPoint = point;
   state.input = edited;
   syncFormFromInput(state.input);
   setEditorFromInput(state.input);
@@ -2711,6 +3843,12 @@ function handlePlanPointerMove(event) {
 function finishPlanPointerEdit() {
   if (!state.dragEdit) {
     return;
+  }
+
+  // Capture the pre-drag input so this edit can be undone, but only when the
+  // pointer actually moved (a bare click on a handle should not stack history).
+  if (state.dragEdit.startInput && state.dragEdit.lastPoint) {
+    pushUndoSnapshot(state.dragEdit.startInput);
   }
 
   state.dragEdit = null;
@@ -3020,17 +4158,32 @@ function renderSelectionConstraintHandles(group, output) {
 }
 
 function editHandle(action, x, y, radius, label) {
+  const visible = Math.max(radius, 0.34);
+  // The visible dot is small for a clean drawing, so wrap it in a generous invisible
+  // grab halo: pointers landing anywhere in the halo still resolve to this handle via
+  // closest("[data-edit-action]"), making resize/move drags forgiving to seize.
+  const group = svgEl("g", {
+    class: `edit-handle-group edit-${action}`,
+    "data-edit-action": action
+  });
+  group.appendChild(svgEl("circle", {
+    class: "edit-handle-hit",
+    cx: round(x),
+    cy: round(y),
+    r: round(Math.max(visible * 1.9, 0.85))
+  }));
   const handle = svgEl("circle", {
     class: `edit-handle edit-${action}`,
     "data-edit-action": action,
     cx: round(x),
     cy: round(y),
-    r: Math.max(radius, 0.34)
+    r: round(visible)
   });
+  group.appendChild(handle);
   const title = svgEl("title");
   title.textContent = label;
-  handle.appendChild(title);
-  return handle;
+  group.appendChild(title);
+  return group;
 }
 
 function editHandleLabel(text, x, y, radius, placement = "right") {
@@ -3196,6 +4349,58 @@ function renderMetrics(output) {
       <strong>${escapeHtml(value)}</strong>
     </div>
   `).join("");
+}
+
+function renderPlanTitleBlock(output) {
+  const block = els.planTitleBlock;
+  if (!block) {
+    return;
+  }
+
+  const variant = selectedVariant(output);
+  if (!variant || state.viewMode !== "plan") {
+    block.hidden = true;
+    block.innerHTML = "";
+    return;
+  }
+
+  const metadata = output ? output.metadata : null;
+  const floorplate = metadata ? metadata.floorplate : null;
+  const metrics = variant.metrics || {};
+  const net = Number(metrics.sellableArea);
+  const gross = floorplate ? Number(floorplate.grossArea) : NaN;
+  const ratio = Number(metrics.netGrossRatio);
+  const efficiency = Number.isFinite(ratio)
+    ? ratio
+    : (Number.isFinite(net) && Number.isFinite(gross) && gross > 0 ? net / gross : NaN);
+  const projectName = formatProjectName(output ? output.projectId : "");
+  const rows = [
+    ["Units", String((variant.units || []).length)],
+    ["Rooms", String((variant.rooms || []).length)],
+    ["Net area", Number.isFinite(net) ? `${formatNumber(net, 0)} m²` : "-"],
+    ["Gross area", Number.isFinite(gross) ? `${formatNumber(gross, 0)} m²` : "-"],
+    ["Efficiency", Number.isFinite(efficiency) ? `${formatNumber(efficiency * 100, 0)}%` : "-"]
+  ];
+  const schedule = rows
+    .map(([key, value]) => `<div><dt>${escapeHtml(key)}</dt><dd>${escapeHtml(value)}</dd></div>`)
+    .join("");
+  const subtitle = projectName ? `Main Level &middot; ${escapeHtml(projectName)}` : "Main Level";
+  block.innerHTML = `
+    <div class="title-block-head">
+      <strong>FLOOR PLAN</strong>
+      <span>${subtitle}</span>
+    </div>
+    <dl class="title-block-schedule">${schedule}</dl>
+  `;
+  block.hidden = false;
+}
+
+function formatProjectName(id) {
+  const text = String(id || "").trim();
+  if (!text) {
+    return "";
+  }
+  return text.replace(/[-_]+/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 function renderVariants(output) {
@@ -4099,10 +5304,10 @@ function rectEl(x, y, width, height, className, attributes = {}) {
 function lineEl(start, end, className, attributes = {}) {
   return svgEl("line", {
     class: className,
-    x1: start.x,
-    y1: start.y,
-    x2: end.x,
-    y2: end.y,
+    x1: round(start.x),
+    y1: round(start.y),
+    x2: round(end.x),
+    y2: round(end.y),
     ...attributes
   });
 }
@@ -4346,21 +5551,60 @@ function saveSvg() {
 
 function svgStyleElement() {
   const style = document.createElementNS("http://www.w3.org/2000/svg", "style");
+  // Self-contained styles for the exported SVG so a saved/Rhino-bound drawing matches
+  // the live construction-document rendering (paper palette, hatched poché walls drawn
+  // via the cloned <defs> patterns, real door/window symbols, fixtures, dimensions).
+  // Strokes are in model metres (no non-scaling-stroke) which is correct for vector use.
   style.textContent = `
-    .boundary{fill:#f9fbfb;stroke:#222831;stroke-width:0.18}
-    .fixed{fill:#334155;stroke:#111820;stroke-width:0.12}
-    .corridor{fill:#f9d889;stroke:#b7791f;stroke-width:0.12}
-    .unit{fill:#d9ebf7;stroke:#3f7ea6;stroke-width:0.12}
-    .unit-one_bed{fill:#dff0df;stroke:#4f8d50}
-    .unit-two_bed{fill:#eadff6;stroke:#7d64a3}
-    .room{fill:rgba(255,255,255,0.42);stroke:rgba(31,36,40,0.38);stroke-width:0.06}
-    .svg-label{fill:#1f2428;font-size:1.35px;font-weight:700}
+    .boundary{fill:#ffffff;stroke:#0b0f13;stroke-width:0.4;paint-order:stroke fill}
+    .fixed{fill:#cfd6db;stroke:#0e1318;stroke-width:0.06}
+    .corridor{fill:rgba(241,241,238,0.78);stroke:rgba(90,92,95,0.32);stroke-width:0.05}
+    .unit{fill:none;stroke:rgba(18,27,36,0.16);stroke-width:0.05}
+    .room{fill:#fcfcfa;stroke:rgba(16,24,32,0.12);stroke-width:0.04}
+    .room-bedroom{fill:rgba(243,241,235,0.55)}
+    .room-bathroom{fill:rgba(228,236,238,0.6)}
+    .room-kitchen{fill:rgba(230,237,232,0.6)}
+    .room-living{fill:rgba(247,243,233,0.55)}
+    .room-balcony{fill:rgba(233,239,232,0.5)}
+    .room-service,.room-general{fill:rgba(237,239,236,0.5)}
+    .wall{fill:url(#wallPocheLight);stroke:rgba(17,21,26,0.92);stroke-width:0.022}
+    .wall-room_partition{fill:url(#wallPocheLight)}
+    .wall-unit_demising,.wall-exterior,.wall-unit_boundary{fill:url(#wallPocheHeavy);stroke:#0e1318}
+    .wall-backdrop{stroke:#ffffff}
+    .wall-hit{stroke:none}
+    .daylight-band{fill:rgba(202,223,233,0.5);stroke:none}
+    .window-frame{fill:none;stroke:rgba(26,36,47,0.88);stroke-width:0.05}
+    .window-mullion{fill:none;stroke:rgba(26,36,47,0.88);stroke-width:0.03}
+    .window-jamb{fill:none;stroke:rgba(26,36,47,0.88);stroke-width:0.06}
+    .fixture{fill:rgba(249,251,252,0.62);stroke:rgba(44,55,64,0.72);stroke-width:0.05}
+    .fixture-bed{fill:rgba(238,245,248,0.86)}
+    .fixture-pillow,.fixture-sink,.fixture-toilet{fill:rgba(255,255,255,0.9)}
+    .fixture-wardrobe,.fixture-counter{fill:rgba(216,225,229,0.72)}
+    .fixture-appliance{fill:rgba(247,248,248,0.92)}
+    .fixture-table{fill:rgba(248,245,235,0.86)}
+    .fixture-chair,.fixture-sofa{fill:rgba(224,234,238,0.86)}
+    .fixture-bath,.fixture-shower{fill:rgba(255,250,245,0.92)}
+    .fixture-plant{fill:rgba(103,143,104,0.45)}
+    .fixture-burner{fill:rgba(58,69,79,0.34)}
+    .fixture-detail{fill:none;stroke:rgba(61,72,82,0.5);stroke-width:0.035}
+    .door-gap{stroke:#fcfcfa;stroke-linecap:butt}
+    .door-leaf{fill:none;stroke:#1b222a;stroke-width:0.05}
+    .door-swing{fill:none;stroke:rgba(33,41,50,0.6);stroke-width:0.03;stroke-dasharray:0.16 0.1}
+    .svg-label{fill:#111922;font-weight:700}
+    .room-label{fill:rgba(17,24,32,0.92);font-weight:700}
+    .room-label-meta{fill:rgba(42,52,62,0.78)}
+    .dimension-line,.dimension-tick{fill:none;stroke:rgba(43,53,64,0.6);stroke-width:0.04}
+    .dimension-witness{stroke:rgba(43,53,64,0.4);stroke-width:0.03}
+    .dimension-label{fill:rgba(31,41,51,0.9);font-weight:800}
+    .scale-bar-line,.scale-bar-tick{stroke:#2b3540;stroke-width:0.05}
+    .scale-bar-label{fill:#2b3540;font-weight:700}
+    .north-arrow-needle{fill:#2b3540;stroke:#2b3540}
+    .north-arrow-label{fill:#2b3540;font-weight:800}
     .edit-handle{fill:#fff;stroke:#007d78;stroke-width:0.42;vector-effect:non-scaling-stroke}
     .edit-core-move{fill:#007d78;stroke:#fff;stroke-width:0.52}
     .edit-handle-label{fill:#0d4f4b;paint-order:stroke;stroke:rgba(255,255,255,0.92)}
     .edit-handle-label{stroke-width:0.2;stroke-linejoin:round;font-size:0.78px;font-weight:900}
     .edit-handle-label{letter-spacing:0;pointer-events:none}
-    .door{fill:#3867b7;stroke:#fff;stroke-width:0.08}
   `;
   return style;
 }

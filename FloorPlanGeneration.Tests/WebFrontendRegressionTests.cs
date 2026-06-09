@@ -83,7 +83,7 @@ namespace FloorPlanGeneration.Tests
         }
 
         [Fact]
-        public void DefaultSvgLabelsStayOutOfPlanReviewMode()
+        public void SvgRoomLabelsAreGatedBehindTheLabelsToggle()
         {
             string app = ReadWebFile("app.js");
             string renderPreview = SliceFunction(app, "renderPreview");
@@ -99,12 +99,485 @@ namespace FloorPlanGeneration.Tests
                 "if (state.viewMode === \"circulation\")",
                 "class: \"svg-label unit-label\"",
                 "Generated unit labels should only be added for the circulation overlay, not default review mode.");
-            Assert.Contains("if (!state.editMode || state.viewMode !== \"circulation\")", renderRoomLabels, StringComparison.Ordinal);
+
+            // Room labels obey the labelsVisible toggle and only render in the 2D plan view
+            // (never the circulation or axon overlays), regardless of the default state.
+            Assert.Contains("if (!state.labelsVisible || state.viewMode !== \"plan\")", renderRoomLabels, StringComparison.Ordinal);
             Assert.Contains("return;", renderRoomLabels, StringComparison.Ordinal);
             Assert.Contains("class: \"svg-label room-label\"", renderRoomLabels, StringComparison.Ordinal);
             Assert.Contains("compactRoomLabel(room)", renderRoomLabels, StringComparison.Ordinal);
             Assert.Contains("shouldShowRoomLabel(room, bounds, densePlan)", renderRoomLabels, StringComparison.Ordinal);
             Assert.DoesNotContain("labelText(label.text)", renderPreview, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void LabelsToggleControlsRoomLabelsWithBoundedFontSizes()
+        {
+            string app = ReadWebFile("app.js");
+            string index = ReadWebFile("index.html");
+            string styles = ReadWebFile("styles.css");
+            string handleCanvasAction = SliceFunction(app, "handleCanvasAction");
+            string updateCanvasUi = SliceFunction(app, "updateCanvasUi");
+            string renderRoomLabels = SliceFunction(app, "renderRoomLabels");
+            string roomLabelFontSize = SliceFunction(app, "roomLabelFontSize");
+            string svgStyleElement = SliceFunction(app, "svgStyleElement");
+
+            // Labels default ON so the standard view reads like a construction document
+            // (every room named with its area); the canvas toggle can still hide them.
+            Assert.Contains("labelsVisible: true", app, StringComparison.Ordinal);
+            Assert.Contains("data-canvas-action=\"labels-toggle\"", index, StringComparison.Ordinal);
+            Assert.Contains("action === \"labels-toggle\"", handleCanvasAction, StringComparison.Ordinal);
+            Assert.Contains("state.labelsVisible = !state.labelsVisible", handleCanvasAction, StringComparison.Ordinal);
+
+            // The toggle drives both the button state and the CSS gate on the preview frame.
+            Assert.Contains("button.dataset.canvasAction === \"labels-toggle\"", updateCanvasUi, StringComparison.Ordinal);
+            Assert.Contains("els.previewFrame.classList.toggle(\"labels-on\", labelsActive)", updateCanvasUi, StringComparison.Ordinal);
+            Assert.Contains(
+                ".preview-frame:not(.labels-on) #planSvg[data-view-mode=\"plan\"] .room-label",
+                styles,
+                StringComparison.Ordinal);
+
+            // Plan labels are hard-capped in model metres so a bad value can never reproduce
+            // the meter-tall SVG text overlays this canvas used to show, including on export.
+            Assert.Contains("const maxPlanLabelFontSize = 0.85", app, StringComparison.Ordinal);
+            Assert.Contains("maxPlanLabelFontSize", roomLabelFontSize, StringComparison.Ordinal);
+            Assert.DoesNotContain("font-size:1.35px", svgStyleElement, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void PlanCanvasKeepsDataDrivenWallHierarchyAndCalmRoomTints()
+        {
+            string styles = ReadWebFile("styles.css");
+
+            // The base .wall rule must not declare stroke-width: doing so would override the
+            // per-wall thickness attribute and flatten demising (0.18m) vs partition (0.10m) walls.
+            Assert.Contains("carries its own data-driven thickness", styles, StringComparison.Ordinal);
+            Assert.Contains(".wall-unit_demising", styles, StringComparison.Ordinal);
+            Assert.Contains(".wall-room_partition", styles, StringComparison.Ordinal);
+
+            // Near-monochrome "paper" zoning by category: high-lightness, low-chroma washes
+            // (a construction drawing, not a saturated infographic).
+            Assert.Contains(".room.room-bedroom", styles, StringComparison.Ordinal);
+            Assert.Contains("rgba(243, 241, 235", styles, StringComparison.Ordinal);
+            Assert.Contains(".room.room-living", styles, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void MakeoverDesignSystemAndSidebarControlsArePresent()
+        {
+            string app = ReadWebFile("app.js");
+            string index = ReadWebFile("index.html");
+            string styles = ReadWebFile("styles.css");
+            string handleStepperClick = SliceFunction(app, "handleStepperClick");
+
+            // Design tokens (calm teal accent, hairlines, radius/shadow scales).
+            Assert.Contains("--teal-fill:", styles, StringComparison.Ordinal);
+            Assert.Contains("--hairline:", styles, StringComparison.Ordinal);
+            Assert.Contains("--radius-pill:", styles, StringComparison.Ordinal);
+            Assert.Contains("--font-sans:", styles, StringComparison.Ordinal);
+
+            // Rounded, softly shadowed panels (the flat box-shadow:none / radius:0 is gone).
+            Assert.Contains("border-radius: var(--radius-lg)", styles, StringComparison.Ordinal);
+            Assert.Contains("box-shadow: var(--shadow)", styles, StringComparison.Ordinal);
+
+            // Segmented pill nav with a flat teal active state, plus a user avatar.
+            Assert.Contains("background: var(--teal-fill)", styles, StringComparison.Ordinal);
+            Assert.Contains(".user-avatar", styles, StringComparison.Ordinal);
+
+            // Intentional sidebar controls: steppers, range slider, custom preference checkboxes.
+            Assert.Contains(".stepper", styles, StringComparison.Ordinal);
+            Assert.Contains("input[type=\"range\"]::-webkit-slider-thumb", styles, StringComparison.Ordinal);
+            Assert.Contains(".pref-row input[type=\"checkbox\"]:checked", styles, StringComparison.Ordinal);
+            Assert.Contains(".status-pill", styles, StringComparison.Ordinal);
+
+            // CSP-safe SVG chevron for selects (no remote URL, no icon font).
+            Assert.Contains("background-image: url(\"data:image/svg+xml,", styles, StringComparison.Ordinal);
+
+            // Markup wiring kept ids/hooks; added decorative + progressive-enhancement nodes only.
+            Assert.Contains("<h1>Floor Engine</h1>", index, StringComparison.Ordinal);
+            Assert.Contains("class=\"user-avatar\"", index, StringComparison.Ordinal);
+            Assert.Contains("class=\"stepper\"", index, StringComparison.Ordinal);
+            Assert.Contains("data-step=\"1\"", index, StringComparison.Ordinal);
+            Assert.Contains("data-step=\"-1\"", index, StringComparison.Ordinal);
+            Assert.Contains("class=\"pref-list\"", index, StringComparison.Ordinal);
+            Assert.Contains("id=\"floorWidth\"", index, StringComparison.Ordinal);
+            Assert.Contains("id=\"daylightBedrooms\"", index, StringComparison.Ordinal);
+
+            // Stepper buttons are wired via delegation (no inline handlers — CSP-safe).
+            Assert.Contains("els.setupForm.addEventListener(\"click\", handleStepperClick)", app, StringComparison.Ordinal);
+            Assert.Contains("button.closest(\".stepper\")", handleStepperClick, StringComparison.Ordinal);
+            Assert.Contains("input.dispatchEvent(new Event(\"input\", { bubbles: true }))", handleStepperClick, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void MakeoverCanvasRefinementsKeepBoundedLabelsAndCleanGeometry()
+        {
+            string app = ReadWebFile("app.js");
+            string renderRoomLabels = SliceFunction(app, "renderRoomLabels");
+            string roomLabelFontSize = SliceFunction(app, "roomLabelFontSize");
+            string renderDoorOpening = SliceFunction(app, "renderDoorOpening");
+            string renderDimensionGuides = SliceFunction(app, "renderDimensionGuides");
+            string renderSelectedRoomHalo = SliceFunction(app, "renderSelectedRoomHalo");
+
+            // Full-caps room names on sparse plans, compact tags on dense plans (keeps the gate hook).
+            Assert.Contains("function planRoomLabelName", app, StringComparison.Ordinal);
+            Assert.Contains("densePlan ? compactRoomLabel(room) : planRoomLabelName(room)", renderRoomLabels, StringComparison.Ordinal);
+            Assert.Contains("roomDimensionText(room, bounds, 2)", renderRoomLabels, StringComparison.Ordinal);
+
+            // Labels stay bounded under the hard ceiling even with the longer names.
+            Assert.Contains("maxPlanLabelFontSize", roomLabelFontSize, StringComparison.Ordinal);
+
+            // Clean quarter-circle door swing and a left overall dimension line (framed plan).
+            Assert.Contains("const swing = clamp(width, 0.6, 1.1)", renderDoorOpening, StringComparison.Ordinal);
+            Assert.Contains("const leftX = bounds.minX - offset", renderDimensionGuides, StringComparison.Ordinal);
+            Assert.Contains("renderScaleBar(group, bounds, units || \"m\", offset)", renderDimensionGuides, StringComparison.Ordinal);
+
+            // Selection grips stay small and consistent at any zoom.
+            Assert.Contains("clamp(Math.max(bounds.width, bounds.height) * 0.011, 0.09, 0.16)", renderSelectedRoomHalo, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void CanvasFillsFrameWithDrawingSheetAndRealThicknessWalls()
+        {
+            string app = ReadWebFile("app.js");
+            string index = ReadWebFile("index.html");
+            string styles = ReadWebFile("styles.css");
+            string previewViewBox = SliceFunction(app, "previewViewBox");
+            string renderPreview = SliceFunction(app, "renderPreview");
+            string renderWallSegment = SliceFunction(app, "renderWallSegment");
+            string updateCanvasUi = SliceFunction(app, "updateCanvasUi");
+
+            // The viewBox is aspect-matched to the live canvas element so the wide
+            // multi-unit plan fills the frame instead of being letterboxed into a
+            // dead vertical band above and below the drawing.
+            Assert.Contains("function previewFrameAspect", app, StringComparison.Ordinal);
+            Assert.Contains("const frameAspect = previewFrameAspect()", previewViewBox, StringComparison.Ordinal);
+            Assert.Contains("el.clientWidth", app, StringComparison.Ordinal);
+
+            // A north arrow makes the drawing-sheet margin purposeful (plan view only).
+            Assert.Contains("function renderNorthArrow", app, StringComparison.Ordinal);
+            Assert.Contains("renderNorthArrow(bounds)", renderPreview, StringComparison.Ordinal);
+            Assert.Contains(".north-arrow-needle", styles, StringComparison.Ordinal);
+
+            // Walls render at real model-metre thickness with a proportional white
+            // casing instead of collapsing into sub-pixel non-scaling hairlines.
+            Assert.Contains("drawn in real model metres", styles, StringComparison.Ordinal);
+            Assert.Contains("formatNumber(thickness + 0.07, 3)", renderWallSegment, StringComparison.Ordinal);
+
+            // Live zoom readout sits in the grouped canvas toolbar.
+            Assert.Contains("id=\"zoomLevel\"", index, StringComparison.Ordinal);
+            Assert.Contains("class=\"tool-divider\"", index, StringComparison.Ordinal);
+            Assert.Contains("els.zoomLevel.textContent", updateCanvasUi, StringComparison.Ordinal);
+            Assert.Contains(".canvas-zoom", styles, StringComparison.Ordinal);
+
+            // Calm drawing-board surface behind the plan so the white sheet reads.
+            Assert.Contains("radial-gradient(135% 100% at 50% 14%", styles, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void PlanFixturesRenderConstructionDocumentDetail()
+        {
+            string app = ReadWebFile("app.js");
+            string styles = ReadWebFile("styles.css");
+            string bathroom = SliceFunction(app, "appendBathroomFixture");
+            string kitchen = SliceFunction(app, "appendKitchenFixture");
+            string bedroom = SliceFunction(app, "appendBedroomFixture");
+            string living = SliceFunction(app, "appendLivingFixture");
+            string shower = SliceFunction(app, "appendShower");
+            string hob = SliceFunction(app, "appendHob");
+
+            // Bathrooms compose real plumbing fixtures: a WC and a vanity basin opposite a
+            // tub (roomy) or a shower stall (tight) on the wet wall.
+            Assert.Contains("appendToilet(", bathroom, StringComparison.Ordinal);
+            Assert.Contains("appendBasin(", bathroom, StringComparison.Ordinal);
+            Assert.Contains("appendShower(", bathroom, StringComparison.Ordinal);
+            Assert.Contains("\"fixture-bath\"", bathroom, StringComparison.Ordinal);
+
+            // The shower stall keeps its diagonal drain "X" plus a centre drain, guarded by a
+            // minimum size so tight stalls do not clutter.
+            Assert.Contains("if (width < 0.24 || height < 0.24)", shower, StringComparison.Ordinal);
+            Assert.Contains("\"fixture-detail\"", shower, StringComparison.Ordinal);
+
+            // Kitchens lay a counter run carrying a double sink, a hob, and a fridge.
+            Assert.Contains("appendDoubleSink(", kitchen, StringComparison.Ordinal);
+            Assert.Contains("appendHob(", kitchen, StringComparison.Ordinal);
+            Assert.Contains("\"fixture-fridge\"", kitchen, StringComparison.Ordinal);
+            Assert.Contains("\"fixture-counter\"", kitchen, StringComparison.Ordinal);
+
+            // Roomy kitchens still gain cooktop burner rings; the size guard keeps the tight
+            // unit kitchens of the multi-family core uncluttered.
+            Assert.Contains("if (Math.min(width, height) > 0.3)", hob, StringComparison.Ordinal);
+            Assert.Contains("\"fixture-burner\"", hob, StringComparison.Ordinal);
+
+            // Bedrooms read as furnished: a bed with a headboard strip and pillows, plus a
+            // wardrobe with sliding-door split lines.
+            Assert.Contains("\"fixture-bed\"", bedroom, StringComparison.Ordinal);
+            Assert.Contains("\"fixture-headboard\"", bedroom, StringComparison.Ordinal);
+            Assert.Contains("\"fixture-pillow\"", bedroom, StringComparison.Ordinal);
+            Assert.Contains("appendDoorSplits(", bedroom, StringComparison.Ordinal);
+
+            // Living rooms anchor a sofa facing a media unit across a coffee table on a rug.
+            Assert.Contains("appendSofa(", living, StringComparison.Ordinal);
+            Assert.Contains("\"fixture-tv\"", living, StringComparison.Ordinal);
+            Assert.Contains("\"fixture-table\"", living, StringComparison.Ordinal);
+            Assert.Contains("\"fixture-rug\"", living, StringComparison.Ordinal);
+
+            // Daylight openings render as a glazing band plus frame, mullion and jamb caps
+            // rather than a flat gap, matching construction-document window symbols.
+            Assert.Contains("function appendWindowSymbol", app, StringComparison.Ordinal);
+            Assert.Contains(".window-mullion", styles, StringComparison.Ordinal);
+            Assert.Contains(".window-jamb", styles, StringComparison.Ordinal);
+
+            // Rounded fixture corners come through a presentation-attribute helper so the
+            // detailed furniture needs no inline styles under the strict CSP.
+            Assert.Contains("function roundedAttr(radius)", app, StringComparison.Ordinal);
+
+            // New furniture classes back the richer fixtures; drain linework still uses a
+            // model-unit stroke so it thickens with zoom instead of vanishing.
+            Assert.Contains(".fixture-headboard", styles, StringComparison.Ordinal);
+            Assert.Contains(".fixture-tv", styles, StringComparison.Ordinal);
+            Assert.Contains(".fixture-rug", styles, StringComparison.Ordinal);
+            Assert.Contains(".fixture-fridge", styles, StringComparison.Ordinal);
+            Assert.Contains(".fixture-detail", styles, StringComparison.Ordinal);
+            Assert.Contains(".fixture-burner", styles, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void EditorShellSupportsFullScreenPanZoomGridAndUndo()
+        {
+            string app = ReadWebFile("app.js");
+            string index = ReadWebFile("index.html");
+            string styles = ReadWebFile("styles.css");
+            string handleCanvasAction = SliceFunction(app, "handleCanvasAction");
+            string previewViewBox = SliceFunction(app, "previewViewBox");
+            string toggleFullscreen = SliceFunction(app, "toggleFullscreen");
+            string renderPlanGrid = SliceFunction(app, "renderPlanGrid");
+            string finishPlanPointerEdit = SliceFunction(app, "finishPlanPointerEdit");
+            string bindEvents = SliceFunction(app, "bindEvents");
+
+            // The canvas toolbar exposes the new editor tools.
+            Assert.Contains("data-canvas-action=\"fullscreen\"", index, StringComparison.Ordinal);
+            Assert.Contains("data-canvas-action=\"grid-toggle\"", index, StringComparison.Ordinal);
+            Assert.Contains("data-canvas-action=\"undo\"", index, StringComparison.Ordinal);
+            Assert.Contains("data-canvas-action=\"redo\"", index, StringComparison.Ordinal);
+
+            // Each tool is dispatched from the single canvas action handler.
+            Assert.Contains("action === \"grid-toggle\"", handleCanvasAction, StringComparison.Ordinal);
+            Assert.Contains("state.gridVisible = !state.gridVisible", handleCanvasAction, StringComparison.Ordinal);
+            Assert.Contains("action === \"fullscreen\"", handleCanvasAction, StringComparison.Ordinal);
+            Assert.Contains("action === \"undo\"", handleCanvasAction, StringComparison.Ordinal);
+            Assert.Contains("action === \"redo\"", handleCanvasAction, StringComparison.Ordinal);
+
+            // Full screen uses the Fullscreen API with a webkit fallback, never a hard reload.
+            Assert.Contains("requestFullscreen", toggleFullscreen, StringComparison.Ordinal);
+            Assert.Contains("exitFullscreen", toggleFullscreen, StringComparison.Ordinal);
+
+            // Zoom now reaches well past 4x and the viewBox honours a clamped pan offset, so a
+            // zoomed-in editor view stays navigable.
+            Assert.Contains("const maxZoom = 8", app, StringComparison.Ordinal);
+            Assert.Contains("clamp(Number(zoom) || 1, 1, maxZoom)", previewViewBox, StringComparison.Ordinal);
+            Assert.Contains("state.panX = panX", previewViewBox, StringComparison.Ordinal);
+            Assert.Contains("const frameAspect = previewFrameAspect()", previewViewBox, StringComparison.Ordinal);
+
+            // The reference grid draws in model units inside the Y-flipped group.
+            Assert.Contains("class: \"plan-grid\"", renderPlanGrid, StringComparison.Ordinal);
+            Assert.Contains("grid-line-major", renderPlanGrid, StringComparison.Ordinal);
+            Assert.Contains(".grid-line", styles, StringComparison.Ordinal);
+
+            // Pan, wheel zoom, and keyboard shortcuts are wired up; completing a drag-edit
+            // records an undo snapshot of the pre-edit input.
+            Assert.Contains("handleCanvasWheel", bindEvents, StringComparison.Ordinal);
+            Assert.Contains("handleEditorKeyDown", bindEvents, StringComparison.Ordinal);
+            Assert.Contains("fullscreenchange", bindEvents, StringComparison.Ordinal);
+            Assert.Contains("pushUndoSnapshot(state.dragEdit.startInput)", finishPlanPointerEdit, StringComparison.Ordinal);
+            Assert.Contains("function zoomAround(", app, StringComparison.Ordinal);
+            Assert.Contains("function undoEdit(", app, StringComparison.Ordinal);
+
+            // Full-screen and pan affordances are class-driven so the strict CSP holds.
+            Assert.Contains(".preview-frame:fullscreen", styles, StringComparison.Ordinal);
+            Assert.Contains("cursor: grab", styles, StringComparison.Ordinal);
+
+            // Edit-history integrity: loading a new document resets both stacks (undo never
+            // crosses documents), and any fresh user edit invalidates a pending redo branch so
+            // a stale redo can never silently overwrite the user's latest change.
+            string setInput = SliceFunction(app, "setInput");
+            string handleSetupInput = SliceFunction(app, "handleSetupInput");
+            string generateFromPrompt = SliceFunction(app, "generateFromPrompt");
+            Assert.Contains("state.undoStack = []", setInput, StringComparison.Ordinal);
+            Assert.Contains("state.redoStack = []", setInput, StringComparison.Ordinal);
+            Assert.Contains("state.redoStack = []", handleSetupInput, StringComparison.Ordinal);
+            Assert.Contains("state.redoStack = []", generateFromPrompt, StringComparison.Ordinal);
+
+            // Disabling a focused toolbar button moves focus to a sibling so keyboard users keep
+            // their place instead of dropping to <body>.
+            string setCanvasButtonDisabled = SliceFunction(app, "setCanvasButtonDisabled");
+            Assert.Contains("document.activeElement === button", setCanvasButtonDisabled, StringComparison.Ordinal);
+
+            // Fixture detail strokes round their coordinates like the rest of the pipeline.
+            string lineEl = SliceFunction(app, "lineEl");
+            Assert.Contains("x1: round(start.x)", lineEl, StringComparison.Ordinal);
+
+            // The canvas toolbar is a named ARIA toolbar so its label is announced.
+            Assert.Contains("class=\"canvas-tools\" role=\"toolbar\"", index, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void PlanReadsAsConstructionDocumentSheet()
+        {
+            string app = ReadWebFile("app.js");
+            string styles = ReadWebFile("styles.css");
+            string renderDoorOpening = SliceFunction(app, "renderDoorOpening");
+            string shouldShowRoomLabel = SliceFunction(app, "shouldShowRoomLabel");
+            string renderRoomLabels = SliceFunction(app, "renderRoomLabels");
+
+            // Doors must draw in real model metres like the walls do. The white gap is sized
+            // to the host wall so it cleanly cuts the poché; the leaf + dashed swing render as
+            // visible scaling linework instead of the sub-pixel non-scaling ghosts they were.
+            Assert.Contains("Doors draw in real model metres", styles, StringComparison.Ordinal);
+            Assert.Contains("const gapWidth = Math.max(wallStrokeWidth(wall) * 1.85, 0.22)", renderDoorOpening, StringComparison.Ordinal);
+            Assert.Contains("stroke-dasharray: 0.16 0.1", styles, StringComparison.Ordinal);
+
+            // Every habitable room on the dense floorplate gets labelled (relaxed gate), with a
+            // compact area line beneath the name so the plan reads like a real document.
+            Assert.Contains("minDimension >= 1.7 && area >= 3.2", shouldShowRoomLabel, StringComparison.Ordinal);
+            Assert.Contains("const showMeta = densePlan ? minSpan >= 2.1 : minSpan >= 2.6", renderRoomLabels, StringComparison.Ordinal);
+            Assert.Contains("formatNumber(areaValue, 1)", renderRoomLabels, StringComparison.Ordinal);
+
+            // Near-black wall faces and a near-monochrome "paper" palette: a drawing, not an
+            // infographic. The exterior shell is the heaviest line on the sheet.
+            Assert.Contains("stroke: rgba(17, 21, 26, 0.92)", styles, StringComparison.Ordinal);
+            Assert.Contains("Exterior shell reads as the heaviest line", styles, StringComparison.Ordinal);
+            Assert.Contains("Near-monochrome \"paper\" zoning", styles, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void WallsRenderAsHatchedPocheFootprintPolygons()
+        {
+            string app = ReadWebFile("app.js");
+            string styles = ReadWebFile("styles.css");
+            string renderPreview = SliceFunction(app, "renderPreview");
+            string renderWallSegment = SliceFunction(app, "renderWallSegment");
+
+            // Walls are real footprint polygons (centerline offset by half the data-driven
+            // thickness, ends extended so corners read solid), not flat strokes — the
+            // react-planner / CAD convention surfaced by the open-source research.
+            Assert.Contains("function wallFootprint", app, StringComparison.Ordinal);
+            Assert.Contains("polygonEl(footprint, wallClass, attributes)", renderWallSegment, StringComparison.Ordinal);
+            Assert.Contains("formatNumber(thickness + 0.07, 3)", renderWallSegment, StringComparison.Ordinal);
+
+            // A 45-degree hatch <pattern> is injected per render (clearSvg wipes the SVG each
+            // frame) and tiled in real model metres; demising/exterior get the heavier tile.
+            Assert.Contains("renderSvgDefs()", renderPreview, StringComparison.Ordinal);
+            Assert.Contains("function buildHatchPattern", app, StringComparison.Ordinal);
+            Assert.Contains("patternTransform: \"rotate(45)\"", app, StringComparison.Ordinal);
+            Assert.Contains("fill: url(#wallPocheLight)", styles, StringComparison.Ordinal);
+            Assert.Contains("fill: url(#wallPocheHeavy)", styles, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void DimensionRunsUseArchitecturalObliqueTicksAndWitnessLines()
+        {
+            string app = ReadWebFile("app.js");
+            string styles = ReadWebFile("styles.css");
+            string dimensionGuides = SliceFunction(app, "renderDimensionGuides");
+            string obliqueTick = SliceFunction(app, "appendObliqueTick");
+
+            // Dimension stations are 45-degree oblique slashes (the architectural tick), not
+            // perpendicular ticks, centred on the witness station.
+            Assert.Contains("function appendObliqueTick", app, StringComparison.Ordinal);
+            Assert.Contains("class: \"dimension-tick\"", obliqueTick, StringComparison.Ordinal);
+            Assert.Contains("const half = size * 0.7", obliqueTick, StringComparison.Ordinal);
+            Assert.Contains("appendObliqueTick(group, bounds.minX, topY, tick)", dimensionGuides, StringComparison.Ordinal);
+
+            // Witness (extension) lines stand off the object by a gap and overrun the dimension
+            // line, the NKBA/CAD convention surfaced by the open-source research.
+            Assert.Contains("const witnessGap = Math.max(maxDim * 0.009, 0.16)", dimensionGuides, StringComparison.Ordinal);
+            Assert.Contains("\"dimension-witness\"", dimensionGuides, StringComparison.Ordinal);
+            Assert.Contains(".dimension-witness", styles, StringComparison.Ordinal);
+
+            // The pinned scale bar and left dimension column stay put so the sheet keeps its
+            // measured frame and the math driving offsets is untouched.
+            Assert.Contains("const leftX = bounds.minX - offset", dimensionGuides, StringComparison.Ordinal);
+            Assert.Contains("renderScaleBar(group, bounds, units || \"m\", offset)", dimensionGuides, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void ResizeHandlesShowDirectionalCursorsAndLiveDragReadout()
+        {
+            string app = ReadWebFile("app.js");
+            string styles = ReadWebFile("styles.css");
+            string renderPreview = SliceFunction(app, "renderPreview");
+            string pointerMove = SliceFunction(app, "handlePlanPointerMove");
+            string readoutText = SliceFunction(app, "dragReadoutText");
+
+            // A live dimension badge tracks the cursor through every resize/move drag; it is
+            // re-rendered each frame and the drag remembers its last cursor point.
+            Assert.Contains("function renderDragReadout", app, StringComparison.Ordinal);
+            Assert.Contains("renderDragReadout(bounds)", renderPreview, StringComparison.Ordinal);
+            Assert.Contains("state.dragEdit.lastPoint = point", pointerMove, StringComparison.Ordinal);
+
+            // The badge text is action-specific so the user reads the live value they control.
+            Assert.Contains("m wide", readoutText, StringComparison.Ordinal);
+            Assert.Contains("Core ${formatNumber(coreBounds.width, 1)}", readoutText, StringComparison.Ordinal);
+
+            // Handles advertise their drag axis with directional cursors instead of a generic
+            // pointer, so the resize affordance is obvious before the user grabs a handle.
+            Assert.Contains("cursor: ew-resize", styles, StringComparison.Ordinal);
+            Assert.Contains("cursor: ns-resize", styles, StringComparison.Ordinal);
+            Assert.Contains("cursor: nwse-resize", styles, StringComparison.Ordinal);
+            Assert.Contains(".drag-readout-bg", styles, StringComparison.Ordinal);
+
+            // A generous invisible halo wraps each small handle dot so grabs are forgiving,
+            // and hovering anywhere in the halo brightens the handle it belongs to.
+            string editHandle = SliceFunction(app, "editHandle");
+            Assert.Contains("class: \"edit-handle-hit\"", editHandle, StringComparison.Ordinal);
+            Assert.Contains(".edit-handle-hit", styles, StringComparison.Ordinal);
+            Assert.Contains(".edit-handle-group:hover .edit-handle", styles, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void ExportedSvgMatchesLiveConstructionDocumentRendering()
+        {
+            string app = ReadWebFile("app.js");
+            string svgStyle = SliceFunction(app, "svgStyleElement");
+
+            // Saved / Rhino-bound SVGs embed self-contained styles that mirror the live sheet:
+            // hatched poche walls (referencing the cloned <defs> patterns), the paper palette,
+            // real door symbols and dimension linework -- not the old pastel infographic.
+            Assert.Contains("fill:url(#wallPocheLight)", svgStyle, StringComparison.Ordinal);
+            Assert.Contains("fill:url(#wallPocheHeavy)", svgStyle, StringComparison.Ordinal);
+            Assert.Contains(".room-bedroom{fill:rgba(243,241,235,0.55)}", svgStyle, StringComparison.Ordinal);
+            Assert.Contains(".door-leaf{fill:none;stroke:#1b222a", svgStyle, StringComparison.Ordinal);
+            Assert.Contains(".dimension-witness{", svgStyle, StringComparison.Ordinal);
+
+            // The retired yellow-corridor / blue-door infographic palette must not return.
+            Assert.DoesNotContain("#f9d889", svgStyle, StringComparison.Ordinal);
+            Assert.DoesNotContain(".door{fill:#3867b7", svgStyle, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void StudioChromeUsesCalmAppleGradeTypographyAndControls()
+        {
+            string styles = ReadWebFile("styles.css");
+
+            // Weights resolve to a clean 400/600/700 ramp on Windows/Segoe instead of the old
+            // 450..850 ramp that collapsed; emphasis leans on size + colour, not black weight.
+            Assert.Contains("--fw-regular: 400;", styles, StringComparison.Ordinal);
+            Assert.Contains("--fw-heavy: 760;", styles, StringComparison.Ordinal);
+            Assert.DoesNotContain("--fw-heavy: 850;", styles, StringComparison.Ordinal);
+
+            // Calm reading rhythm and crisp display tracking.
+            Assert.Contains("line-height: 1.45;", styles, StringComparison.Ordinal);
+            Assert.Contains("letter-spacing: -0.014em;", styles, StringComparison.Ordinal);
+
+            // Sidebar sections group by whitespace + a hairline divider, not nested boxes.
+            Assert.Contains("fieldset + fieldset {", styles, StringComparison.Ordinal);
+
+            // Tactile press, thin pill scrollbars and a branded text selection.
+            Assert.Contains("button:active:not(:disabled) {", styles, StringComparison.Ordinal);
+            Assert.Contains("scrollbar-width: thin;", styles, StringComparison.Ordinal);
+            Assert.Contains("::-webkit-scrollbar-thumb {", styles, StringComparison.Ordinal);
+            Assert.Contains("::selection {", styles, StringComparison.Ordinal);
         }
 
         [Fact]
@@ -506,7 +979,7 @@ namespace FloorPlanGeneration.Tests
             Assert.Contains("door.hostWall", renderDoorOpening, StringComparison.Ordinal);
             Assert.Contains("door.width", renderDoorOpening, StringComparison.Ordinal);
             Assert.Contains("door-gap", renderDoorOpening, StringComparison.Ordinal);
-            Assert.Contains("state.viewMode !== \"circulation\"", renderRoomLabels, StringComparison.Ordinal);
+            Assert.Contains("state.viewMode !== \"plan\"", renderRoomLabels, StringComparison.Ordinal);
             Assert.Contains("compactRoomLabel(room)", renderRoomLabels, StringComparison.Ordinal);
             Assert.Contains("return \"BED\"", compactRoomLabel, StringComparison.Ordinal);
             Assert.Contains("return \"BATH\"", compactRoomLabel, StringComparison.Ordinal);
@@ -790,6 +1263,75 @@ namespace FloorPlanGeneration.Tests
                 "selectedElementDetails(state.response ? state.response.output : null)",
                 handlePlanPointerDown,
                 StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void PromptToFloorPlanParsesBriefIntoFeasibleReproducibleInput()
+        {
+            string app = ReadWebFile("app.js");
+            string index = ReadWebFile("index.html");
+            string styles = ReadWebFile("styles.css");
+            string parsePrompt = SliceFunction(app, "parsePrompt");
+            string applyPromptToForm = SliceFunction(app, "applyPromptToForm");
+            string projectNameFromBrief = SliceFunction(app, "projectNameFromBrief");
+            string syncInputFromForm = SliceFunction(app, "syncInputFromForm");
+            string syncFormFromInput = SliceFunction(app, "syncFormFromInput");
+            string saveDraft = SliceFunction(app, "saveDraft");
+            string restoreDraft = SliceFunction(app, "restoreDraft");
+
+            // Prompt affordance + transparent intent region exist and are wired to the parser.
+            Assert.Contains("id=\"promptGenerateBtn\"", index, StringComparison.Ordinal);
+            Assert.Contains("id=\"promptUnderstood\"", index, StringComparison.Ordinal);
+            Assert.Contains("class=\"primary prompt-generate\"", index, StringComparison.Ordinal);
+            Assert.Contains("promptGenerateBtn: document.getElementById(\"promptGenerateBtn\")", app, StringComparison.Ordinal);
+            Assert.Contains("() => generateFromPrompt()", app, StringComparison.Ordinal);
+
+            // Unit-type detection tolerates plurals ("studios and one-beds", "two-beds").
+            Assert.Contains("(?:bed|bedroom|bhk|br)s?\\b", parsePrompt, StringComparison.Ordinal);
+
+            // A compliance brief maps to the buildable "balanced" mode, never the
+            // zero-yield "strict" mode, and the chip stays honest about that.
+            Assert.Contains("note(\"code-aware rules\")", parsePrompt, StringComparison.Ordinal);
+            Assert.DoesNotContain("intent.strictness = \"strict\"", parsePrompt, StringComparison.Ordinal);
+
+            // Numeric extremes are clamped to a feasible envelope so a brief cannot
+            // brick generation (corridors 1.2..2.6 m, unit floor 16..50 m2).
+            Assert.Contains("clamp(Number(corr[1]), 1.2, 2.6)", parsePrompt, StringComparison.Ordinal);
+            Assert.Contains("clamp(Number(unitArea[1]), 16, 50)", parsePrompt, StringComparison.Ordinal);
+            Assert.Contains("intent.minUnit = 38;", parsePrompt, StringComparison.Ordinal);
+
+            // applyPromptToForm is authoritative: unmentioned knobs reset to feasible
+            // engine defaults, so the same brief always yields the same plan.
+            Assert.Contains("Number.isFinite(intent.minUnit) ? intent.minUnit : 25", applyPromptToForm, StringComparison.Ordinal);
+            Assert.Contains("Number.isFinite(intent.corridor) ? intent.corridor : 1.8", applyPromptToForm, StringComparison.Ordinal);
+            Assert.Contains("intent.strictness || \"balanced\"", applyPromptToForm, StringComparison.Ordinal);
+            Assert.Contains("{ studio: 35, one_bed: 45, two_bed: 20 }", applyPromptToForm, StringComparison.Ordinal);
+
+            // The brief is decoupled from project.name: it lives in state.brief, never in
+            // the input object (which the engine rejects and exports must keep clean).
+            Assert.Contains("state.brief = briefText;", syncInputFromForm, StringComparison.Ordinal);
+            Assert.Contains("projectNameFromBrief(briefText)", syncInputFromForm, StringComparison.Ordinal);
+            Assert.DoesNotContain("input.project.brief", app, StringComparison.Ordinal);
+            Assert.Contains("typeof state.brief === \"string\"", syncFormFromInput, StringComparison.Ordinal);
+            Assert.Contains("return deriveProjectName(parsePrompt(text), text)", projectNameFromBrief, StringComparison.Ordinal);
+
+            // The brief round-trips through the existing draft mechanism.
+            Assert.Contains("brief: state.brief,", saveDraft, StringComparison.Ordinal);
+            Assert.Contains("state.brief = draft.brief;", restoreDraft, StringComparison.Ordinal);
+
+            // Graceful, transparent safety net: relax one notch only when variants were
+            // generated but all failed validation, then say so plainly.
+            Assert.Contains("await relaxStrictnessIfNoVariants()", app, StringComparison.Ordinal);
+            Assert.Contains("(current.variantCount || 0) === 0) { return; }", app, StringComparison.Ordinal);
+            Assert.Contains("Relaxed to ${next} rules to fit this plate", app, StringComparison.Ordinal);
+            Assert.Contains("prompt-chip prompt-chip-note", app, StringComparison.Ordinal);
+            Assert.Contains("navigateToHash(\"#plan\")", app, StringComparison.Ordinal);
+
+            // Styling hooks for the affordance, chips and the auto-adjust note.
+            Assert.Contains(".prompt-generate {", styles, StringComparison.Ordinal);
+            Assert.Contains(".prompt-understood {", styles, StringComparison.Ordinal);
+            Assert.Contains(".prompt-chip {", styles, StringComparison.Ordinal);
+            Assert.Contains(".prompt-chip-note {", styles, StringComparison.Ordinal);
         }
 
         private static string ReadWebFile(string fileName)

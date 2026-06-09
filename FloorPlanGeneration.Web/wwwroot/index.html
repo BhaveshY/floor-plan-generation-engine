@@ -4,15 +4,15 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Floor Plan Generation Engine</title>
-  <link rel="stylesheet" href="styles.css?v=20260603-floorplan2">
+  <link rel="stylesheet" href="styles.css?v=20260605-edit17">
 </head>
 <body>
   <main class="app-shell">
     <header class="topbar">
       <div class="brand">
-        <div class="mark">FP</div>
+        <div class="mark">FE</div>
         <div>
-          <h1>Floor Plan Engine</h1>
+          <h1>Floor Engine</h1>
           <p id="runStatus">Ready</p>
         </div>
       </div>
@@ -26,6 +26,7 @@
       <div class="top-actions">
         <button id="validateBtn" type="button">Check</button>
         <button id="generateBtn" class="primary" type="button">Generate</button>
+        <div class="user-avatar" aria-hidden="true">FE</div>
       </div>
     </header>
 
@@ -63,6 +64,8 @@
                 autocomplete="off"
                 placeholder="Generate a 2BHK apartment with daylight bedrooms and open living"></textarea>
             </label>
+            <button id="promptGenerateBtn" class="primary prompt-generate" type="button">Generate from prompt</button>
+            <div id="promptUnderstood" class="prompt-understood" aria-live="polite" hidden></div>
             <input id="variantInput" type="hidden">
             <input id="seedInput" type="hidden">
           </fieldset>
@@ -72,11 +75,19 @@
             <div class="field-grid">
               <label class="field">
                 <span>Width m</span>
-                <input id="floorWidth" type="number" min="8" step="0.5">
+                <div class="stepper">
+                  <button type="button" data-step="-1" aria-label="Decrease width">&minus;</button>
+                  <input id="floorWidth" type="number" min="8" step="0.5">
+                  <button type="button" data-step="1" aria-label="Increase width">+</button>
+                </div>
               </label>
               <label class="field">
                 <span>Depth m</span>
-                <input id="floorDepth" type="number" min="8" step="0.5">
+                <div class="stepper">
+                  <button type="button" data-step="-1" aria-label="Decrease depth">&minus;</button>
+                  <input id="floorDepth" type="number" min="8" step="0.5">
+                  <button type="button" data-step="1" aria-label="Increase depth">+</button>
+                </div>
               </label>
             </div>
           </fieldset>
@@ -127,14 +138,16 @@
                 </select>
               </label>
             </div>
-            <label class="toggle-row">
-              <input id="daylightBedrooms" type="checkbox">
-              <span>Bedrooms need daylight</span>
-            </label>
-            <label class="toggle-row">
-              <input id="daylightLiving" type="checkbox">
-              <span>Living rooms need daylight</span>
-            </label>
+            <div class="pref-list">
+              <label class="toggle-row pref-row">
+                <input id="daylightBedrooms" type="checkbox">
+                <span>Bedrooms need daylight</span>
+              </label>
+              <label class="toggle-row pref-row">
+                <input id="daylightLiving" type="checkbox">
+                <span>Living rooms need daylight</span>
+              </label>
+            </div>
           </fieldset>
 
           <fieldset data-setup-step="mix">
@@ -199,7 +212,7 @@
             <p id="planSubtitle">Input outline</p>
           </div>
           <div class="panel-actions preview-actions">
-            <div class="mode-tabs" aria-label="Preview mode">
+            <div class="mode-tabs" role="toolbar" aria-label="Preview mode">
               <button class="active" type="button" data-view-mode="plan" aria-pressed="true">2D Plan</button>
               <button type="button" data-view-mode="axon" aria-pressed="false">3D Axon</button>
               <button type="button" data-view-mode="circulation" aria-pressed="false">Circulation</button>
@@ -209,15 +222,26 @@
           </div>
         </div>
         <div class="preview-frame">
-          <div class="canvas-tools" aria-label="Canvas tools">
-            <button type="button" data-canvas-action="select" aria-label="Select" title="Select">Select</button>
-            <button type="button" data-canvas-action="pan" aria-label="Pan" title="Pan">Pan</button>
-            <button type="button" data-canvas-action="zoom-in" aria-label="Zoom in" title="Zoom in">+</button>
-            <button type="button" data-canvas-action="zoom-out" aria-label="Zoom out" title="Zoom out">-</button>
-            <button type="button" data-canvas-action="fit" aria-label="Fit view" title="Fit view">Fit</button>
-            <button type="button" data-canvas-action="edit-toggle" aria-label="Edit constraints" aria-pressed="false" title="Edit constraints">Edit</button>
+          <div class="canvas-tools" role="toolbar" aria-label="Canvas tools">
+            <button type="button" data-canvas-action="select" aria-label="Select (V)" aria-pressed="true" title="Select (V)">Select</button>
+            <button type="button" data-canvas-action="pan" aria-label="Pan (H or hold Space)" aria-pressed="false" title="Pan (H or hold Space)">Pan</button>
+            <span class="tool-divider" aria-hidden="true"></span>
+            <button type="button" data-canvas-action="zoom-out" aria-label="Zoom out (-)" title="Zoom out (-)">&minus;</button>
+            <span id="zoomLevel" class="canvas-zoom" aria-live="polite">100%</span>
+            <button type="button" data-canvas-action="zoom-in" aria-label="Zoom in (+)" title="Zoom in (+)">+</button>
+            <button type="button" data-canvas-action="fit" aria-label="Fit view (0)" title="Fit view (0)">Fit</button>
+            <span class="tool-divider" aria-hidden="true"></span>
+            <button type="button" data-canvas-action="undo" aria-label="Undo (Ctrl+Z)" title="Undo (Ctrl+Z)" disabled>Undo</button>
+            <button type="button" data-canvas-action="redo" aria-label="Redo (Ctrl+Shift+Z)" title="Redo (Ctrl+Shift+Z)" disabled>Redo</button>
+            <span class="tool-divider" aria-hidden="true"></span>
+            <button type="button" data-canvas-action="grid-toggle" aria-pressed="false" title="Reference grid (G)">Grid</button>
+            <button type="button" data-canvas-action="labels-toggle" aria-pressed="false" title="Room labels (L)">Labels</button>
+            <button type="button" data-canvas-action="edit-toggle" aria-pressed="false" title="Edit constraints (E)">Edit</button>
+            <span class="tool-divider" aria-hidden="true"></span>
+            <button type="button" data-canvas-action="fullscreen" aria-pressed="false" title="Full screen (F)">Full screen</button>
           </div>
           <div id="editReadout" class="edit-readout" aria-live="polite"></div>
+          <div id="planTitleBlock" class="title-block" hidden aria-hidden="true"></div>
           <svg id="planSvg" role="img" aria-label="Generated floor plan preview"></svg>
           <div id="emptyPreview" class="empty-preview">No plan available</div>
         </div>
@@ -335,6 +359,6 @@
     </section>
   </main>
 
-  <script src="app.js?v=20260603-floorplan2"></script>
+  <script src="app.js?v=20260605-edit17"></script>
 </body>
 </html>
