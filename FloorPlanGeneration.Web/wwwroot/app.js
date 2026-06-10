@@ -5913,7 +5913,8 @@ function renderVariants(output) {
             ${escapeHtml(mix || "No unit mix")} · ${escapeHtml(checkText)}
           </div>
           <div class="variant-meta">
-            ${Number.isFinite(sellable) ? `Sellable ${formatNumber(sellable, 1)} m²` : "Sellable —"}${hypergraph ? ` · ${countOf(hypergraph.nodes)} graph nodes` : ""}
+            ${Number.isFinite(sellable) ? `Sellable ${formatNumber(sellable, 1)} m²` : "Sellable —"}
+            ${hypergraph ? ` · ${countOf(hypergraph.nodes)} graph nodes` : ""}
           </div>
         </div>
       </div>
@@ -7269,7 +7270,8 @@ function svgStyleElement() {
     .dimension-line,.dimension-tick{fill:none;stroke:${ink300};stroke-width:0.04}
     .dimension-tick{stroke:${ink500}}
     .dimension-witness{fill:none;stroke:${ink150};stroke-width:0.03}
-    .dimension-label{fill:${ink700};paint-order:stroke;stroke:rgba(244,247,248,0.94);stroke-width:0.14;stroke-linejoin:round;font-weight:680;letter-spacing:0.04em}
+    .dimension-label{fill:${ink700};paint-order:stroke;stroke:rgba(244,247,248,0.94);stroke-width:0.14}
+    .dimension-label{stroke-linejoin:round;font-weight:680;letter-spacing:0.04em}
     .scale-bar-line,.scale-bar-tick{stroke:${ink500};stroke-width:0.05;stroke-linecap:square}
     .scale-bar-label{fill:#26313b;paint-order:stroke;stroke:rgba(248,250,251,0.92);stroke-width:0.14;stroke-linejoin:round;font-weight:800}
     .north-arrow-needle{fill:rgba(27,36,48,0.82);stroke:rgba(255,255,255,0.85);stroke-width:0.02}

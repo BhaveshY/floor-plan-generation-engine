@@ -148,18 +148,20 @@ namespace FloorPlanGeneration.Tests
         public void PlanCanvasKeepsDataDrivenWallHierarchyAndCalmRoomTints()
         {
             string styles = ReadWebFile("styles.css");
+            string normalizedStyles = styles.Replace("\r\n", "\n", StringComparison.Ordinal);
 
-            // The base .wall rule must not declare stroke-width: doing so would override the
-            // per-wall thickness attribute and flatten demising (0.18m) vs partition (0.10m) walls.
-            Assert.Contains("carries its own data-driven thickness", styles, StringComparison.Ordinal);
+            // Walls are solid ink poché; hierarchy comes from the per-wall thickness
+            // geometry, so the base .wall rule must not fight it with stroke-width.
+            Assert.Contains(".wall {\n  fill: var(--ink-900);\n  stroke: none;", normalizedStyles, StringComparison.Ordinal);
             Assert.Contains(".wall-unit_demising", styles, StringComparison.Ordinal);
-            Assert.Contains(".wall-room_partition", styles, StringComparison.Ordinal);
+            Assert.Contains("exterior and demising walls are simply thicker", styles, StringComparison.Ordinal);
 
-            // Near-monochrome "paper" zoning by category: high-lightness, low-chroma washes
-            // (a construction drawing, not a saturated infographic).
+            // Flat near-white zone tints — opaque, so alpha never stacks into mud.
+            Assert.Contains("Flat near-white zone tints", styles, StringComparison.Ordinal);
             Assert.Contains(".room.room-bedroom", styles, StringComparison.Ordinal);
-            Assert.Contains("rgba(243, 241, 235", styles, StringComparison.Ordinal);
+            Assert.Contains("fill: #f8f5ef", styles, StringComparison.Ordinal);
             Assert.Contains(".room.room-living", styles, StringComparison.Ordinal);
+            Assert.Contains("fill: #faf6ee", styles, StringComparison.Ordinal);
         }
 
         [Fact]
@@ -177,12 +179,13 @@ namespace FloorPlanGeneration.Tests
             Assert.Contains("--font-sans:", styles, StringComparison.Ordinal);
 
             // Rounded, softly shadowed panels (the flat box-shadow:none / radius:0 is gone).
-            Assert.Contains("border-radius: var(--radius-lg)", styles, StringComparison.Ordinal);
-            Assert.Contains("box-shadow: var(--shadow)", styles, StringComparison.Ordinal);
+            Assert.Contains("border-radius: var(--radius-xl)", styles, StringComparison.Ordinal);
+            Assert.Contains("0 10px 28px rgba(15, 23, 42, 0.05)", styles, StringComparison.Ordinal);
 
-            // Segmented pill nav with a flat teal active state, plus a user avatar.
+            // Segmented pill nav with a flat teal active state. The decorative user
+            // avatar was deliberately retired — the chrome carries no fake account UI.
             Assert.Contains("background: var(--teal-fill)", styles, StringComparison.Ordinal);
-            Assert.Contains(".user-avatar", styles, StringComparison.Ordinal);
+            Assert.DoesNotContain(".user-avatar", styles, StringComparison.Ordinal);
 
             // Intentional sidebar controls: steppers, range slider, custom preference checkboxes.
             Assert.Contains(".stepper", styles, StringComparison.Ordinal);
@@ -195,7 +198,7 @@ namespace FloorPlanGeneration.Tests
 
             // Markup wiring kept ids/hooks; added decorative + progressive-enhancement nodes only.
             Assert.Contains("<h1>Floor Engine</h1>", index, StringComparison.Ordinal);
-            Assert.Contains("class=\"user-avatar\"", index, StringComparison.Ordinal);
+            Assert.DoesNotContain("class=\"user-avatar\"", index, StringComparison.Ordinal);
             Assert.Contains("class=\"stepper\"", index, StringComparison.Ordinal);
             Assert.Contains("data-step=\"1\"", index, StringComparison.Ordinal);
             Assert.Contains("data-step=\"-1\"", index, StringComparison.Ordinal);
@@ -232,8 +235,10 @@ namespace FloorPlanGeneration.Tests
             Assert.Contains("const leftX = bounds.minX - offset", renderDimensionGuides, StringComparison.Ordinal);
             Assert.Contains("renderScaleBar(group, bounds, units || \"m\", offset)", renderDimensionGuides, StringComparison.Ordinal);
 
-            // Selection grips stay small and consistent at any zoom.
-            Assert.Contains("clamp(Math.max(bounds.width, bounds.height) * 0.011, 0.09, 0.16)", renderSelectedRoomHalo, StringComparison.Ordinal);
+            // Selection grips stay a constant on-screen size at any zoom: the radius
+            // derives from the visible view width, not the element being selected.
+            Assert.Contains("function geomHandleRadius", app, StringComparison.Ordinal);
+            Assert.Contains("clamp(view * 0.011, 0.12, 0.6)", app, StringComparison.Ordinal);
         }
 
         [Fact]
@@ -261,7 +266,7 @@ namespace FloorPlanGeneration.Tests
 
             // Walls render at real model-metre thickness with a proportional white
             // casing instead of collapsing into sub-pixel non-scaling hairlines.
-            Assert.Contains("drawn in real model metres", styles, StringComparison.Ordinal);
+            Assert.Contains("in real metres", styles, StringComparison.Ordinal);
             Assert.Contains("formatNumber(thickness + 0.07, 3)", renderWallSegment, StringComparison.Ordinal);
 
             // Live zoom readout sits in the grouped canvas toolbar.
@@ -270,8 +275,14 @@ namespace FloorPlanGeneration.Tests
             Assert.Contains("els.zoomLevel.textContent", updateCanvasUi, StringComparison.Ordinal);
             Assert.Contains(".canvas-zoom", styles, StringComparison.Ordinal);
 
-            // Calm drawing-board surface behind the plan so the white sheet reads.
-            Assert.Contains("radial-gradient(135% 100% at 50% 14%", styles, StringComparison.Ordinal);
+            // Flat, calm studio surface behind the plan; the drawing floats on its own
+            // white sheet whose soft edge is stacked rects, never an SVG blur filter
+            // (blur at sheet scale freezes the rasterizer at screenshot zoom).
+            Assert.Contains("background: #edeff1", styles, StringComparison.Ordinal);
+            Assert.Contains(".plan-sheet", styles, StringComparison.Ordinal);
+            Assert.Contains(".plan-sheet-shadow", styles, StringComparison.Ordinal);
+            Assert.Contains("class: \"plan-sheet\"", app, StringComparison.Ordinal);
+            Assert.DoesNotContain(".plan-sheet {\n  filter:", styles.Replace("\r\n", "\n", StringComparison.Ordinal), StringComparison.Ordinal);
         }
 
         [Fact]
@@ -389,7 +400,10 @@ namespace FloorPlanGeneration.Tests
             Assert.Contains("handleCanvasWheel", bindEvents, StringComparison.Ordinal);
             Assert.Contains("handleEditorKeyDown", bindEvents, StringComparison.Ordinal);
             Assert.Contains("fullscreenchange", bindEvents, StringComparison.Ordinal);
-            Assert.Contains("pushUndoSnapshot(state.dragEdit.startInput)", finishPlanPointerEdit, StringComparison.Ordinal);
+            Assert.Contains(
+                "pushUndoSnapshot({ input: state.dragEdit.startInput, geometry: state.dragEdit.startGeometry })",
+                finishPlanPointerEdit,
+                StringComparison.Ordinal);
             Assert.Contains("function zoomAround(", app, StringComparison.Ordinal);
             Assert.Contains("function undoEdit(", app, StringComparison.Ordinal);
 
@@ -430,12 +444,12 @@ namespace FloorPlanGeneration.Tests
             string shouldShowRoomLabel = SliceFunction(app, "shouldShowRoomLabel");
             string renderRoomLabels = SliceFunction(app, "renderRoomLabels");
 
-            // Doors must draw in real model metres like the walls do. The white gap is sized
-            // to the host wall so it cleanly cuts the poché; the leaf + dashed swing render as
-            // visible scaling linework instead of the sub-pixel non-scaling ghosts they were.
+            // Doors must draw in real model metres like the walls do. The white gap is
+            // sized to the host wall so it cleanly cuts the poché; the leaf and thin
+            // swing arc render as visible scaling linework.
             Assert.Contains("Doors draw in real model metres", styles, StringComparison.Ordinal);
             Assert.Contains("const gapWidth = Math.max(wallStrokeWidth(wall) * 1.85, 0.22)", renderDoorOpening, StringComparison.Ordinal);
-            Assert.Contains("stroke-dasharray: 0.16 0.1", styles, StringComparison.Ordinal);
+            Assert.Contains(".door-swing", styles, StringComparison.Ordinal);
 
             // Every habitable room on the dense floorplate gets labelled (relaxed gate), with a
             // compact area line beneath the name so the plan reads like a real document.
@@ -443,35 +457,35 @@ namespace FloorPlanGeneration.Tests
             Assert.Contains("const showMeta = densePlan ? minSpan >= 2.1 : minSpan >= 2.6", renderRoomLabels, StringComparison.Ordinal);
             Assert.Contains("formatNumber(areaValue, 1)", renderRoomLabels, StringComparison.Ordinal);
 
-            // Near-black wall faces and a near-monochrome "paper" palette: a drawing, not an
-            // infographic. The exterior shell is the heaviest line on the sheet.
-            Assert.Contains("stroke: rgba(17, 21, 26, 0.92)", styles, StringComparison.Ordinal);
-            Assert.Contains("Exterior shell reads as the heaviest line", styles, StringComparison.Ordinal);
-            Assert.Contains("Near-monochrome \"paper\" zoning", styles, StringComparison.Ordinal);
+            // One warm-graphite ink at four strengths, windows punched as white breaks
+            // through the poché, the drawing floating on a white sheet: a printed
+            // architectural document, not an infographic.
+            Assert.Contains("--ink-900: #21262b;", styles, StringComparison.Ordinal);
+            Assert.Contains(".window-break", styles, StringComparison.Ordinal);
+            Assert.Contains("\"window-break\"", SliceFunction(app, "appendWindowSymbol"), StringComparison.Ordinal);
+            Assert.Contains("DRAWING INK SYSTEM", styles, StringComparison.Ordinal);
         }
 
         [Fact]
-        public void WallsRenderAsHatchedPocheFootprintPolygons()
+        public void WallsRenderAsSolidInkPocheFootprintPolygons()
         {
             string app = ReadWebFile("app.js");
             string styles = ReadWebFile("styles.css");
-            string renderPreview = SliceFunction(app, "renderPreview");
             string renderWallSegment = SliceFunction(app, "renderWallSegment");
 
             // Walls are real footprint polygons (centerline offset by half the data-driven
             // thickness, ends extended so corners read solid), not flat strokes — the
             // react-planner / CAD convention surfaced by the open-source research.
             Assert.Contains("function wallFootprint", app, StringComparison.Ordinal);
-            Assert.Contains("polygonEl(footprint, wallClass, attributes)", renderWallSegment, StringComparison.Ordinal);
+            Assert.Contains("polygonEl(footprint, wallClass, { ...attributes, \"data-wall-ref\": wall.id })", renderWallSegment, StringComparison.Ordinal);
             Assert.Contains("formatNumber(thickness + 0.07, 3)", renderWallSegment, StringComparison.Ordinal);
 
-            // A 45-degree hatch <pattern> is injected per render (clearSvg wipes the SVG each
-            // frame) and tiled in real model metres; demising/exterior get the heavier tile.
-            Assert.Contains("renderSvgDefs()", renderPreview, StringComparison.Ordinal);
-            Assert.Contains("function buildHatchPattern", app, StringComparison.Ordinal);
-            Assert.Contains("patternTransform: \"rotate(45)\"", app, StringComparison.Ordinal);
-            Assert.Contains("fill: url(#wallPocheLight)", styles, StringComparison.Ordinal);
-            Assert.Contains("fill: url(#wallPocheHeavy)", styles, StringComparison.Ordinal);
+            // The poché fill is SOLID ink: a hatch tile aliases into grey mud at typical
+            // zoom, so the live stylesheet must not reference the legacy patterns.
+            Assert.Contains("Solid reads print-crisp", styles, StringComparison.Ordinal);
+            Assert.DoesNotContain("url(#wallPocheLight)", styles, StringComparison.Ordinal);
+            Assert.DoesNotContain("url(#wallPocheHeavy)", styles, StringComparison.Ordinal);
+            Assert.Contains("fill: #1a1f24", styles, StringComparison.Ordinal);
         }
 
         [Fact]
@@ -540,19 +554,27 @@ namespace FloorPlanGeneration.Tests
         {
             string app = ReadWebFile("app.js");
             string svgStyle = SliceFunction(app, "svgStyleElement");
+            string saveSvg = SliceFunction(app, "saveSvg");
 
-            // Saved / Rhino-bound SVGs embed self-contained styles that mirror the live sheet:
-            // hatched poche walls (referencing the cloned <defs> patterns), the paper palette,
-            // real door symbols and dimension linework -- not the old pastel infographic.
-            Assert.Contains("fill:url(#wallPocheLight)", svgStyle, StringComparison.Ordinal);
-            Assert.Contains("fill:url(#wallPocheHeavy)", svgStyle, StringComparison.Ordinal);
-            Assert.Contains(".room-bedroom{fill:rgba(243,241,235,0.55)}", svgStyle, StringComparison.Ordinal);
-            Assert.Contains(".door-leaf{fill:none;stroke:#1b222a", svgStyle, StringComparison.Ordinal);
+            // Saved / Rhino-bound SVGs embed self-contained styles that mirror the live
+            // ink rendering, with custom properties expanded to literals — a standalone
+            // file has no app stylesheet to resolve var() against.
+            Assert.Contains(".wall{fill:${ink900};stroke:none}", svgStyle, StringComparison.Ordinal);
+            Assert.Contains(".plan-sheet{fill:#ffffff", svgStyle, StringComparison.Ordinal);
+            Assert.Contains(".window-break{fill:#ffffff", svgStyle, StringComparison.Ordinal);
+            Assert.Contains(".room-bedroom{fill:#f8f5ef}", svgStyle, StringComparison.Ordinal);
             Assert.Contains(".dimension-witness{", svgStyle, StringComparison.Ordinal);
+            Assert.DoesNotContain("var(--", svgStyle, StringComparison.Ordinal);
 
-            // The retired yellow-corridor / blue-door infographic palette must not return.
+            // Retired looks must not return: hatch-pattern walls, the highlighter
+            // daylight band, the yellow/blue infographic palette.
+            Assert.DoesNotContain("wallPoche", svgStyle, StringComparison.Ordinal);
+            Assert.DoesNotContain("daylight-band", svgStyle, StringComparison.Ordinal);
             Assert.DoesNotContain("#f9d889", svgStyle, StringComparison.Ordinal);
-            Assert.DoesNotContain(".door{fill:#3867b7", svgStyle, StringComparison.Ordinal);
+
+            // Editor chrome never ships inside a saved drawing.
+            Assert.Contains(".edit-handles, .edit-selection-handles, .room-selected-halo-group", saveSvg, StringComparison.Ordinal);
+            Assert.Contains(".wall-hit, .core-grab-overlay, .plan-grid", saveSvg, StringComparison.Ordinal);
         }
 
         [Fact]
@@ -805,31 +827,27 @@ namespace FloorPlanGeneration.Tests
             string renderSetupGuide = SliceFunction(app, "renderSetupGuide");
             string buildSetupReview = SliceFunction(app, "buildSetupReview");
 
-            Assert.Contains("setupStep: \"floorplate\"", app, StringComparison.Ordinal);
-            Assert.Contains("const setupSteps = [\"floorplate\", \"core\", \"rules\", \"mix\", \"generate\"]", app, StringComparison.Ordinal);
-            Assert.Contains("data-setup-step-button=\"floorplate\"", index, StringComparison.Ordinal);
-            Assert.Contains("data-setup-step-button=\"generate\"", index, StringComparison.Ordinal);
-            Assert.Contains("data-setup-step=\"floorplate\"", index, StringComparison.Ordinal);
-            Assert.Contains("data-setup-step=\"generate\"", index, StringComparison.Ordinal);
+            // The setup panel is one honest scrolling form. The fake step wizard
+            // (chips that only re-highlighted, Back/Next that changed nothing) was
+            // deliberately retired — its hooks must not creep back.
+            Assert.DoesNotContain("data-setup-step-button", index, StringComparison.Ordinal);
+            Assert.DoesNotContain("id=\"setupPrevBtn\"", index, StringComparison.Ordinal);
+            Assert.DoesNotContain("id=\"setupNextBtn\"", index, StringComparison.Ordinal);
+            Assert.DoesNotContain("setSetupStep", app, StringComparison.Ordinal);
+            Assert.DoesNotContain("moveSetupStep", app, StringComparison.Ordinal);
+
+            // What a non-technical user needs stays visible and wired: the brief
+            // prompt, templates, the review card, and one primary generate action.
             Assert.Contains("id=\"setupReview\"", index, StringComparison.Ordinal);
-            Assert.Contains("id=\"setupPrevBtn\"", index, StringComparison.Ordinal);
-            Assert.Contains("id=\"setupNextBtn\"", index, StringComparison.Ordinal);
             Assert.Contains("id=\"setupGenerateBtn\"", index, StringComparison.Ordinal);
             Assert.Contains("Design Brief", index, StringComparison.Ordinal);
             Assert.Contains("class=\"brief-prompt\"", index, StringComparison.Ordinal);
             Assert.Contains("class=\"template-strip\"", index, StringComparison.Ordinal);
-            Assert.Contains("setSetupStep(button.dataset.setupStepButton)", bindEvents, StringComparison.Ordinal);
-            Assert.Contains("moveSetupStep(-1)", bindEvents, StringComparison.Ordinal);
-            Assert.Contains("moveSetupStep(1)", bindEvents, StringComparison.Ordinal);
             Assert.Contains("await runEngine(false)", bindEvents, StringComparison.Ordinal);
             Assert.Contains("renderSetupGuide(output)", renderAll, StringComparison.Ordinal);
-            Assert.Contains("panel.hidden = false", renderSetupGuide, StringComparison.Ordinal);
-            Assert.Contains("els.setupPrevBtn.hidden = true", renderSetupGuide, StringComparison.Ordinal);
-            Assert.Contains("els.setupNextBtn.hidden = true", renderSetupGuide, StringComparison.Ordinal);
-            Assert.Contains("els.setupGenerateBtn.hidden = false", renderSetupGuide, StringComparison.Ordinal);
+            Assert.Contains("els.setupGenerateBtn.disabled = state.busy", renderSetupGuide, StringComparison.Ordinal);
             Assert.Contains("buildSetupReview(output)", renderSetupGuide, StringComparison.Ordinal);
             Assert.Contains("Readiness", buildSetupReview, StringComparison.Ordinal);
-            Assert.Contains(".guided-steps {\n  display: none;", styles.Replace("\r\n", "\n", StringComparison.Ordinal), StringComparison.Ordinal);
             Assert.Contains(".brief-prompt", styles, StringComparison.Ordinal);
             Assert.Contains(".template-strip", styles, StringComparison.Ordinal);
             Assert.Contains(".setup-guide-actions", styles, StringComparison.Ordinal);
@@ -891,29 +909,36 @@ namespace FloorPlanGeneration.Tests
             Assert.Contains("id=\"editReadout\"", index, StringComparison.Ordinal);
             Assert.Contains("action === \"edit-toggle\"", handleCanvasAction, StringComparison.Ordinal);
             Assert.Contains("state.editMode = !state.editMode", handleCanvasAction, StringComparison.Ordinal);
-            Assert.Contains("state.selection = { kind: \"floorplate\", id: \"floorplate\" }", handleCanvasAction, StringComparison.Ordinal);
+            // Entering edit mode must NOT yank the user's selection to the floorplate.
+            Assert.Contains("selection survives the mode switch", handleCanvasAction, StringComparison.Ordinal);
+            Assert.DoesNotContain("state.selection = { kind: \"floorplate\"", handleCanvasAction, StringComparison.Ordinal);
             Assert.Contains("button.dataset.canvasAction === \"edit-toggle\"", app, StringComparison.Ordinal);
             Assert.Contains("editToggle.setAttribute(\"aria-pressed\", editActive ? \"true\" : \"false\")", app, StringComparison.Ordinal);
             Assert.Contains("els.planSvg.addEventListener(\"pointerdown\", handlePlanPointerDown)", app, StringComparison.Ordinal);
             Assert.Contains("!state.editMode", handlePlanPointerDown, StringComparison.Ordinal);
             Assert.Contains("function applyCanvasEdit", app, StringComparison.Ordinal);
+            // Constraint chrome is whisper-thin: label-free grips on the floorplate
+            // boundary, the core grabbable by its whole body via an overlay that sits
+            // ABOVE the walls so its press can't be stolen by a wall hit zone.
             Assert.Contains("state.editMode", renderInputEditHandles, StringComparison.Ordinal);
-            Assert.Contains("editHandleLabel(\"Width\"", renderInputEditHandles, StringComparison.Ordinal);
-            Assert.Contains("editHandleLabel(\"Move\"", renderInputEditHandles, StringComparison.Ordinal);
-            Assert.Contains("const handleInset", renderInputEditHandles, StringComparison.Ordinal);
+            Assert.Contains("\"Drag to set floorplate width\", \"ew\"", renderInputEditHandles, StringComparison.Ordinal);
+            Assert.Contains("core-grab-overlay", renderInputEditHandles, StringComparison.Ordinal);
+            Assert.DoesNotContain("editHandleLabel", app, StringComparison.Ordinal);
             Assert.Contains("const dx = point.x - edit.startPoint.x", applyCanvasEdit, StringComparison.Ordinal);
             Assert.Contains("const dy = point.y - edit.startPoint.y", applyCanvasEdit, StringComparison.Ordinal);
-            Assert.Contains("floorBounds.width + dx", applyCanvasEdit, StringComparison.Ordinal);
-            Assert.Contains("floorBounds.height + dy", applyCanvasEdit, StringComparison.Ordinal);
+            // Floorplate drags snap to the same 0.5 m grid the steppers use.
+            Assert.Contains("snapHalf(floorBounds.width + dx)", applyCanvasEdit, StringComparison.Ordinal);
+            Assert.Contains("snapHalf(floorBounds.height + dy)", applyCanvasEdit, StringComparison.Ordinal);
             Assert.Contains("state.editMode", renderSelectionConstraintHandles, StringComparison.Ordinal);
             Assert.Contains("detail.source !== \"generated\"", renderSelectionConstraintHandles, StringComparison.Ordinal);
             Assert.Contains("data-edit-action", editHandle, StringComparison.Ordinal);
             Assert.Contains("class: `edit-handle edit-${action}`", editHandle, StringComparison.Ordinal);
             Assert.Contains(".edit-readout", styles, StringComparison.Ordinal);
             Assert.Contains(".edit-handle", styles, StringComparison.Ordinal);
-            Assert.Contains(".edit-handle-label", styles, StringComparison.Ordinal);
             Assert.Contains(".edit-selection-box", styles, StringComparison.Ordinal);
-            Assert.Contains(".canvas-tools {\n  position: absolute;\n  z-index: 2;\n  left: 50%;\n  bottom: 16px;", normalizedStyles, StringComparison.Ordinal);
+            // The toolbar owns the TOP of the canvas; the bottom corners belong to the
+            // title block and the live readout.
+            Assert.Contains(".canvas-tools {\n  top: 12px;\n  bottom: auto;", normalizedStyles, StringComparison.Ordinal);
         }
 
         [Fact]
@@ -968,7 +993,7 @@ namespace FloorPlanGeneration.Tests
             Assert.Contains("renderRoomFixtures(layer, variant)", renderPlanGlyphLayer, StringComparison.Ordinal);
             Assert.Contains("room.daylight", renderDaylightAndWindowBands, StringComparison.Ordinal);
             Assert.Contains("closestFacadeSide(bounds, floorBounds)", renderDaylightAndWindowBands, StringComparison.Ordinal);
-            Assert.Contains("appendRoomFixture(fixtures, room)", renderRoomFixtures, StringComparison.Ordinal);
+            Assert.Contains("appendRoomFixture(wrap, room)", renderRoomFixtures, StringComparison.Ordinal);
             Assert.Contains("room.roomType || room.type", appendRoomFixture, StringComparison.Ordinal);
             Assert.Contains("appendBedroomFixture(group, bounds)", appendRoomFixture, StringComparison.Ordinal);
             Assert.Contains("appendBathroomFixture(group, bounds)", appendRoomFixture, StringComparison.Ordinal);
@@ -1013,7 +1038,7 @@ namespace FloorPlanGeneration.Tests
             Assert.Contains(".fixture-sofa", styles, StringComparison.Ordinal);
             Assert.Contains(".fixture-bath", styles, StringComparison.Ordinal);
             Assert.Contains(".fixture-counter", styles, StringComparison.Ordinal);
-            Assert.Contains(".daylight-band", styles, StringComparison.Ordinal);
+            Assert.Contains(".window-break", styles, StringComparison.Ordinal);
             Assert.Contains(".scale-bar", styles, StringComparison.Ordinal);
             Assert.Contains(".corridor-centerline", styles, StringComparison.Ordinal);
             Assert.Contains(".room-selected-halo", styles, StringComparison.Ordinal);
@@ -1109,42 +1134,41 @@ namespace FloorPlanGeneration.Tests
         }
 
         [Fact]
-        public void SelectedGeneratedGeometryCanvasEditsMutateInputConstraintsOnly()
+        public void DirectGeometryEditsKeepPlansWatertightAndEngineInputClean()
         {
             string app = ReadWebFile("app.js");
-            string styles = ReadWebFile("styles.css");
             string renderPreview = SliceFunction(app, "renderPreview");
             string renderSelectionConstraintHandles = SliceFunction(app, "renderSelectionConstraintHandles");
-            string renderPlanQuickActions = SliceFunction(app, "renderPlanQuickActions");
             string handlePlanClick = SliceFunction(app, "handlePlanClick");
-            string handlePlanPointerDown = SliceFunction(app, "handlePlanPointerDown");
             string applyCanvasEdit = SliceFunction(app, "applyCanvasEdit");
-            string selectionEditSnapshot = SliceFunction(app, "selectionEditSnapshot");
-            string runSelectedPlanAction = SliceFunction(app, "runSelectedPlanAction");
+            string finishGeomDrag = SliceFunction(app, "finishGeomDrag");
+            string restoreDraft = SliceFunction(app, "restoreDraft");
+            string boundaryLineRange = SliceFunction(app, "boundaryLineRange");
 
+            // Rooms and units are edited DIRECTLY through the boundary-move engine:
+            // every polygon sharing the dragged wall plane follows (span absorption),
+            // walls and doors commit as explicit overrides identical to the live
+            // preview, and the canvas chrome is grips — not floating action chips.
             Assert.Contains("renderSelectionConstraintHandles(group, output)", renderPreview, StringComparison.Ordinal);
-            Assert.Contains("renderPlanQuickActions(output, bounds)", renderPreview, StringComparison.Ordinal);
+            Assert.Contains("appendGeomResizeHandles(editGroup, bounds, detail.kind, detail.id)", renderSelectionConstraintHandles, StringComparison.Ordinal);
+            Assert.DoesNotContain("renderPlanQuickActions", renderPreview, StringComparison.Ordinal);
             Assert.Contains("data-plan-action", handlePlanClick, StringComparison.Ordinal);
-            Assert.Contains("runSelectedPlanAction(planAction.dataset.planAction)", handlePlanClick, StringComparison.Ordinal);
-            Assert.Contains("selection: selectionEditSnapshot(detail)", handlePlanPointerDown, StringComparison.Ordinal);
-            Assert.Contains("unit-target-area", renderSelectionConstraintHandles, StringComparison.Ordinal);
-            Assert.Contains("room-min-size", renderSelectionConstraintHandles, StringComparison.Ordinal);
-            Assert.Contains("corridor-width", renderSelectionConstraintHandles, StringComparison.Ordinal);
-            Assert.Contains("unit-target-area", applyCanvasEdit, StringComparison.Ordinal);
-            Assert.Contains("ensureUnitTarget(input, edit.selection.unitType", applyCanvasEdit, StringComparison.Ordinal);
-            Assert.Contains("detail.kind === \"room\" && detail.unit", app, StringComparison.Ordinal);
-            Assert.Contains("actions.push([\"unit-more\", \"More like this\"]", app, StringComparison.Ordinal);
+            Assert.Contains("function collectBoundaryEdges", app, StringComparison.Ordinal);
+            Assert.Contains("function shiftFollowerPoints", app, StringComparison.Ordinal);
+            Assert.Contains("function buildEditPointMapper", app, StringComparison.Ordinal);
+            Assert.Contains("function commitWallDoorOverrides", app, StringComparison.Ordinal);
+            Assert.Contains("setGeometryOverride(drag.variantId, drag.kind, drag.id, drag.current)", finishGeomDrag, StringComparison.Ordinal);
+
+            // The core is a rigid obstacle: boundary planes stop at its face.
+            Assert.Contains("fixedObstacleBounds()", boundaryLineRange, StringComparison.Ordinal);
+
+            // Edits from retired math never replay: the draft store is version-gated.
+            Assert.Contains("draft.editsVersion === geometryEditsVersion", restoreDraft, StringComparison.Ordinal);
+
+            // Floor/core handle drags still mutate the ENGINE INPUT only — they never
+            // poke generated variant geometry directly.
             Assert.Contains("input.rules.minRoomWidth", applyCanvasEdit, StringComparison.Ordinal);
-            Assert.Contains("input.rules.minRoomDepth", applyCanvasEdit, StringComparison.Ordinal);
-            Assert.Contains("input.rules.minCorridorWidth", applyCanvasEdit, StringComparison.Ordinal);
             Assert.Contains("refreshAccessFromCore(input)", applyCanvasEdit, StringComparison.Ordinal);
-            Assert.Contains("unitType", selectionEditSnapshot, StringComparison.Ordinal);
-            Assert.Contains("corridorWidth(detail)", selectionEditSnapshot, StringComparison.Ordinal);
-            Assert.Contains("planActionsForDetail(detail)", runSelectedPlanAction, StringComparison.Ordinal);
-            Assert.Contains(".plan-action-chip", styles, StringComparison.Ordinal);
-            Assert.Contains(".edit-unit-target-area", styles, StringComparison.Ordinal);
-            Assert.Contains(".edit-room-min-size", styles, StringComparison.Ordinal);
-            Assert.Contains(".edit-corridor-width", styles, StringComparison.Ordinal);
             Assert.DoesNotContain("state.response =", applyCanvasEdit, StringComparison.Ordinal);
             Assert.DoesNotContain("variant.units", applyCanvasEdit, StringComparison.Ordinal);
             Assert.DoesNotContain("variant.rooms", applyCanvasEdit, StringComparison.Ordinal);
