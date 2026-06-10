@@ -540,16 +540,46 @@ function readUnitMixFromForm(input) {
 // maps a written brief onto the existing input schema, then reuses the same
 // form -> input pipeline the manual controls drive. No external model call.
 // ---------------------------------------------------------------------------
+
+// Real briefs arrive glued and typoed ("a1 bhkapartment", "2bhkflat", "40x22").
+// Normalising before matching is what makes the parser forgiving: digits and
+// letters get breathing room, common compound words split, punctuation calms.
+function normalizePromptText(text) {
+  return ` ${String(text || "").toLowerCase()} `
+    .replace(/[,;:!?]/g, " ")
+    // "a1bhk" -> "a 1bhk" -> "a 1 bhk"; "40x22" -> "40 x 22" (the dims regex
+    // tolerates both, and bhk/bed tokens need the boundary to exist at all).
+    .replace(/(\d)([a-z])/g, "$1 $2")
+    .replace(/([a-z])(\d)/g, "$1 $2")
+    // De-glue the usual suspects: "bhkapartment", "bedflat", "floorplan".
+    .replace(/\b(bhk|bedroom|bed|br|rk)(apartments?|flats?|homes?|houses?|residences?|units?|plans?)\b/g, "$1 $2")
+    .replace(/\bfloorplans?\b/g, "floor plan")
+    .replace(/\s+/g, " ");
+}
+
+// Stable 32-bit FNV-1a hash: the same brief always reproduces its layout, a
+// different brief genuinely explores a different one.
+function promptSeed(text) {
+  let hash = 0x811c9dc5;
+  const s = String(text || "");
+  for (let i = 0; i < s.length; i += 1) {
+    hash ^= s.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0) % 1000000 + 1;
+}
+
 function parsePrompt(text) {
-  const t = ` ${String(text || "").toLowerCase()} `;
+  const t = normalizePromptText(text);
   const intent = { understood: [] };
   const note = (label) => { if (label && !intent.understood.includes(label)) { intent.understood.push(label); } };
 
   const types = [];
-  if (/\bstudios?\b/.test(t)) { types.push("studio"); }
-  if (/\b(?:1|one)[\s-]?(?:bed|bedroom|bhk|br)s?\b/.test(t)) { types.push("one_bed"); }
-  if (/\b(?:2|two)[\s-]?(?:bed|bedroom|bhk|br)s?\b/.test(t)) { types.push("two_bed"); }
-  if (/\b(?:3|three|4|four)[\s-]?(?:bed|bedroom|bhk|br)s?\b/.test(t)) { types.push("two_bed"); }
+  const wantsNumber = (words) => new RegExp(`\\b(?:${words})\\s*(?:bed|bedroom|bhk|br)s?\\b`).test(t);
+  if (/\bstudios?\b/.test(t) || /\b(?:1|one)\s*rk\b/.test(t)) { types.push("studio"); }
+  if (wantsNumber("1|one|single") || /\bone[\s-]?bed\b/.test(t)) { types.push("one_bed"); }
+  if (wantsNumber("2|two|double") || /\btwo[\s-]?bed\b/.test(t)) { types.push("two_bed"); }
+  if (wantsNumber("3|three|3\\.5|4|four|5|five")) { types.push("two_bed"); }
   const mixTypes = [...new Set(types)];
   if (mixTypes.length) {
     intent.mix = {};
@@ -625,6 +655,24 @@ function parsePrompt(text) {
     intent.strictness = "relaxed"; note("relaxed rules");
   }
 
+  // The plate template is a stylistic ask the samples can answer directly.
+  if (/\bl[\s-]?shaped?\b/.test(t)) {
+    intent.template = "l-shaped-core"; note("L-shaped core plate");
+  } else if (/\b(?:irregular|angled|organic|articulated)\b/.test(t)) {
+    intent.template = "moderately-irregular-core"; note("irregular core plate");
+  } else if (/\b(?:rectangular|simple|straight|bar)\s*(?:core|plate|block|building)?\b/.test(t) && /core|plate|block|building|slab/.test(t)) {
+    intent.template = "rectangular-core"; note("rectangular plate");
+  }
+
+  // Variety on request: "another", "different", "try again", "shuffle" walk
+  // the layout seed forward so each ask explores a new scheme.
+  intent.shuffle = /\b(?:another|different|again|new|next|alternative|shuffle|surprise|variation|fresh)\b/.test(t);
+
+  // Every distinct brief deserves a distinct layout: the seed derives from the
+  // text, so "1 BHK near the park" and "1 BHK with big kitchens" stop landing
+  // on the same scheme while the same brief stays perfectly reproducible.
+  intent.seed = promptSeed(t);
+
   return intent;
 }
 
@@ -638,6 +686,12 @@ function applyPromptToForm(intent) {
   // a feasible engine default when unmentioned, making each prompt reproducible.
   if (Number.isFinite(intent.width)) { els.floorWidth.value = fieldNumber(clamp(intent.width, 8, 200)); }
   if (Number.isFinite(intent.depth)) { els.floorDepth.value = fieldNumber(clamp(intent.depth, 8, 120)); }
+  if (Number.isFinite(intent.seed)) {
+    // "shuffle"-style briefs walk the seed forward on every ask; otherwise the
+    // brief's own hash keeps the layout reproducible per text.
+    state.promptShuffle = intent.shuffle ? (state.promptShuffle || 0) + 1 : 0;
+    els.seedInput.value = String(intent.seed + state.promptShuffle * 7919);
+  }
   els.minCorridorWidth.value = fieldNumber(Number.isFinite(intent.corridor) ? intent.corridor : 1.8);
   els.minUnitArea.value = fieldNumber(Number.isFinite(intent.minUnit) ? intent.minUnit : 25);
   els.variantInput.value = String(Number.isFinite(intent.variants) ? clamp(Math.trunc(intent.variants), 1, 20) : 4);
@@ -738,11 +792,24 @@ async function generateFromPrompt() {
   state.undoStack = [];
   state.redoStack = [];
   state.geometryEdits = {};
+  // A brief that names a plate shape starts from that sample's geometry, then
+  // layers the parsed constraints over it.
+  if (intent.template && state.samples.some((sample) => sample.name === intent.template)) {
+    if (els.sampleSelect.value !== intent.template) {
+      els.sampleSelect.value = intent.template;
+    }
+    const briefText = text;
+    await loadSelectedSample(false);
+    els.projectName.value = briefText;
+  }
   applyPromptToForm(intent);
   syncInputFromForm();
   setEditorFromInput(state.input);
   saveDraft();
   renderPromptUnderstood(intent, text);
+  if (!intent.understood.length && text) {
+    appendPromptNote("Refreshed the layout seed — every brief explores a new scheme");
+  }
   await runEngine(false);
   await relaxStrictnessIfNoVariants();
   navigateToHash("#plan");

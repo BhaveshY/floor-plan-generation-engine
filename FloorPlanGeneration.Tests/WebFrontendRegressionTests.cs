@@ -1310,8 +1310,26 @@ namespace FloorPlanGeneration.Tests
             Assert.Contains("promptGenerateBtn: document.getElementById(\"promptGenerateBtn\")", app, StringComparison.Ordinal);
             Assert.Contains("() => generateFromPrompt()", app, StringComparison.Ordinal);
 
+            // Real briefs arrive glued and typoed ("a1 bhkapartment", "2bhkflat"):
+            // the text normalises (digit/letter splits, compound de-gluing) BEFORE
+            // any pattern runs, so plain phrasings parse instead of falling through.
+            Assert.Contains("function normalizePromptText", app, StringComparison.Ordinal);
+            Assert.Contains("replace(/(\\d)([a-z])/g, \"$1 $2\")", app, StringComparison.Ordinal);
+            Assert.Contains("normalizePromptText(text)", parsePrompt, StringComparison.Ordinal);
+
+            // Every distinct brief explores a distinct layout: the seed derives from
+            // the brief text (reproducible per text), variety words walk it forward,
+            // and the form pipeline actually carries it into the engine request.
+            Assert.Contains("function promptSeed", app, StringComparison.Ordinal);
+            Assert.Contains("intent.seed = promptSeed(t)", parsePrompt, StringComparison.Ordinal);
+            Assert.Contains("intent.shuffle", parsePrompt, StringComparison.Ordinal);
+            Assert.Contains("els.seedInput.value = String(intent.seed + state.promptShuffle * 7919)", applyPromptToForm, StringComparison.Ordinal);
+
+            // A brief naming a plate shape starts from that sample's geometry.
+            Assert.Contains("intent.template = \"l-shaped-core\"", parsePrompt, StringComparison.Ordinal);
+
             // Unit-type detection tolerates plurals ("studios and one-beds", "two-beds").
-            Assert.Contains("(?:bed|bedroom|bhk|br)s?\\b", parsePrompt, StringComparison.Ordinal);
+            Assert.Contains("(?:bed|bedroom|bhk|br)s?", parsePrompt, StringComparison.Ordinal);
 
             // A compliance brief maps to the buildable "balanced" mode, never the
             // zero-yield "strict" mode, and the chip stays honest about that.
