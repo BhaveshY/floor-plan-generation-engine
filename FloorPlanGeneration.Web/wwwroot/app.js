@@ -1227,6 +1227,40 @@ function renderPreview(output) {
 
   const group = svgEl("g", { transform: previewTransform() });
   els.planSvg.appendChild(group);
+
+  // The drawing sits on a white sheet floating over the studio surface — the
+  // presentation frame of a printed plan, and the contrast base every other
+  // ink weight is tuned against. Its soft shadow is three stacked low-alpha
+  // rects: blur filters at sheet scale freeze the SVG rasterizer.
+  if (state.viewMode !== "axon") {
+    const sheetMargin = clamp(Math.max(bounds.width, bounds.height) * 0.055, 1.4, 3.2);
+    const sheet = {
+      x: bounds.minX - sheetMargin,
+      y: bounds.minY - sheetMargin,
+      w: bounds.width + sheetMargin * 2,
+      h: bounds.height + sheetMargin * 2
+    };
+    [0.34, 0.2, 0.09].forEach((spread) => {
+      group.appendChild(svgEl("rect", {
+        class: "plan-sheet-shadow",
+        x: round(sheet.x - spread),
+        y: round(sheet.y - spread - 0.1),
+        width: round(sheet.w + spread * 2),
+        height: round(sheet.h + spread * 2),
+        rx: round(0.2 + spread),
+        ry: round(0.2 + spread)
+      }));
+    });
+    group.appendChild(svgEl("rect", {
+      class: "plan-sheet",
+      x: round(sheet.x),
+      y: round(sheet.y),
+      width: round(sheet.w),
+      height: round(sheet.h),
+      rx: 0.18,
+      ry: 0.18
+    }));
+  }
   renderPlanGrid(group, bounds);
 
   if (input && input.floorplate && input.floorplate.outer) {
@@ -1244,6 +1278,22 @@ function renderPreview(output) {
           "data-edit-target": fixed.id || "fixed"
         };
         group.appendChild(polygonEl(fixed.polygon.points, selectableClass("fixed", kind, fixed.id || "fixed"), attributes));
+        // Name the solid block so it reads as the service core, not a void.
+        // Text lives on the un-flipped SVG root (like room labels) with a
+        // negated y, and paints above the walls by document order.
+        const coreBounds = kind === "core" ? boundsOfPoints(fixed.polygon.points) : null;
+        if (coreBounds && coreBounds.width >= 2 && coreBounds.height >= 1.2 && state.viewMode === "plan") {
+          const coreFont = clamp(Math.min(coreBounds.width, coreBounds.height) * 0.16, 0.3, 0.55);
+          const coreLabel = svgEl("text", {
+            class: "core-label",
+            x: round(coreBounds.minX + coreBounds.width / 2),
+            y: round(-(coreBounds.minY + coreBounds.height / 2) + coreFont * 0.34),
+            "text-anchor": "middle",
+            "font-size": formatNumber(coreFont, 2)
+          });
+          coreLabel.textContent = "CORE";
+          els.planSvg.appendChild(coreLabel);
+        }
       }
     });
   }
@@ -1754,10 +1804,12 @@ function appendWindowSymbol(layer, bounds, side) {
 
   const lo = horizontal ? { x: a, y: edge } : { x: edge, y: a };
   const hi = horizontal ? { x: b, y: edge } : { x: edge, y: b };
+  // A window is a white break punched through the wall poché with glazing
+  // lines across it — the print convention — not a colored highlight band.
   if (horizontal) {
-    layer.appendChild(rectEl(a, edge - t, b - a, t * 2, "daylight-band"));
+    layer.appendChild(rectEl(a, edge - t, b - a, t * 2, "window-break"));
   } else {
-    layer.appendChild(rectEl(edge - t, a, t * 2, b - a, "daylight-band"));
+    layer.appendChild(rectEl(edge - t, a, t * 2, b - a, "window-break"));
   }
   layer.appendChild(lineEl(offsetAcross(lo, side, -t), offsetAcross(hi, side, -t), "window-frame"));
   layer.appendChild(lineEl(offsetAcross(lo, side, t), offsetAcross(hi, side, t), "window-frame"));

@@ -249,39 +249,40 @@ h3 {
 }
 
 .topbar {
-  min-height: 72px;
-  padding: 13px 24px;
-  background: rgba(255, 255, 255, 0.88);
+  min-height: 60px;
+  padding: 10px 20px;
+  background: rgba(255, 255, 255, 0.86);
   border-bottom: 1px solid var(--hairline);
   display: flex;
-  gap: 20px;
+  gap: 16px;
   align-items: center;
   justify-content: space-between;
   position: sticky;
   top: 0;
   z-index: 20;
-  backdrop-filter: blur(18px);
+  backdrop-filter: blur(18px) saturate(1.4);
+  -webkit-backdrop-filter: blur(18px) saturate(1.4);
 }
 
 .brand {
   display: flex;
   align-items: center;
-  gap: 13px;
-  min-width: 250px;
+  gap: 11px;
+  min-width: 230px;
 }
 
 .mark {
-  width: 36px;
-  height: 36px;
-  border-radius: var(--radius-sm);
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
   background: linear-gradient(150deg, var(--teal), var(--teal-deep));
   color: #fff;
   display: grid;
   place-items: center;
-  font-size: 17px;
+  font-size: 14px;
   font-weight: var(--fw-heavy);
   letter-spacing: 0.02em;
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12), 0 6px 14px rgba(9, 74, 67, 0.2);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.14);
 }
 
 .brand p,
@@ -300,11 +301,10 @@ h3 {
 
 #runStatus::before {
   content: "";
-  width: 9px;
-  height: 9px;
+  width: 7px;
+  height: 7px;
   border-radius: 999px;
-  background: #45b765;
-  box-shadow: 0 0 0 3px rgba(69, 183, 101, 0.13);
+  background: #34a85c;
 }
 
 .top-actions {
@@ -362,20 +362,6 @@ h3 {
   color: #fff;
 }
 
-.user-avatar {
-  width: 34px;
-  height: 34px;
-  border-radius: var(--radius-pill);
-  display: grid;
-  place-items: center;
-  border: 1px solid var(--hairline);
-  background: linear-gradient(150deg, var(--surface), #fff);
-  color: var(--ink-soft);
-  font-size: var(--fs-sm);
-  font-weight: var(--fw-heavy);
-  letter-spacing: 0.02em;
-}
-
 .workspace {
   display: grid;
   grid-template-columns: minmax(300px, 360px) minmax(680px, 1fr) minmax(320px, 360px);
@@ -389,8 +375,8 @@ h3 {
 .panel {
   background: var(--panel);
   border: 1px solid var(--hairline);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow);
+  border-radius: var(--radius-xl);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 10px 28px rgba(15, 23, 42, 0.05);
   overflow: hidden;
   min-width: 0;
 }
@@ -479,6 +465,14 @@ h3 {
 
 .preview-actions {
   justify-content: flex-end;
+}
+
+/* The variant picker yields gracefully instead of forcing the panel wide. */
+#variantSelect {
+  min-width: 0;
+  max-width: 100%;
+  flex: 0 1 260px;
+  text-overflow: ellipsis;
 }
 
 .preview-actions select {
@@ -1194,10 +1188,10 @@ textarea.dragging {
 .preview-frame {
   position: relative;
   min-height: 420px;
-  background:
-    radial-gradient(135% 100% at 50% 14%, #fcfdfe 0%, #f1f4f6 60%, #e8edef 100%);
+  /* A flat, calm studio surface: the white plan sheet floats on it, so the
+     frame itself stays out of the conversation. */
+  background: #edeff1;
   border-top: 1px solid var(--line);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65), inset 0 0 64px rgba(15, 23, 42, 0.05);
   overflow: hidden;
 }
 
@@ -1245,8 +1239,7 @@ textarea.dragging {
   min-height: 100vh;
   height: 100vh;
   border-top: none;
-  background:
-    radial-gradient(140% 110% at 50% 12%, #fdfefe 0%, #eef2f4 62%, #e4eaec 100%);
+  background: #edeff1;
 }
 
 .preview-frame.is-fullscreen .canvas-tools,
@@ -1278,18 +1271,10 @@ textarea.dragging {
 }
 
 .preview-frame.is-edit-mode {
-  background:
-    linear-gradient(90deg, rgba(20, 31, 42, 0.045) 1px, transparent 1px),
-    linear-gradient(180deg, rgba(20, 31, 42, 0.045) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(20, 31, 42, 0.022) 1px, transparent 1px),
-    linear-gradient(180deg, rgba(20, 31, 42, 0.022) 1px, transparent 1px),
-    #fbfcfd;
-  background-size: 96px 96px, 96px 96px, 24px 24px, 24px 24px, auto;
-  background-position: center;
+  background: #eaedef;
   box-shadow:
-    inset 0 0 0 2px rgba(0, 125, 120, 0.62),
-    inset 0 0 0 7px rgba(0, 125, 120, 0.08),
-    inset 0 0 0 1px rgba(16, 24, 32, 0.045);
+    inset 0 0 0 2px rgba(0, 125, 120, 0.55),
+    inset 0 0 0 7px rgba(0, 125, 120, 0.07);
 }
 
 .preview-frame.is-edit-mode::before {
@@ -1686,27 +1671,28 @@ textarea.dragging {
 }
 
 .boundary-swatch {
-  background: #fbfdfa;
+  background: #ffffff;
 }
 
 .core-swatch {
-  background: #353b40;
+  background: #2c3338;
 }
 
 .unit-swatch {
-  background: #e7f1fb;
+  background: #eef2f5;
 }
 
 .room-swatch {
-  background: rgba(255, 255, 255, 0.9);
+  background: #f8f5ef;
 }
 
 .corridor-swatch {
-  background: #fff0bf;
+  background: #efefec;
 }
 
 .door-swatch {
-  background: var(--blue);
+  background: #ffffff;
+  border: 1.5px solid rgba(33, 38, 43, 0.7) !important;
   border-radius: 50% !important;
 }
 
@@ -2863,62 +2849,89 @@ pre {
 /* Exterior shell reads as the heaviest line on the sheet. Drawn in real model
    metres (no non-scaling hairline) so it stays proportional at every zoom; the
    white fill is painted over the inner half, leaving a ~0.2 m poché edge. */
+/* =====================================================================
+   DRAWING INK SYSTEM — one warm-graphite hue at four strengths, flat
+   near-white zone tints, solid wall poché. The plan reads like a printed
+   architectural sheet: ink and paper first, color only as a whisper.
+   ===================================================================== */
+:root {
+  --ink-900: #21262b;
+  --ink-700: rgba(33, 38, 43, 0.72);
+  --ink-500: rgba(33, 38, 43, 0.5);
+  --ink-300: rgba(33, 38, 43, 0.3);
+  --ink-150: rgba(33, 38, 43, 0.15);
+}
+
+/* The white sheet the drawing sits on, floating over the studio surface.
+   The soft edge comes from stacked low-alpha rects (an "onion" shadow), NOT
+   an SVG blur filter — blur on a sheet-sized region freezes the rasterizer
+   at screenshot/zoom scales. */
+.plan-sheet {
+  fill: #ffffff;
+  stroke: rgba(33, 38, 43, 0.07);
+  stroke-width: 1px;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+
+.plan-sheet-shadow {
+  fill: rgba(26, 34, 42, 0.035);
+  stroke: none;
+  pointer-events: none;
+}
+
 .boundary {
   fill: #ffffff;
-  stroke: #0b0f13;
-  stroke-width: 0.4;
+  stroke: var(--ink-900);
+  stroke-width: 0.3;
   paint-order: stroke fill;
 }
 
 .fixed {
-  fill: #394046;
-  stroke: #15191e;
-  stroke-width: 0.16;
-  vector-effect: non-scaling-stroke;
+  fill: #2c3338;
+  stroke: none;
+}
+
+.core-label {
+  fill: rgba(255, 255, 255, 0.85);
+  font-weight: 750;
+  letter-spacing: 0.22em;
+  pointer-events: none;
+  user-select: none;
 }
 
 .corridor {
-  fill: rgba(241, 241, 238, 0.72);
-  stroke: rgba(90, 92, 95, 0.28);
-  stroke-width: 0.08;
-  vector-effect: non-scaling-stroke;
+  fill: #f0f0ed;
+  stroke: none;
 }
 
-.unit {
-  fill: rgba(255, 255, 255, 0.02);
-  stroke: rgba(18, 27, 36, 0.16);
-  stroke-width: 0.055;
-  vector-effect: non-scaling-stroke;
-}
-
-.unit-one_bed {
-  fill: rgba(255, 255, 255, 0.02);
-  stroke: rgba(18, 27, 36, 0.16);
-}
-
+.unit,
+.unit-one_bed,
 .unit-two_bed {
-  fill: rgba(255, 255, 255, 0.02);
-  stroke: rgba(18, 27, 36, 0.16);
+  fill: rgba(255, 255, 255, 0.01);
+  stroke: var(--ink-150);
+  stroke-width: 0.05;
+  vector-effect: non-scaling-stroke;
 }
 
 .room {
-  fill: #fcfcfa;
-  stroke: rgba(16, 24, 32, 0.12);
+  fill: #ffffff;
+  stroke: var(--ink-150);
   stroke-width: 0.04;
   vector-effect: non-scaling-stroke;
 }
 
 .svg-label {
-  fill: #111922;
+  fill: var(--ink-900);
   paint-order: stroke;
-  stroke: rgba(255, 255, 255, 0.82);
-  stroke-width: 0.1;
+  stroke: rgba(255, 255, 255, 0.85);
+  stroke-width: 0.09;
   stroke-linejoin: round;
   pointer-events: none;
 }
 
 .unit-label {
-  fill: rgba(18, 27, 36, 0.28);
+  fill: var(--ink-300);
   stroke: rgba(255, 255, 255, 0.6);
   stroke-width: 0.06;
   font-size: 0.58px;
@@ -2932,25 +2945,21 @@ pre {
   vector-effect: non-scaling-stroke;
 }
 
-/* Construction-document poché: walls are real footprint polygons (centerline offset
-   by half their thickness in app.js). Each carries its own data-driven thickness, and
-   the geometry is drawn in real model metres, so the fill reads as 45-degree hatched
-   poché held between a crisp double-line outline (the two wall faces) rather than a
-   single flat band. Base = light hatch; demising/exterior swap in the heavier tile and
-   a darker face line for the structural hierarchy. */
+/* Wall poché: solid ink footprint polygons (centerline offset by half the
+   data-driven thickness, in real metres). Solid reads print-crisp at every
+   zoom where a hatch tile aliases into grey mud; hierarchy comes from the
+   geometry itself — exterior and demising walls are simply thicker. */
 .wall {
-  fill: url(#wallPocheLight);
-  stroke: rgba(17, 21, 26, 0.92);
-  stroke-width: 0.022;
+  fill: var(--ink-900);
+  stroke: none;
   stroke-linejoin: miter;
   shape-rendering: geometricPrecision;
-  vector-effect: non-scaling-stroke;
 }
 
 .wall-exterior,
-.wall-unit_boundary {
-  fill: url(#wallPocheHeavy);
-  stroke: #0c1116;
+.wall-unit_boundary,
+.wall-unit_demising {
+  fill: #1a1f24;
 }
 
 .wall-hit {
@@ -2960,74 +2969,64 @@ pre {
   pointer-events: stroke;
 }
 
-.wall-room_partition {
-  fill: url(#wallPocheLight);
-}
-
-.wall-unit_demising {
-  fill: url(#wallPocheHeavy);
-  stroke: #0e1318;
-}
-
 .dimension-guides {
   pointer-events: none;
 }
 
 .dimension-line,
 .dimension-tick {
-  stroke: rgba(43, 53, 64, 0.46);
-  stroke-width: 0.05;
+  stroke: var(--ink-300);
+  stroke-width: 0.04;
   vector-effect: non-scaling-stroke;
 }
 
 .dimension-tick {
-  stroke: rgba(43, 53, 64, 0.62);
+  stroke: var(--ink-500);
 }
 
 .dimension-witness {
-  stroke: rgba(43, 53, 64, 0.4);
-  stroke-width: 0.035;
+  stroke: var(--ink-150);
+  stroke-width: 0.03;
   vector-effect: non-scaling-stroke;
 }
 
 .dimension-label {
-  fill: rgba(31, 41, 51, 0.84);
+  fill: var(--ink-700);
   paint-order: stroke;
   stroke: rgba(244, 247, 248, 0.94);
-  stroke-width: 0.16;
+  stroke-width: 0.14;
   stroke-linejoin: round;
   /* Size comes from the SVG font-size attribute, scaled to the plan. */
-  font-weight: 800;
-  letter-spacing: 0.01em;
+  font-weight: 680;
+  letter-spacing: 0.04em;
 }
 
-/* Near-monochrome "paper" zoning: high-lightness, low-chroma washes so the sheet
-   reads as a construction drawing (walls + labels dominate) rather than a
-   saturated infographic. Wet rooms skew faintly cool, living/sleeping faintly
-   warm — just enough to distinguish program at a glance. */
+/* Flat near-white zone tints — opaque so alpha never stacks into mud where
+   rooms overlap units. Sleeping/living lean a breath warm, wet rooms a breath
+   cool: program legible at a glance, ink and paper still in charge. */
 .room.room-bedroom {
-  fill: rgba(243, 241, 235, 0.55);
+  fill: #f8f5ef;
 }
 
 .room.room-bathroom {
-  fill: rgba(228, 236, 238, 0.6);
+  fill: #f0f4f5;
 }
 
 .room.room-kitchen {
-  fill: rgba(230, 237, 232, 0.6);
+  fill: #f3f5f0;
 }
 
 .room.room-living {
-  fill: rgba(247, 243, 233, 0.55);
+  fill: #faf6ee;
 }
 
 .room.room-balcony {
-  fill: rgba(233, 239, 232, 0.5);
+  fill: #f3f6f1;
 }
 
 .room.room-service,
 .room.room-general {
-  fill: rgba(237, 239, 236, 0.5);
+  fill: #f4f4f2;
 }
 
 #planSvg[data-view-mode="plan"] .room,
@@ -3045,18 +3044,18 @@ pre {
 }
 
 .room-label {
-  fill: rgba(17, 24, 32, 0.92);
-  stroke: rgba(252, 252, 250, 0.7);
-  stroke-width: 0.06;
-  font-weight: 700;
-  letter-spacing: 0.04em;
+  fill: var(--ink-900);
+  stroke: rgba(255, 255, 255, 0.78);
+  stroke-width: 0.07;
+  font-weight: 650;
+  letter-spacing: 0.07em;
 }
 
 .room-label-meta {
-  fill: rgba(42, 52, 62, 0.78);
-  font-size: 0.78em;
-  font-weight: 600;
-  letter-spacing: 0.01em;
+  fill: var(--ink-500);
+  font-size: 0.76em;
+  font-weight: 560;
+  letter-spacing: 0.02em;
 }
 
 .plan-visual-layer,
@@ -3064,125 +3063,140 @@ pre {
   pointer-events: none;
 }
 
+/* Furniture is pure line work: white (paper) fills with one ink at two
+   strengths, the way architects actually draft fixtures. No object colors —
+   a plan is not a dollhouse — so labels and walls keep the foreground. */
 .fixture {
-  fill: rgba(247, 250, 251, 0.78);
-  stroke: rgba(40, 51, 60, 0.82);
-  stroke-width: 0.06;
+  fill: #ffffff;
+  stroke: var(--ink-500);
+  stroke-width: 0.035;
   stroke-linecap: round;
   stroke-linejoin: round;
-  vector-effect: non-scaling-stroke;
   pointer-events: none;
 }
 
-/* Soft tonal area-rug under seating/sleeping zones; sits behind furniture for depth. */
+/* Rug: open dashed outline, no fill — a floor marking, not an object. */
 .fixture-rug {
-  fill: rgba(228, 222, 208, 0.42);
-  stroke: rgba(150, 138, 116, 0.4);
-  stroke-width: 0.04;
+  fill: none;
+  stroke: var(--ink-300);
+  stroke-width: 0.028;
+  stroke-dasharray: 0.18 0.12;
 }
 
 .fixture-bed {
-  fill: rgba(235, 243, 247, 0.95);
+  fill: #ffffff;
+  stroke: var(--ink-700);
+  stroke-width: 0.04;
 }
 
 .fixture-headboard {
-  fill: rgba(196, 208, 215, 0.96);
+  fill: #f2f1ee;
+  stroke: var(--ink-500);
 }
 
 .fixture-pillow {
-  fill: rgba(255, 255, 255, 0.96);
+  fill: #ffffff;
+  stroke: var(--ink-300);
+  stroke-width: 0.028;
 }
 
 .fixture-sink,
 .fixture-toilet,
 .fixture-wc {
-  fill: rgba(255, 255, 255, 0.96);
-  stroke: rgba(40, 51, 60, 0.8);
+  fill: #ffffff;
+  stroke: var(--ink-700);
+  stroke-width: 0.038;
 }
 
 .fixture-nightstand,
 .fixture-wardrobe,
 .fixture-counter {
-  fill: rgba(208, 219, 224, 0.9);
+  fill: #fafaf8;
+  stroke: var(--ink-500);
 }
 
 .fixture-appliance,
 .fixture-stove,
 .fixture-fridge {
-  fill: rgba(244, 246, 247, 0.96);
-  stroke: rgba(36, 46, 55, 0.8);
+  fill: #ffffff;
+  stroke: var(--ink-700);
+  stroke-width: 0.038;
 }
 
 .fixture-table {
-  fill: rgba(246, 240, 226, 0.95);
-  stroke: rgba(120, 96, 60, 0.7);
+  fill: #ffffff;
+  stroke: var(--ink-500);
 }
 
 .fixture-chair,
 .fixture-sofa {
-  fill: rgba(214, 227, 232, 0.95);
+  fill: #ffffff;
+  stroke: var(--ink-700);
+  stroke-width: 0.04;
 }
 
-/* Media unit / TV bank: dark face reads instantly as the focal wall of a living room. */
+/* Media bank: drawn like any other casework — outline only. */
 .fixture-tv {
-  fill: rgba(38, 46, 56, 0.9);
-  stroke: rgba(20, 26, 33, 0.9);
+  fill: #f2f1ee;
+  stroke: var(--ink-500);
 }
 
 .fixture-bath,
 .fixture-shower {
-  fill: rgba(252, 248, 243, 0.95);
-  stroke: rgba(55, 66, 76, 0.78);
+  fill: #ffffff;
+  stroke: var(--ink-700);
+  stroke-width: 0.04;
 }
 
 .fixture-plant {
-  fill: rgba(103, 143, 104, 0.5);
-  stroke: rgba(55, 94, 58, 0.78);
+  fill: none;
+  stroke: var(--ink-300);
+  stroke-width: 0.03;
 }
 
-/* Cooktop burner rings: filled discs (stroke would be a sub-px hairline at this radius),
-   drawn only on large kitchens so dense floorplates stay uncluttered. */
+/* Cooktop burner rings: small open circles, ink only. */
 .fixture-burner {
-  fill: rgba(58, 69, 79, 0.34);
-  stroke: rgba(38, 48, 57, 0.55);
+  fill: none;
+  stroke: var(--ink-500);
+  stroke-width: 0.03;
 }
 
-/* Fixture line details (e.g. shower drain X): model-unit scaling stroke, no vector-effect,
-   so the linework thickens with zoom instead of vanishing to a hairline. */
+/* Fixture line details (duvet fold, drain X, basin oval) — the lightest ink. */
 .fixture-detail {
   fill: none;
-  stroke: rgba(61, 72, 82, 0.5);
-  stroke-width: 0.035;
+  stroke: var(--ink-300);
+  stroke-width: 0.03;
   stroke-linecap: round;
   pointer-events: none;
 }
 
-.daylight-band {
-  fill: rgba(202, 223, 233, 0.5);
+/* The white break a window punches through the wall poché. */
+.window-break {
+  fill: #ffffff;
   stroke: none;
   pointer-events: none;
 }
 
 .window-frame {
   fill: none;
-  stroke: rgba(26, 36, 47, 0.88);
-  stroke-width: 0.05;
+  stroke: var(--ink-900);
+  stroke-width: 0.04;
   stroke-linecap: butt;
   pointer-events: none;
 }
 
 .window-mullion {
   fill: none;
-  stroke: rgba(60, 82, 98, 0.7);
-  stroke-width: 0.03;
+  stroke: var(--ink-500);
+  stroke-width: 0.025;
   stroke-linecap: butt;
   pointer-events: none;
 }
 
 .window-jamb {
   fill: none;
-  stroke: rgba(26, 36, 47, 0.88);
-  stroke-width: 0.06;
+  stroke: var(--ink-900);
+  stroke-width: 0.055;
   stroke-linecap: butt;
   pointer-events: none;
 }
@@ -3193,8 +3207,8 @@ pre {
 
 .scale-bar-line,
 .scale-bar-tick {
-  stroke: rgba(42, 50, 58, 0.68);
-  stroke-width: 0.06;
+  stroke: var(--ink-500);
+  stroke-width: 0.05;
   stroke-linecap: square;
   vector-effect: non-scaling-stroke;
 }
@@ -3238,7 +3252,7 @@ pre {
 }
 
 .entry-marker {
-  fill: rgba(17, 24, 31, 0.88);
+  fill: var(--ink-700);
   stroke: rgba(255, 255, 255, 0.86);
   stroke-width: 0.055;
   vector-effect: non-scaling-stroke;
@@ -3255,8 +3269,8 @@ pre {
 
 .corridor-centerline {
   fill: none;
-  stroke: rgba(89, 80, 64, 0.52);
-  stroke-width: 0.055;
+  stroke: var(--ink-300);
+  stroke-width: 0.045;
   stroke-dasharray: 0.42 0.28;
   stroke-linecap: round;
   vector-effect: non-scaling-stroke;
@@ -3294,25 +3308,24 @@ pre {
    sized to the host wall thickness so it cleanly cuts the poché, and the leaf +
    swing arc render as visible scaling linework instead of sub-pixel ghosts. */
 .door-gap {
-  stroke: #fcfcfa;
+  stroke: #ffffff;
   stroke-linecap: butt;
 }
 
 .door-leaf {
-  stroke: #1b222a;
-  stroke-width: 0.05;
+  stroke: var(--ink-900);
+  stroke-width: 0.045;
   stroke-linecap: square;
 }
 
 .door-swing {
   fill: none;
-  stroke: rgba(33, 41, 50, 0.6);
-  stroke-width: 0.03;
-  stroke-dasharray: 0.16 0.1;
+  stroke: var(--ink-300);
+  stroke-width: 0.028;
 }
 
 .door-marker {
-  fill: rgba(42, 50, 58, 0.72);
+  fill: var(--ink-500);
   stroke: #fff;
   stroke-width: 0.08;
   vector-effect: non-scaling-stroke;
@@ -3343,38 +3356,40 @@ pre {
   font-weight: 750;
 }
 
+/* Variant thumbnails share the sheet's quiet ink language; unit types differ
+   by tint temperature only, so the strip reads as a set of small drawings. */
 .thumb-boundary {
   fill: #fff;
-  stroke: #202326;
+  stroke: var(--ink-900);
   stroke-width: 0.28;
 }
 
 .thumb-unit {
-  fill: #dfeeff;
-  stroke: #4e83af;
-  stroke-width: 0.16;
+  fill: #eef2f5;
+  stroke: rgba(33, 38, 43, 0.45);
+  stroke-width: 0.14;
 }
 
 .thumb-one_bed {
-  fill: #e5f4e6;
-  stroke: #6b9c6a;
+  fill: #eff4ee;
+  stroke: rgba(33, 38, 43, 0.45);
 }
 
 .thumb-two_bed {
-  fill: #efe5fb;
-  stroke: var(--violet);
+  fill: #f6f1e9;
+  stroke: rgba(33, 38, 43, 0.45);
 }
 
 .thumb-corridor {
-  fill: #ffe5a7;
-  stroke: #b47a20;
-  stroke-width: 0.16;
+  fill: #e9e9e5;
+  stroke: rgba(33, 38, 43, 0.35);
+  stroke-width: 0.14;
 }
 
 .thumb-core {
-  fill: #595c5e;
-  stroke: #202326;
-  stroke-width: 0.16;
+  fill: #2c3338;
+  stroke: none;
+  stroke-width: 0.14;
 }
 
 @media (max-width: 1320px) {
@@ -3444,13 +3459,31 @@ pre {
     justify-content: flex-start;
     min-width: 0;
     overflow-x: auto;
+    /* Strip nav scrolls silently — a visible scrollbar under a pill control
+       reads as a rendering bug, not an affordance. */
+    scrollbar-width: none;
+  }
+
+  .top-nav::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* The floating canvas toolbar wraps into two tidy rows instead of
+     overflowing the frame edge. */
+  .canvas-tools {
+    max-width: calc(100% - 20px);
+    flex-wrap: wrap;
+    justify-content: center;
+    border-radius: 18px;
   }
 
   .workspace {
     grid-template-columns: 1fr;
+    /* On a phone-width screen the drawing IS the product — it leads, the
+       brief and review stack beneath it. */
     grid-template-areas:
-      "setup"
       "plan"
+      "setup"
       "review";
     padding: 10px;
     gap: 10px;
@@ -3569,9 +3602,22 @@ pre {
     grid-column: 1 / -1;
   }
 
+  /* The view switcher becomes a true full-width segmented control: three
+     equal segments, never a scrollbar. */
   .mode-tabs {
     width: 100%;
-    overflow-x: auto;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    overflow: hidden;
+  }
+
+  .mode-tabs button {
+    width: 100%;
+    min-width: 0;
+    padding: 0 6px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .export-card-grid {
