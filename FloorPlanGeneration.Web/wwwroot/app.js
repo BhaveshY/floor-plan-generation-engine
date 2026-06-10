@@ -45,6 +45,11 @@
 };
 
 const draftKey = "floor-engine-web-draft-v2";
+// Bumped whenever the manual-edit math changes shape. Restored drafts carrying
+// edits from an older engine of this editor are discarded rather than replayed:
+// overrides committed under retired math (pre span-absorption, pre explicit
+// wall/door overrides) are exactly the bent-wall artifacts they would re-create.
+const geometryEditsVersion = 3;
 const unitTypes = ["studio", "one_bed", "two_bed"];
 // Hard ceiling (in model metres) for any plan label so a bad data value can
 // never render the meter-tall SVG text overlays that this canvas used to show.
@@ -283,7 +288,8 @@ function restoreDraft() {
 
     const parsed = JSON.parse(draft.inputJson);
     setInput(parsed);
-    if (draft.geometryEdits && typeof draft.geometryEdits === "object") {
+    if (draft.geometryEdits && typeof draft.geometryEdits === "object"
+      && draft.editsVersion === geometryEditsVersion) {
       state.geometryEdits = draft.geometryEdits;
       state.editsSignature = typeof draft.editsSignature === "string" ? draft.editsSignature : "";
     }
@@ -312,6 +318,7 @@ function saveDraft() {
       // given input+seed, so overrides re-apply cleanly after a reload.
       geometryEdits: state.geometryEdits,
       editsSignature: state.editsSignature,
+      editsVersion: geometryEditsVersion,
       savedAt: new Date().toISOString()
     }));
   } catch (_) {
@@ -3141,6 +3148,13 @@ function nudgeSelection(direction, step, recordUndo) {
   followersForDeltas(edgeDeltas).forEach((follower) => {
     setGeometryOverride(variant.variantId, follower.kind, follower.id, shiftFollowerPoints(follower, edgeDeltas));
   });
+  // Walls and doors ride the nudge through the same committed-override path
+  // as pointer drags.
+  commitWallDoorOverrides(
+    variant.variantId,
+    collectLiveWallsForEdges(variant, bounds, edges),
+    variant.doorsOpenings || [],
+    buildEditPointMapper(bounds, next, edgeDeltas));
   state.editsSignature = state.lastRunInputSignature;
   saveDraft();
   renderAll();
@@ -4296,6 +4310,7 @@ function beginGeomDrag(event, point, opts) {
     polygon: planPolygonFor(kind, id),
     childRooms,
     liveWalls: collectLiveWallsForEdges(variant, startBounds, edges),
+    doors: (variant.doorsOpenings || []).slice(),
     fadeNodes,
     statusBefore: els.runStatus ? els.runStatus.textContent : ""
   };
@@ -4430,15 +4445,19 @@ function updateGeomDrag(event) {
       follower.node.setAttribute("points", pointsToAttr(shiftFollowerPoints(follower, drag.edgeDeltas)));
     }
   });
-  (drag.liveWalls || []).forEach((ref) => updateLiveWall(ref, mapPoint));
+  // Live walls use the same hybrid mapper the commit writes, so what the drag
+  // shows is exactly what releasing the pointer keeps.
+  const liveMapper = buildEditPointMapper(drag.startBounds, bounds, drag.edgeDeltas);
+  (drag.liveWalls || []).forEach((ref) => updateLiveWall(ref, liveMapper));
 
   renderGeomOverlay(bounds, drag.kind, drag.id, points);
   showGeomReadout(bounds, points, drag.kind);
 }
 
-function updateLiveWall(ref, mapPoint) {
-  const start = ref.startIn ? mapPoint(ref.wall.centerline.start) : ref.wall.centerline.start;
-  const end = ref.endIn ? mapPoint(ref.wall.centerline.end) : ref.wall.centerline.end;
+function updateLiveWall(ref, mapper) {
+  const next = mapper.wall(ref.wall.centerline.start, ref.wall.centerline.end);
+  const start = next.start;
+  const end = next.end;
   const footprint = wallFootprint({ centerline: { start, end } }, ref.thickness);
   ref.parts.forEach((part) => {
     if (part.tagName === "polygon") {
@@ -4450,6 +4469,124 @@ function updateLiveWall(ref, mapPoint) {
       part.setAttribute("y1", round(start.y));
       part.setAttribute("x2", round(end.x));
       part.setAttribute("y2", round(end.y));
+    }
+  });
+}
+
+// One mapping for everything a manual edit drags along. A point strictly
+// inside the dragged element's old box follows the box's old→new transform
+// (interior partitions of a resized unit scale with it); any other point
+// moves only by the plane deltas whose line AND span it actually sits on.
+// Mapping per-axis through the right rule is what keeps a wall endpoint from
+// inheriting a translation on an axis whose plane never moved — the bug that
+// used to shear far walls into diagonals.
+function buildEditPointMapper(oldBounds, newBounds, edgeDeltas) {
+  const deltas = edgeDeltas || [];
+  const inOld = (p) => oldBounds
+    && p.x >= oldBounds.minX - warpEpsilon && p.x <= oldBounds.maxX + warpEpsilon
+    && p.y >= oldBounds.minY - warpEpsilon && p.y <= oldBounds.maxY + warpEpsilon;
+  const boundsMap = (p) => ({
+    x: round(newBounds.minX + ((p.x - oldBounds.minX) / oldBounds.width) * newBounds.width),
+    y: round(newBounds.minY + ((p.y - oldBounds.minY) / oldBounds.height) * newBounds.height)
+  });
+  const planeShift = (p) => {
+    let x = p.x;
+    let y = p.y;
+    deltas.forEach((edge) => {
+      if (edge.axis === "x") {
+        if (Math.abs(p.x - edge.line) <= boundaryEps * 4
+          && p.y >= edge.spanLo - boundaryEps && p.y <= edge.spanHi + boundaryEps) {
+          x = round(p.x + edge.delta);
+        }
+      } else if (Math.abs(p.y - edge.line) <= boundaryEps * 4
+        && p.x >= edge.spanLo - boundaryEps && p.x <= edge.spanHi + boundaryEps) {
+        y = round(p.y + edge.delta);
+      }
+    });
+    return { x, y };
+  };
+  const point = (raw) => {
+    const p = { x: Number(raw.x), y: Number(raw.y) };
+    return oldBounds && newBounds && inOld(p) ? boundsMap(p) : planeShift(p);
+  };
+  // Strictly interior to the old box — on-edge points belong to the planes.
+  const strictlyInOld = (p) => oldBounds
+    && p.x > oldBounds.minX + boundaryEps && p.x < oldBounds.maxX - boundaryEps
+    && p.y > oldBounds.minY + boundaryEps && p.y < oldBounds.maxY - boundaryEps;
+  // Wall mapping is plane-first. The wall's CONSTANT axis is decided once for
+  // the whole wall: if the wall lies on a moved plane it travels with it iff
+  // their spans genuinely overlap (junction overhangs ride along; a wall
+  // merely touching the span's end does not). The running axis maps per
+  // endpoint, so perpendicular walls stretch into the moved plane. Interior
+  // endpoints of a resized unit keep the proportional box map.
+  const wall = (startRaw, endRaw) => {
+    const s0 = { x: Number(startRaw.x), y: Number(startRaw.y) };
+    const e0 = { x: Number(endRaw.x), y: Number(endRaw.y) };
+    if (strictlyInOld(s0) && strictlyInOld(e0)) {
+      return { start: boundsMap(s0), end: boundsMap(e0) };
+    }
+    const s = { ...s0 };
+    const e = { ...e0 };
+    ["x", "y"].forEach((axis) => {
+      const perp = axis === "x" ? "y" : "x";
+      const isConstantAxis = Math.abs(s0[axis] - e0[axis]) <= boundaryEps;
+      if (isConstantAxis) {
+        // Whole-wall decision on its constant axis.
+        deltas.forEach((edge) => {
+          if (edge.axis !== axis || Math.abs(s0[axis] - edge.line) > boundaryEps * 4) {
+            return;
+          }
+          const lo = Math.min(s0[perp], e0[perp]);
+          const hi = Math.max(s0[perp], e0[perp]);
+          if (intervalOverlap(lo, hi, edge.spanLo, edge.spanHi) > boundaryEps) {
+            const movedTo = round(s0[axis] + edge.delta);
+            s[axis] = movedTo;
+            e[axis] = movedTo;
+          }
+        });
+      } else {
+        // Running axis: each endpoint follows the planes it sits on.
+        [[s0, s], [e0, e]].forEach(([orig, target]) => {
+          if (strictlyInOld(orig)) {
+            target[axis] = boundsMap(orig)[axis];
+            return;
+          }
+          deltas.forEach((edge) => {
+            if (edge.axis !== axis) {
+              return;
+            }
+            if (Math.abs(orig[axis] - edge.line) <= boundaryEps * 4
+              && orig[perp] >= edge.spanLo - boundaryEps && orig[perp] <= edge.spanHi + boundaryEps) {
+              target[axis] = round(orig[axis] + edge.delta);
+            }
+          });
+        });
+      }
+    });
+    return { start: s, end: e };
+  };
+  return { point, wall };
+}
+
+// Persist the final wall centerlines and door locations of an edit as
+// explicit overrides — exactly what the live drag drew, so commit == preview.
+function commitWallDoorOverrides(variantId, wallRefs, doors, mapper) {
+  (wallRefs || []).forEach((ref) => {
+    const next = mapper.wall(ref.wall.centerline.start, ref.wall.centerline.end);
+    const old = ref.wall.centerline;
+    if (next.start.x !== Number(old.start.x) || next.start.y !== Number(old.start.y)
+      || next.end.x !== Number(old.end.x) || next.end.y !== Number(old.end.y)) {
+      setGeometryOverride(variantId, "wall", ref.wall.id, next);
+    }
+  });
+
+  (doors || []).forEach((door) => {
+    if (!door || !door.location) {
+      return;
+    }
+    const next = mapper.point(door.location);
+    if (next.x !== Number(door.location.x) || next.y !== Number(door.location.y)) {
+      setGeometryOverride(variantId, "door", door.id, next);
     }
   });
 }
@@ -4493,6 +4630,12 @@ function finishGeomDrag() {
         follower.id,
         shiftFollowerPoints(follower, drag.edgeDeltas));
     });
+    // Walls and doors commit exactly as the live drag drew them.
+    commitWallDoorOverrides(
+      drag.variantId,
+      drag.liveWalls,
+      drag.doors,
+      buildEditPointMapper(drag.startBounds, drag.currentBounds, drag.edgeDeltas));
     state.editsSignature = state.lastRunInputSignature;
     saveDraft();
     const b = drag.currentBounds;
@@ -4791,10 +4934,11 @@ function collectEdgeFollowers(variant, excludeIds, axis, lineCoord, spanLo, span
   return followers;
 }
 
-// How far the boundary plane may travel: never past the floorplate, and never
-// so far that the dragged element or any follower drops below the minimum
-// room dimension.
-function boundaryLineRange(followers, axis, floorBounds) {
+// How far the boundary plane may travel: never past the floorplate, never so
+// far that the dragged element or any follower drops below the minimum room
+// dimension, and never into a fixed element (the core is a rigid obstacle —
+// rooms butt against its face, they cannot swallow it).
+function boundaryLineRange(followers, axis, floorBounds, line, spanLo, spanHi) {
   let min = floorBounds ? (axis === "x" ? floorBounds.minX : floorBounds.minY) : -Infinity;
   let max = floorBounds ? (axis === "x" ? floorBounds.maxX : floorBounds.maxY) : Infinity;
   followers.forEach((follower) => {
@@ -4804,27 +4948,78 @@ function boundaryLineRange(followers, axis, floorBounds) {
       min = Math.max(min, follower.farCoord + geomMinDimension);
     }
   });
+  fixedObstacleBounds().forEach((obstacle) => {
+    const perpLo = axis === "x" ? obstacle.minY : obstacle.minX;
+    const perpHi = axis === "x" ? obstacle.maxY : obstacle.maxX;
+    if (intervalOverlap(perpLo, perpHi, spanLo, spanHi) <= boundaryEps) {
+      return;
+    }
+    const near = axis === "x" ? obstacle.minX : obstacle.minY;
+    const far = axis === "x" ? obstacle.maxX : obstacle.maxY;
+    if (near >= line - boundaryEps) {
+      max = Math.min(max, near);
+    } else if (far <= line + boundaryEps) {
+      min = Math.max(min, far);
+    } else {
+      // The plane starts inside the obstacle footprint (shouldn't happen for
+      // engine output) — freeze rather than allow any travel through it.
+      min = Math.max(min, line);
+      max = Math.min(max, line);
+    }
+  });
   return { min, max };
 }
 
-// Move every follower vertex that sits on the boundary plane by its delta.
-// Vertices are matched against the ORIGINAL line position, so deltas apply
-// cleanly from the drag-start geometry each frame.
+// Footprints of input elements the generator treats as immovable (the core).
+function fixedObstacleBounds() {
+  return ((state.input && state.input.fixedElements) || [])
+    .filter((fixed) => fixed && fixed.blocksGeneration !== false && fixed.polygon)
+    .map((fixed) => boundsOfPoints(fixed.polygon.points))
+    .filter(Boolean);
+}
+
+// Move follower vertices with their PARTICIPATING EDGES, not by raw point
+// proximity. A vertex shifts for a plane delta only when one of its adjacent
+// polygon edges lies on that plane with real span overlap — a corner that
+// merely touches the end of someone else's span must not be dragged along
+// (that phantom used to shear rectangles into trapezoids at span ends).
 function shiftFollowerPoints(follower, edgeDeltas) {
-  return follower.points.map((p) => {
-    let x = p.x;
-    let y = p.y;
-    edgeDeltas.forEach((edge) => {
-      if (edge.axis === "x") {
-        if (Math.abs(p.x - edge.line) <= boundaryEps && p.y >= edge.spanLo - boundaryEps && p.y <= edge.spanHi + boundaryEps) {
-          x = round(p.x + edge.delta);
+  const pts = follower.points;
+  // Engine rings close explicitly (last point repeats the first). Work on the
+  // open ring and mirror the first vertex onto the duplicate at the end, or
+  // the closing point gets left behind and the rectangle grows a hairline spur.
+  const closed = pts.length > 3
+    && Math.abs(Number(pts[0].x) - Number(pts[pts.length - 1].x)) <= 1e-9
+    && Math.abs(Number(pts[0].y) - Number(pts[pts.length - 1].y)) <= 1e-9;
+  const count = closed ? pts.length - 1 : pts.length;
+  const moved = pts.map((p) => ({ x: Number(p.x), y: Number(p.y) }));
+  edgeDeltas.forEach((edge) => {
+    const axis = edge.axis;
+    const perp = axis === "x" ? "y" : "x";
+    const mask = new Array(count).fill(false);
+    for (let i = 0; i < count; i += 1) {
+      const a = pts[i];
+      const b = pts[(i + 1) % count];
+      if (Math.abs(Number(a[axis]) - edge.line) <= boundaryEps
+        && Math.abs(Number(b[axis]) - edge.line) <= boundaryEps) {
+        const lo = Math.min(Number(a[perp]), Number(b[perp]));
+        const hi = Math.max(Number(a[perp]), Number(b[perp]));
+        if (intervalOverlap(lo, hi, edge.spanLo, edge.spanHi) > boundaryEps) {
+          mask[i] = true;
+          mask[(i + 1) % count] = true;
         }
-      } else if (Math.abs(p.y - edge.line) <= boundaryEps && p.x >= edge.spanLo - boundaryEps && p.x <= edge.spanHi + boundaryEps) {
-        y = round(p.y + edge.delta);
       }
-    });
-    return { x, y };
+    }
+    for (let i = 0; i < count; i += 1) {
+      if (mask[i]) {
+        moved[i][axis] = round(moved[i][axis] + edge.delta);
+      }
+    }
   });
+  if (closed) {
+    moved[moved.length - 1] = { ...moved[0] };
+  }
+  return moved;
 }
 
 // The four boundary planes of the dragged element, with followers and travel
@@ -4857,7 +5052,7 @@ function collectBoundaryEdges(variant, kind, id, startBounds, childRooms, floorB
         break;
       }
     }
-    const range = boundaryLineRange(followers, axis, floorBounds);
+    const range = boundaryLineRange(followers, axis, floorBounds, line, lo, hi);
     // The plane's current position is always legal, even when the engine
     // produced a neighbour thinner than the minimum — never force a jump.
     range.min = Math.min(range.min, line);
@@ -5023,7 +5218,8 @@ function beginWallDrag(event, point, wallId) {
   if (!followers.length) {
     return false;
   }
-  const range = boundaryLineRange(followers, candidate.axis, floorBounds);
+  const range = boundaryLineRange(
+    followers, candidate.axis, floorBounds, candidate.line, candidate.spanLo, candidate.spanHi);
   range.min = Math.min(range.min, candidate.line);
   range.max = Math.max(range.max, candidate.line);
 
@@ -5060,6 +5256,7 @@ function beginWallDrag(event, point, wallId) {
     startPoint: point,
     snapshot: captureSnapshot(),
     liveWalls: collectLiveWallsOnLine(variant, candidate),
+    doors: (variant.doorsOpenings || []).slice(),
     fadeNodes,
     statusBefore: els.runStatus ? els.runStatus.textContent : ""
   };
@@ -5075,28 +5272,39 @@ function beginWallDrag(event, point, wallId) {
 }
 
 // Walls with an endpoint resting on the dragged plane: the collinear wall
-// itself plus every perpendicular wall that tees into it.
+// itself plus every perpendicular wall that tees into it. A wall LYING on the
+// plane whose segment overlaps the moved span travels as a whole, even when
+// one endpoint pokes past the span — moving only the in-span end is what used
+// to bend straight walls into diagonals.
 function collectLiveWallsOnLine(variant, candidate) {
   const refs = [];
+  const main = (p) => (candidate.axis === "x" ? Number(p.x) : Number(p.y));
+  const perp = (p) => (candidate.axis === "x" ? Number(p.y) : Number(p.x));
   (variant.walls || []).forEach((wall) => {
     if (!wall || !wall.centerline || !wall.centerline.start || !wall.centerline.end) {
       return;
     }
-    const onLine = (p) => {
-      const main = candidate.axis === "x" ? Number(p.x) : Number(p.y);
-      const perp = candidate.axis === "x" ? Number(p.y) : Number(p.x);
-      return Math.abs(main - candidate.line) <= boundaryEps
-        && perp >= candidate.spanLo - boundaryEps && perp <= candidate.spanHi + boundaryEps;
-    };
-    const startIn = onLine(wall.centerline.start);
-    const endIn = onLine(wall.centerline.end);
+    const start = wall.centerline.start;
+    const end = wall.centerline.end;
+    const within = (p) => Math.abs(main(p) - candidate.line) <= boundaryEps
+      && perp(p) >= candidate.spanLo - boundaryEps && perp(p) <= candidate.spanHi + boundaryEps;
+    let startIn = within(start);
+    let endIn = within(end);
+    const collinear = Math.abs(main(start) - candidate.line) <= boundaryEps
+      && Math.abs(main(end) - candidate.line) <= boundaryEps;
+    if (collinear) {
+      const lo = Math.min(perp(start), perp(end));
+      const hi = Math.max(perp(start), perp(end));
+      if (intervalOverlap(lo, hi, candidate.spanLo, candidate.spanHi) > boundaryEps) {
+        startIn = true;
+        endIn = true;
+      }
+    }
     if (!startIn && !endIn) {
       return;
     }
     const parts = Array.from(els.planSvg.querySelectorAll(`[data-wall-ref="${wall.id}"]`));
-    if (parts.length) {
-      refs.push({ wall, startIn, endIn, parts, thickness: wallStrokeWidth(wall) });
-    }
+    refs.push({ wall, startIn, endIn, parts, thickness: wallStrokeWidth(wall) });
   });
   return refs;
 }
@@ -5133,10 +5341,8 @@ function updateWallDrag(event) {
       follower.node.setAttribute("points", pointsToAttr(shiftFollowerPoints(follower, edgeDeltas)));
     }
   });
-  const mapPoint = (p) => (drag.axis === "x"
-    ? { x: round(Number(p.x) + drag.delta), y: Number(p.y) }
-    : { x: Number(p.x), y: round(Number(p.y) + drag.delta) });
-  (drag.liveWalls || []).forEach((ref) => updateLiveWall(ref, mapPoint));
+  const liveMapper = buildEditPointMapper(null, null, edgeDeltas);
+  (drag.liveWalls || []).forEach((ref) => updateLiveWall(ref, liveMapper));
 
   renderWallDragGuide(drag);
   if (els.editReadout) {
@@ -5237,6 +5443,8 @@ function finishWallDrag() {
     drag.followers.forEach((follower) => {
       setGeometryOverride(drag.variantId, follower.kind, follower.id, shiftFollowerPoints(follower, edgeDeltas));
     });
+    commitWallDoorOverrides(
+      drag.variantId, drag.liveWalls, drag.doors, buildEditPointMapper(null, null, edgeDeltas));
     state.editsSignature = state.lastRunInputSignature;
     saveDraft();
     setStatus(`Wall moved ${drag.delta >= 0 ? "+" : ""}${formatNumber(drag.delta, 2)} m`);
@@ -6521,7 +6729,8 @@ function applyGeometryOverrides(variant) {
     return variant;
   }
   const overrides = state.geometryEdits[variant.variantId];
-  if (!overrides || (!overrides.room && !overrides.unit && !overrides.corridor)) {
+  if (!overrides
+    || (!overrides.room && !overrides.unit && !overrides.corridor && !overrides.wall && !overrides.door)) {
     return variant;
   }
 
@@ -6575,14 +6784,29 @@ function applyGeometryOverrides(variant) {
     })
   };
 
-  // Walls, doors, and labels are separate engine entities that would otherwise
-  // stay frozen at the pre-edit positions. Warp any of their points that fall
-  // inside an edited element's original bounds through the same old→new
-  // transform, so the drawn fabric follows the user's manual resize.
+  // Walls and doors move ONLY by explicit overrides written at commit time —
+  // exactly the geometry the live drag drew. A wall the edit didn't touch
+  // stays verbatim; guessing at untouched fabric through bounding-box warps
+  // is what used to shear walls into diagonals. Labels are render hints, not
+  // construction geometry, so they still follow the soft warp.
   const warps = collectGeometryWarps(variant, overrides);
-  if (warps.length) {
-    result.walls = (variant.walls || []).map((wall) => warpWall(wall, warps));
-    result.doorsOpenings = (variant.doorsOpenings || []).map((door) => warpDoor(door, warps));
+  const wallOverrides = overrides.wall || {};
+  const doorOverrides = overrides.door || {};
+  if (warps.length || Object.keys(wallOverrides).length || Object.keys(doorOverrides).length) {
+    result.walls = (variant.walls || []).map((wall) => {
+      const centerline = wallOverrides[String(wall.id || "")];
+      if (centerline) {
+        return { ...wall, centerline: { start: { ...centerline.start }, end: { ...centerline.end } } };
+      }
+      return wall;
+    });
+    result.doorsOpenings = (variant.doorsOpenings || []).map((door) => {
+      const location = doorOverrides[String(door.id || "")];
+      if (location) {
+        return { ...door, location: { ...location } };
+      }
+      return door;
+    });
     result.labels = (variant.labels || []).map((label) => (
       label && label.location ? { ...label, location: warpPoint(label.location, warps) } : label
     ));
@@ -6635,26 +6859,6 @@ function warpPoint(point, warps) {
     }
   }
   return point;
-}
-
-function warpWall(wall, warps) {
-  if (!wall || !wall.centerline || !wall.centerline.start || !wall.centerline.end) {
-    return wall;
-  }
-  const start = warpPoint(wall.centerline.start, warps);
-  const end = warpPoint(wall.centerline.end, warps);
-  if (start === wall.centerline.start && end === wall.centerline.end) {
-    return wall;
-  }
-  return { ...wall, centerline: { ...wall.centerline, start, end } };
-}
-
-function warpDoor(door, warps) {
-  if (!door || !door.location) {
-    return door;
-  }
-  const location = warpPoint(door.location, warps);
-  return location === door.location ? door : { ...door, location };
 }
 
 // Keep the headline metrics honest after manual edits: sellable area is the sum
