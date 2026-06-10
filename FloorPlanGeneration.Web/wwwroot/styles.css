@@ -4073,3 +4073,16 @@ button:active:not(:disabled) {
     display: none;
   }
 }
+
+/* Variant cards: pills cluster right; an Edited pill marks hand-tuned variants. */
+.variant-title-pills {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pill.edited {
+  color: var(--teal-deep);
+  background: var(--teal-soft);
+  border-color: rgba(16, 121, 107, 0.25);
+}

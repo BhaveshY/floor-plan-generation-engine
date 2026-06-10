@@ -5680,6 +5680,9 @@ function renderVariants(output) {
       : failedChecks.length === 0
         ? `${checks.length} checks passed`
         : `${errorText}${errors && warnings.length ? ", " : ""}${warningText}`;
+    const edits = state.geometryEdits[variant.variantId];
+    const hasEdits = Boolean(edits && Object.keys(edits).length);
+    const sellable = Number(metrics.sellableArea);
     const item = document.createElement("button");
     item.type = "button";
     item.className = `variant-item${variant.variantId === state.selectedVariantId ? " active" : ""}`;
@@ -5687,7 +5690,10 @@ function renderVariants(output) {
     item.innerHTML = `
       <div class="variant-title">
         <span>#${index + 1} ${escapeHtml(variant.variantId)}</span>
-        <span class="pill ${escapeHtml(variant.status)}">${escapeHtml(friendlyStatus(variant.status))}</span>
+        <span class="variant-title-pills">
+          ${hasEdits ? '<span class="pill edited" title="This variant carries manual studio edits">Edited</span>' : ""}
+          <span class="pill ${escapeHtml(variant.status)}">${escapeHtml(friendlyStatus(variant.status))}</span>
+        </span>
       </div>
       <div class="variant-card-body">
         ${variantThumbnailSvg(variant, state.input)}
@@ -5699,7 +5705,7 @@ function renderVariants(output) {
             ${escapeHtml(mix || "No unit mix")} · ${escapeHtml(checkText)}
           </div>
           <div class="variant-meta">
-            Hypergraph ${hypergraph ? `${countOf(hypergraph.nodes)} nodes, ${countOf(hypergraph.hyperedges)} edges` : "not available"}
+            ${Number.isFinite(sellable) ? `Sellable ${formatNumber(sellable, 1)} m²` : "Sellable —"}${hypergraph ? ` · ${countOf(hypergraph.nodes)} graph nodes` : ""}
           </div>
         </div>
       </div>
@@ -5707,7 +5713,10 @@ function renderVariants(output) {
     `;
     item.addEventListener("click", () => {
       state.selectedVariantId = variant.variantId;
+      // Same reset the dropdown applies: a fresh variant starts at fit view.
       state.zoom = 1;
+      state.panX = 0;
+      state.panY = 0;
       renderAll();
     });
     els.variantList.appendChild(item);
@@ -6030,8 +6039,8 @@ function renderExportSummary(output) {
       <button type="button" data-export-action="save-svg">Save SVG</button>
     </div>
     <div>
-      <span>AI / JSON</span>
-      <strong>${escapeHtml(hypergraph ? "Agent-ready payload available" : "Validation-only output")}</strong>
+      <span>Engine JSON</span>
+      <strong>${escapeHtml(hypergraph ? "Machine-readable result available" : "Validation-only output")}</strong>
       <button type="button" data-export-action="copy-json">Copy JSON</button>
     </div>
     <details class="advanced-details export-technical">
@@ -6981,6 +6990,12 @@ function saveSvg() {
 
   const cloneSvg = els.planSvg.cloneNode(true);
   cloneSvg.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+  // Editor chrome is for the live canvas only — a saved drawing carries the
+  // plan, not the selection halo, grips, hit zones, or drag overlays.
+  cloneSvg.querySelectorAll(
+    ".edit-handles, .edit-selection-handles, .room-selected-halo-group, " +
+    ".geom-drag-overlay, .wall-drag-guide-group, .wall-hit, .core-grab-overlay, .plan-grid")
+    .forEach((node) => node.remove());
   cloneSvg.insertBefore(svgStyleElement(), cloneSvg.firstChild);
   const xml = new XMLSerializer().serializeToString(cloneSvg);
   downloadText("floor-plan-preview.svg", xml, "image/svg+xml");
@@ -6989,60 +7004,72 @@ function saveSvg() {
 
 function svgStyleElement() {
   const style = document.createElementNS("http://www.w3.org/2000/svg", "style");
-  // Self-contained styles for the exported SVG so a saved/Rhino-bound drawing matches
-  // the live construction-document rendering (paper palette, hatched poché walls drawn
-  // via the cloned <defs> patterns, real door/window symbols, fixtures, dimensions).
-  // Strokes are in model metres (no non-scaling-stroke) which is correct for vector use.
+  // Self-contained styles so the exported drawing is byte-for-byte the live
+  // ink rendering: one warm-graphite hue at four strengths, solid wall poché,
+  // line-work fixtures, white window breaks. Custom properties are expanded
+  // to literals because a standalone SVG has no app stylesheet to resolve
+  // var() against. Strokes stay in model metres — correct for vector reuse.
+  const ink900 = "#21262b";
+  const ink700 = "rgba(33,38,43,0.72)";
+  const ink500 = "rgba(33,38,43,0.5)";
+  const ink300 = "rgba(33,38,43,0.3)";
+  const ink150 = "rgba(33,38,43,0.15)";
   style.textContent = `
-    .boundary{fill:#ffffff;stroke:#0b0f13;stroke-width:0.4;paint-order:stroke fill}
-    .fixed{fill:#cfd6db;stroke:#0e1318;stroke-width:0.06}
-    .corridor{fill:rgba(241,241,238,0.78);stroke:rgba(90,92,95,0.32);stroke-width:0.05}
-    .unit{fill:none;stroke:rgba(18,27,36,0.16);stroke-width:0.05}
-    .room{fill:#fcfcfa;stroke:rgba(16,24,32,0.12);stroke-width:0.04}
-    .room-bedroom{fill:rgba(243,241,235,0.55)}
-    .room-bathroom{fill:rgba(228,236,238,0.6)}
-    .room-kitchen{fill:rgba(230,237,232,0.6)}
-    .room-living{fill:rgba(247,243,233,0.55)}
-    .room-balcony{fill:rgba(233,239,232,0.5)}
-    .room-service,.room-general{fill:rgba(237,239,236,0.5)}
-    .wall{fill:url(#wallPocheLight);stroke:rgba(17,21,26,0.92);stroke-width:0.022}
-    .wall-room_partition{fill:url(#wallPocheLight)}
-    .wall-unit_demising,.wall-exterior,.wall-unit_boundary{fill:url(#wallPocheHeavy);stroke:#0e1318}
-    .wall-backdrop{stroke:#ffffff}
-    .wall-hit{stroke:none}
-    .daylight-band{fill:rgba(202,223,233,0.5);stroke:none}
-    .window-frame{fill:none;stroke:rgba(26,36,47,0.88);stroke-width:0.05}
-    .window-mullion{fill:none;stroke:rgba(26,36,47,0.88);stroke-width:0.03}
-    .window-jamb{fill:none;stroke:rgba(26,36,47,0.88);stroke-width:0.06}
-    .fixture{fill:rgba(249,251,252,0.62);stroke:rgba(44,55,64,0.72);stroke-width:0.05}
-    .fixture-bed{fill:rgba(238,245,248,0.86)}
-    .fixture-pillow,.fixture-sink,.fixture-toilet{fill:rgba(255,255,255,0.9)}
-    .fixture-wardrobe,.fixture-counter{fill:rgba(216,225,229,0.72)}
-    .fixture-appliance{fill:rgba(247,248,248,0.92)}
-    .fixture-table{fill:rgba(248,245,235,0.86)}
-    .fixture-chair,.fixture-sofa{fill:rgba(224,234,238,0.86)}
-    .fixture-bath,.fixture-shower{fill:rgba(255,250,245,0.92)}
-    .fixture-plant{fill:rgba(103,143,104,0.45)}
-    .fixture-burner{fill:rgba(58,69,79,0.34)}
-    .fixture-detail{fill:none;stroke:rgba(61,72,82,0.5);stroke-width:0.035}
-    .door-gap{stroke:#fcfcfa;stroke-linecap:butt}
-    .door-leaf{fill:none;stroke:#1b222a;stroke-width:0.05}
-    .door-swing{fill:none;stroke:rgba(33,41,50,0.6);stroke-width:0.03;stroke-dasharray:0.16 0.1}
-    .svg-label{fill:#111922;font-weight:700}
-    .room-label{fill:rgba(17,24,32,0.92);font-weight:700}
-    .room-label-meta{fill:rgba(42,52,62,0.78)}
-    .dimension-line,.dimension-tick{fill:none;stroke:rgba(43,53,64,0.6);stroke-width:0.04}
-    .dimension-witness{stroke:rgba(43,53,64,0.4);stroke-width:0.03}
-    .dimension-label{fill:rgba(31,41,51,0.9);font-weight:800}
-    .scale-bar-line,.scale-bar-tick{stroke:#2b3540;stroke-width:0.05}
-    .scale-bar-label{fill:#2b3540;font-weight:700}
-    .north-arrow-needle{fill:#2b3540;stroke:#2b3540}
-    .north-arrow-label{fill:#2b3540;font-weight:800}
-    .edit-handle{fill:#fff;stroke:#007d78;stroke-width:0.42;vector-effect:non-scaling-stroke}
-    .edit-core-move{fill:#007d78;stroke:#fff;stroke-width:0.52}
-    .edit-handle-label{fill:#0d4f4b;paint-order:stroke;stroke:rgba(255,255,255,0.92)}
-    .edit-handle-label{stroke-width:0.2;stroke-linejoin:round;font-size:0.78px;font-weight:900}
-    .edit-handle-label{letter-spacing:0;pointer-events:none}
+    text{font-family:ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif}
+    .plan-sheet{fill:#ffffff;stroke:rgba(33,38,43,0.07);stroke-width:0.02}
+    .plan-sheet-shadow{fill:rgba(26,34,42,0.035);stroke:none}
+    .boundary{fill:#ffffff;stroke:${ink900};stroke-width:0.3;paint-order:stroke fill}
+    .fixed{fill:#2c3338;stroke:none}
+    .core-label{fill:rgba(255,255,255,0.85);font-weight:750;letter-spacing:0.22em}
+    .corridor{fill:#f0f0ed;stroke:none}
+    .unit,.unit-one_bed,.unit-two_bed{fill:none;stroke:${ink150};stroke-width:0.05}
+    .room{fill:#ffffff;stroke:${ink150};stroke-width:0.04}
+    .room-bedroom{fill:#f8f5ef}
+    .room-bathroom{fill:#f0f4f5}
+    .room-kitchen{fill:#f3f5f0}
+    .room-living{fill:#faf6ee}
+    .room-balcony{fill:#f3f6f1}
+    .room-service,.room-general{fill:#f4f4f2}
+    .wall{fill:${ink900};stroke:none}
+    .wall-exterior,.wall-unit_boundary,.wall-unit_demising{fill:#1a1f24}
+    .wall-backdrop{fill:none;stroke:#ffffff}
+    .window-break{fill:#ffffff;stroke:none}
+    .window-frame{fill:none;stroke:${ink900};stroke-width:0.04}
+    .window-mullion{fill:none;stroke:${ink500};stroke-width:0.025}
+    .window-jamb{fill:none;stroke:${ink900};stroke-width:0.055}
+    .fixture{fill:#ffffff;stroke:${ink500};stroke-width:0.035;stroke-linecap:round;stroke-linejoin:round}
+    .fixture-rug{fill:none;stroke:${ink300};stroke-width:0.028;stroke-dasharray:0.18 0.12}
+    .fixture-bed{fill:#ffffff;stroke:${ink700};stroke-width:0.04}
+    .fixture-headboard{fill:#f2f1ee;stroke:${ink500}}
+    .fixture-pillow{fill:#ffffff;stroke:${ink300};stroke-width:0.028}
+    .fixture-sink,.fixture-toilet,.fixture-wc{fill:#ffffff;stroke:${ink700};stroke-width:0.038}
+    .fixture-nightstand,.fixture-wardrobe,.fixture-counter{fill:#fafaf8;stroke:${ink500}}
+    .fixture-appliance,.fixture-stove,.fixture-fridge{fill:#ffffff;stroke:${ink700};stroke-width:0.038}
+    .fixture-table{fill:#ffffff;stroke:${ink500}}
+    .fixture-chair,.fixture-sofa{fill:#ffffff;stroke:${ink700};stroke-width:0.04}
+    .fixture-tv{fill:#f2f1ee;stroke:${ink500}}
+    .fixture-bath,.fixture-shower{fill:#ffffff;stroke:${ink700};stroke-width:0.04}
+    .fixture-plant{fill:none;stroke:${ink300};stroke-width:0.03}
+    .fixture-burner{fill:none;stroke:${ink500};stroke-width:0.03}
+    .fixture-detail{fill:none;stroke:${ink300};stroke-width:0.03;stroke-linecap:round}
+    .door-gap{stroke:#ffffff;stroke-linecap:butt}
+    .door-leaf{fill:none;stroke:${ink900};stroke-width:0.045;stroke-linecap:square}
+    .door-swing{fill:none;stroke:${ink300};stroke-width:0.028}
+    .door-marker{fill:${ink500};stroke:#fff;stroke-width:0.02}
+    .entry-marker{fill:${ink700};stroke:rgba(255,255,255,0.86);stroke-width:0.02}
+    .corridor-centerline{fill:none;stroke:${ink300};stroke-width:0.045;stroke-dasharray:0.42 0.28;stroke-linecap:round}
+    .svg-label{fill:${ink900};paint-order:stroke;stroke:rgba(255,255,255,0.85);stroke-width:0.09;stroke-linejoin:round}
+    .unit-label{fill:${ink300};stroke:rgba(255,255,255,0.6);stroke-width:0.06;font-weight:800}
+    .room-label{fill:${ink900};stroke:rgba(255,255,255,0.78);stroke-width:0.07;font-weight:650;letter-spacing:0.07em}
+    .room-label-meta{fill:${ink500};font-weight:560;letter-spacing:0.02em}
+    .dimension-line,.dimension-tick{fill:none;stroke:${ink300};stroke-width:0.04}
+    .dimension-tick{stroke:${ink500}}
+    .dimension-witness{fill:none;stroke:${ink150};stroke-width:0.03}
+    .dimension-label{fill:${ink700};paint-order:stroke;stroke:rgba(244,247,248,0.94);stroke-width:0.14;stroke-linejoin:round;font-weight:680;letter-spacing:0.04em}
+    .scale-bar-line,.scale-bar-tick{stroke:${ink500};stroke-width:0.05;stroke-linecap:square}
+    .scale-bar-label{fill:#26313b;paint-order:stroke;stroke:rgba(248,250,251,0.92);stroke-width:0.14;stroke-linejoin:round;font-weight:800}
+    .north-arrow-needle{fill:rgba(27,36,48,0.82);stroke:rgba(255,255,255,0.85);stroke-width:0.02}
+    .north-arrow-label{fill:rgba(27,36,48,0.78);paint-order:stroke;stroke:rgba(244,247,248,0.9);stroke-width:0.12;stroke-linejoin:round;font-weight:850}
   `;
   return style;
 }
@@ -7494,6 +7521,10 @@ function buildRhinoHandoffText() {
     schemaVersion: output.metadata ? output.metadata.schemaVersion : null,
     project: state.input ? state.input.project : null,
     selectedVariant: variant.variantId,
+    // True when the geometry below includes manual studio edits on top of the
+    // engine result (room/wall moves), so downstream consumers can tell a
+    // hand-tuned plan from a raw generation.
+    manualEdits: hasGeometryOverrides(),
     stableExternalIds: true,
     layers: output.metadata ? output.metadata.layers : {},
     geometryCounts: {
@@ -7534,6 +7565,7 @@ function buildBimHandoffText() {
     schemaVersion: output.metadata ? output.metadata.schemaVersion : null,
     project: state.input ? state.input.project : null,
     selectedVariant: variant.variantId,
+    manualEdits: hasGeometryOverrides(),
     ifcGuidSource: "externalId",
     spaces: (variant.units || []).map((unit) => ({
       id: unit.id,
