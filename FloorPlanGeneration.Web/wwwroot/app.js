@@ -1,4 +1,4 @@
-const state = {
+﻿const state = {
   samples: [],
   input: null,
   response: null,
@@ -427,8 +427,10 @@ function syncFormFromInput(input) {
 function syncInputFromForm() {
   const input = ensureInputShape(state.input || {});
   const floorBounds = boundsOfPoints(input.floorplate.outer.points) || { minX: 0, minY: 0, width: 42, height: 22 };
-  const width = readPositive(els.floorWidth, floorBounds.width);
-  const depth = readPositive(els.floorDepth, floorBounds.height);
+  // Typed values respect the same envelope the steppers and canvas drags
+  // enforce — a hand-entered "5" must not slip a 5 m floorplate past the form.
+  const width = clamp(readPositive(els.floorWidth, floorBounds.width), 8, 300);
+  const depth = clamp(readPositive(els.floorDepth, floorBounds.height), 8, 300);
   const scaleX = floorBounds.width > 0 ? width / floorBounds.width : 1;
   const scaleY = floorBounds.height > 0 ? depth / floorBounds.height : 1;
 
@@ -450,9 +452,9 @@ function syncInputFromForm() {
     }))
   }));
 
-  input.rules.minCorridorWidth = readPositive(els.minCorridorWidth, input.rules.minCorridorWidth || 1.8);
-  input.rules.minUnitArea = readPositive(els.minUnitArea, input.rules.minUnitArea || 25);
-  input.rules.minRoomWidth = readPositive(els.minRoomWidth, input.rules.minRoomWidth || 2.4);
+  input.rules.minCorridorWidth = clamp(readPositive(els.minCorridorWidth, input.rules.minCorridorWidth || 1.8), 0.9, 12);
+  input.rules.minUnitArea = clamp(readPositive(els.minUnitArea, input.rules.minUnitArea || 25), 10, 400);
+  input.rules.minRoomWidth = clamp(readPositive(els.minRoomWidth, input.rules.minRoomWidth || 2.4), 1.2, 20);
   input.rules.minRoomDepth = input.rules.minRoomDepth || input.rules.minRoomWidth;
   input.rules.doorWidth = input.rules.doorWidth || 0.9;
   input.rules.wetRoomAdjacencyPreferred = input.rules.wetRoomAdjacencyPreferred !== false;
@@ -877,7 +879,7 @@ async function runEngine(validateOnly) {
     }
     state.previewStale = !hasPreview && Boolean(state.lastPreviewResponse);
     state.inputDirty = false;
-    setStatus(`${friendlyStatus(response.status)} - ${response.validVariantCount}/${response.variantCount} valid variants`);
+    setStatus(`${friendlyStatus(response.status)} · ${response.validVariantCount}/${response.variantCount} valid variants`);
     renderAll();
   } catch (error) {
     if (runId === state.runSerial) {
@@ -1067,7 +1069,7 @@ function buildSetupReview(output) {
   const readiness = state.inputDirty
     ? "Edits pending"
     : output && variant
-      ? `${friendlyStatus(output.status)} - ${variant.units.length} units`
+      ? `${friendlyStatus(output.status)} · ${variant.units.length} units`
       : "Ready to generate";
 
   const rows = [
@@ -1075,17 +1077,17 @@ function buildSetupReview(output) {
     [
       "Floorplate",
       floorBounds
-        ? `${formatNumber(floorBounds.width, 1)} x ${formatNumber(floorBounds.height, 1)} m`
+        ? `${formatNumber(floorBounds.width, 1)} × ${formatNumber(floorBounds.height, 1)} m`
         : "Not set"
     ],
     [
       "Core",
       coreBounds
-        ? `${formatNumber(coreBounds.width, 1)} x ${formatNumber(coreBounds.height, 1)} m at ` +
+        ? `${formatNumber(coreBounds.width, 1)} × ${formatNumber(coreBounds.height, 1)} m at ` +
           `${formatNumber(coreBounds.minX, 1)}, ${formatNumber(coreBounds.minY, 1)}`
         : "No core"
     ],
-    ["Rules", `Corridor ${formatNumber(rules.minCorridorWidth, 1)} m, min unit ${formatNumber(rules.minUnitArea, 0)} m2`],
+    ["Rules", `Corridor ${formatNumber(rules.minCorridorWidth, 1)} m, min unit ${formatNumber(rules.minUnitArea, 0)} m²`],
     ["Unit mix", mix || "No target mix"],
     ["Readiness", readiness]
   ];
@@ -1118,11 +1120,11 @@ function updateDirtyState() {
   }
 
   if (state.inputDirty && state.response) {
-    els.planSubtitle.textContent = `${els.planSubtitle.textContent} - regenerating from edits`;
+    els.planSubtitle.textContent = `${els.planSubtitle.textContent} · regenerating from edits`;
     els.resultSubtitle.textContent = "Edits pending - last generated plan stays visible until the engine refreshes it";
   } else if (state.previewStale) {
-    els.planSubtitle.textContent = `${els.planSubtitle.textContent} - previous generated plan shown`;
-    els.resultSubtitle.textContent = `${els.resultSubtitle.textContent} - previous plan kept visible`;
+    els.planSubtitle.textContent = `${els.planSubtitle.textContent} · previous generated plan shown`;
+    els.resultSubtitle.textContent = `${els.resultSubtitle.textContent} · previous plan kept visible`;
   } else {
     els.resultSubtitle.textContent = "Edits pending - generate to produce variants";
   }
@@ -1145,7 +1147,7 @@ function renderSubtitles(output, visualOutput = output) {
   if (!output) {
     els.resultSubtitle.textContent = `${projectName} ready for generation`;
     els.planSubtitle.textContent = floorBounds
-      ? `Input outline ${formatNumber(floorBounds.width, 1)} x ${formatNumber(floorBounds.height, 1)} m`
+      ? `Input outline ${formatNumber(floorBounds.width, 1)} × ${formatNumber(floorBounds.height, 1)} m`
       : "Input outline";
     els.scheduleSubtitle.textContent = targetMix ? `Target mix: ${targetMix}` : "Generate to populate schedule";
     return;
@@ -1156,7 +1158,7 @@ function renderSubtitles(output, visualOutput = output) {
   const summary = diagnosticSummary(output);
   const diagnosticText = diagnosticSubtitleText(summary);
   const totalVariants = output.variants ? output.variants.length : 0;
-  const resultStatus = `${friendlyStatus(output.status)} - ${valid}/${totalVariants} valid`;
+  const resultStatus = `${friendlyStatus(output.status)} · ${valid}/${totalVariants} valid`;
   els.resultSubtitle.textContent = diagnosticText
     ? `${resultStatus}, ${diagnosticText}`
     : resultStatus;
@@ -1168,7 +1170,7 @@ function renderSubtitles(output, visualOutput = output) {
 
   const metrics = variant.metrics || {};
   const mix = unitMixSummary(variant.units || []);
-  els.planSubtitle.textContent = `${variant.variantId} - score ${formatNumber(metrics.score, 3)} - net/gross ${formatNumber(metrics.netGrossRatio, 3)}`;
+  els.planSubtitle.textContent = `${variant.variantId} · score ${formatNumber(metrics.score, 3)} · net/gross ${formatNumber(metrics.netGrossRatio, 3)}`;
   const unitSummary = `${variant.units.length} units${mix ? ` (${mix})` : ""}`;
   els.scheduleSubtitle.textContent = `${unitSummary}, ${variant.rooms.length} rooms, ${variant.doorsOpenings.length} doors`;
 }
@@ -1186,8 +1188,8 @@ function renderVariantSelect(output) {
     .map((variant, index) => {
       const metrics = variant.metrics || {};
       const status = friendlyStatus(variant.status);
-      const score = Number.isFinite(Number(metrics.score)) ? ` - ${formatNumber(metrics.score, 3)}` : "";
-      return `<option value="${escapeHtml(variant.variantId)}">#${index + 1} ${escapeHtml(variant.variantId)} - ${escapeHtml(status)}${score}</option>`;
+      const score = Number.isFinite(Number(metrics.score)) ? ` · ${formatNumber(metrics.score, 3)}` : "";
+      return `<option value="${escapeHtml(variant.variantId)}">#${index + 1} ${escapeHtml(variant.variantId)} · ${escapeHtml(status)}${score}</option>`;
     })
     .join("");
   els.variantSelect.value = state.selectedVariantId || firstVariantId(output);
@@ -2365,7 +2367,7 @@ function renderDoorOpening(group, door, wall, bounds) {
     door.id || "Door opening",
     door.hostWall ? `wall ${door.hostWall}` : "",
     Array.isArray(door.connectsSpaces) && door.connectsSpaces.length ? `connects ${door.connectsSpaces.join(", ")}` : ""
-  ].filter(Boolean).join(" - ");
+  ].filter(Boolean).join(" · ");
   doorGroup.appendChild(tooltip);
 
   if (!direction) {
@@ -2549,11 +2551,11 @@ function roomDimensionText(room, bounds, digits = 1) {
   const width = Number(dimensions.width) || (bounds ? bounds.width : 0);
   const depth = Number(dimensions.depth) || (bounds ? bounds.height : 0);
   if (width > 0 && depth > 0) {
-    return `${formatNumber(width, digits)} x ${formatNumber(depth, digits)}`;
+    return `${formatNumber(width, digits)} × ${formatNumber(depth, digits)}`;
   }
 
   const area = Number(room && room.area);
-  return Number.isFinite(area) ? `${formatNumber(area, 1)} m2` : "";
+  return Number.isFinite(area) ? `${formatNumber(area, 1)} m²` : "";
 }
 
 function roomCategoryClass(room) {
@@ -3665,11 +3667,11 @@ function selectionInlineSummary(detail) {
   }
 
   if (detail.kind === "unit" || detail.kind === "room" || detail.kind === "corridor") {
-    return `${selectionKindLabel(detail.kind)} ${detail.id} - ${formatNumber(detail.area, 1)} m2`;
+    return `${selectionKindLabel(detail.kind)} ${detail.id} · ${formatNumber(detail.area, 1)} m²`;
   }
 
   if (detail.bounds) {
-    return `${selectionKindLabel(detail.kind)} - ${formatNumber(detail.bounds.width, 1)} x ${formatNumber(detail.bounds.height, 1)} m`;
+    return `${selectionKindLabel(detail.kind)} · ${formatNumber(detail.bounds.width, 1)} × ${formatNumber(detail.bounds.height, 1)} m`;
   }
 
   return `${selectionKindLabel(detail.kind)} ${detail.id || ""}`.trim();
@@ -3712,10 +3714,10 @@ function inspectorMarkup(detail) {
   rows.push(["Id", detail.id || "-"]);
 
   if (detail.bounds) {
-    rows.push(["Size", `${formatNumber(detail.bounds.width, 1)} x ${formatNumber(detail.bounds.height, 1)} m`]);
+    rows.push(["Size", `${formatNumber(detail.bounds.width, 1)} × ${formatNumber(detail.bounds.height, 1)} m`]);
   }
   if (Number.isFinite(Number(detail.area))) {
-    rows.push(["Area", `${formatNumber(detail.area, 1)} m2`]);
+    rows.push(["Area", `${formatNumber(detail.area, 1)} m²`]);
   }
 
   if (detail.kind === "unit") {
@@ -3738,7 +3740,7 @@ function inspectorMarkup(detail) {
       // the Size row above (from live bounds) is then the single source.
       rows.push([
         "Dimensions",
-        `${formatNumber(detail.item.dimensions.width, 1)} x ${formatNumber(detail.item.dimensions.depth, 1)} m`
+        `${formatNumber(detail.item.dimensions.width, 1)} × ${formatNumber(detail.item.dimensions.depth, 1)} m`
       ]);
     }
     rows.push(["Daylight", detail.item.daylight ? "Yes" : "No"]);
@@ -4293,7 +4295,7 @@ function beginGeomDrag(event, point, opts) {
     snapshot: captureSnapshot(),
     polygon: planPolygonFor(kind, id),
     childRooms,
-    liveWalls: collectLiveWalls(variant, startBounds),
+    liveWalls: collectLiveWallsForEdges(variant, startBounds, edges),
     fadeNodes,
     statusBefore: els.runStatus ? els.runStatus.textContent : ""
   };
@@ -4334,6 +4336,24 @@ function collectLiveWalls(variant, bounds) {
     }
   });
   return refs;
+}
+
+// Walls inside the dragged element's own box PLUS walls riding any of its
+// four (possibly span-widened) boundary planes — so a party wall that extends
+// past the dragged room still slides live instead of snapping on commit.
+function collectLiveWallsForEdges(variant, bounds, edges) {
+  const byId = new Map();
+  collectLiveWalls(variant, bounds).forEach((ref) => byId.set(ref.wall.id, ref));
+  ["w", "e", "s", "n"].forEach((dir) => {
+    const edge = edges[dir];
+    collectLiveWallsOnLine(variant, { axis: edge.axis, line: edge.line, spanLo: edge.spanLo, spanHi: edge.spanHi })
+      .forEach((ref) => {
+        if (!byId.has(ref.wall.id)) {
+          byId.set(ref.wall.id, ref);
+        }
+      });
+  });
+  return Array.from(byId.values());
 }
 
 function collectFadeNodes(variant, kind, id, childRooms, bounds) {
@@ -4813,13 +4833,36 @@ function collectBoundaryEdges(variant, kind, id, startBounds, childRooms, floorB
   const excludeIds = new Set([`${kind}:${id}`]);
   (childRooms || []).forEach((child) => excludeIds.add(`room:${child.id}`));
   const make = (dir, axis, line, spanLo, spanHi) => {
-    const followers = collectEdgeFollowers(variant, excludeIds, axis, line, spanLo, spanHi);
+    // Span absorption: when a neighbour's collinear edge only PARTLY overlaps
+    // the dragged edge, moving just the in-span vertices would jog the wall
+    // mid-edge and strand a sliver of floor area that belongs to no room. A
+    // straight wall plane moves as one — so the span grows to swallow every
+    // overlapping edge (and any edges THOSE newly expose) before followers
+    // are final.
+    let lo = spanLo;
+    let hi = spanHi;
+    let followers = [];
+    for (let pass = 0; pass < 4; pass += 1) {
+      followers = collectEdgeFollowers(variant, excludeIds, axis, line, lo, hi);
+      let grew = false;
+      followers.forEach((follower) => {
+        polygonEdgeIntervalsOnLine(follower.points, axis, line).forEach(([a, b]) => {
+          if (intervalOverlap(a, b, lo, hi) > boundaryMinOverlap) {
+            if (a < lo - 1e-6) { lo = a; grew = true; }
+            if (b > hi + 1e-6) { hi = b; grew = true; }
+          }
+        });
+      });
+      if (!grew) {
+        break;
+      }
+    }
     const range = boundaryLineRange(followers, axis, floorBounds);
     // The plane's current position is always legal, even when the engine
     // produced a neighbour thinner than the minimum — never force a jump.
     range.min = Math.min(range.min, line);
     range.max = Math.max(range.max, line);
-    return { dir, axis, line, spanLo, spanHi, followers, range };
+    return { dir, axis, line, spanLo: lo, spanHi: hi, followers, range };
   };
   return {
     w: make("w", "x", startBounds.minX, startBounds.minY, startBounds.maxY),
@@ -4957,8 +5000,26 @@ function beginWallDrag(event, point, wallId) {
       return false;
     }
   }
-  const followers = collectEdgeFollowers(
-    variant, new Set(), candidate.axis, candidate.line, candidate.spanLo, candidate.spanHi);
+  // Span absorption (see collectBoundaryEdges): the plane a wall lives on
+  // moves as one, so the grabbed segment's span grows to cover every
+  // overlapping room/unit edge before followers are final.
+  let followers = [];
+  for (let pass = 0; pass < 4; pass += 1) {
+    followers = collectEdgeFollowers(
+      variant, new Set(), candidate.axis, candidate.line, candidate.spanLo, candidate.spanHi);
+    let grew = false;
+    followers.forEach((follower) => {
+      polygonEdgeIntervalsOnLine(follower.points, candidate.axis, candidate.line).forEach(([a, b]) => {
+        if (intervalOverlap(a, b, candidate.spanLo, candidate.spanHi) > boundaryMinOverlap) {
+          if (a < candidate.spanLo - 1e-6) { candidate.spanLo = a; grew = true; }
+          if (b > candidate.spanHi + 1e-6) { candidate.spanHi = b; grew = true; }
+        }
+      });
+    });
+    if (!grew) {
+      break;
+    }
+  }
   if (!followers.length) {
     return false;
   }
@@ -5373,13 +5434,13 @@ function editSummary(input) {
   const core = firstCore(input);
   const coreBounds = core && core.polygon ? boundsOfPoints(core.polygon.points) : null;
   const floorText = floorBounds
-    ? `Floor ${formatNumber(floorBounds.width, 1)} x ${formatNumber(floorBounds.height, 1)} m`
+    ? `Floor ${formatNumber(floorBounds.width, 1)} × ${formatNumber(floorBounds.height, 1)} m`
     : "Floor outline";
   const coreText = coreBounds
-    ? `Core ${formatNumber(coreBounds.width, 1)} x ${formatNumber(coreBounds.height, 1)} m at ` +
+    ? `Core ${formatNumber(coreBounds.width, 1)} × ${formatNumber(coreBounds.height, 1)} m at ` +
       `${formatNumber(coreBounds.minX, 1)}, ${formatNumber(coreBounds.minY, 1)}`
     : "No core";
-  return `${floorText} - ${coreText}`;
+  return `${floorText} · ${coreText}`;
 }
 
 function renderInputEditHandles(group, input) {
@@ -5525,8 +5586,8 @@ function renderMetrics(output) {
   const rows = [
     ["Status", output ? friendlyStatus(output.status) : "Ready"],
     ["Units", variant ? String(variant.units.length) : "-"],
-    ["Sellable", metrics ? `${formatNumber(metrics.sellableArea, 1)} m2` : "-"],
-    ["Circulation", metrics ? `${formatNumber(metrics.corridorArea, 1)} m2` : "-"],
+    ["Sellable", metrics ? `${formatNumber(metrics.sellableArea, 1)} m²` : "-"],
+    ["Circulation", metrics ? `${formatNumber(metrics.corridorArea, 1)} m²` : "-"],
     ["Net/Gross", netGross],
     ["Checks", checks.length ? (failed.length ? `${failed.length} open` : `${checks.length} passed`) : "-"]
   ];
@@ -5632,10 +5693,10 @@ function renderVariants(output) {
         ${variantThumbnailSvg(variant, state.input)}
         <div>
           <div class="variant-meta">
-            Score ${formatNumber(metrics.score, 3)} - Net/gross ${formatNumber(metrics.netGrossRatio, 3)} - ${units.length} units
+            Score ${formatNumber(metrics.score, 3)} · Net/gross ${formatNumber(metrics.netGrossRatio, 3)} · ${units.length} units
           </div>
           <div class="variant-meta">
-            ${escapeHtml(mix || "No unit mix")} - ${escapeHtml(checkText)}
+            ${escapeHtml(mix || "No unit mix")} · ${escapeHtml(checkText)}
           </div>
           <div class="variant-meta">
             Hypergraph ${hypergraph ? `${countOf(hypergraph.nodes)} nodes, ${countOf(hypergraph.hyperedges)} edges` : "not available"}
@@ -5719,10 +5780,10 @@ function renderSchedule(output) {
             <td>${escapeHtml(displayUnitType(row.type))}</td>
             <td>${row.count}</td>
             <td>${formatPercent(row.count / Math.max(1, units.length), 0)}</td>
-            <td>${formatNumber(row.averageArea, 1)} m2</td>
-            <td>${formatNumber(row.minArea, 1)} m2</td>
-            <td>${formatNumber(row.maxArea, 1)} m2</td>
-            <td>${formatNumber(row.totalArea, 1)} m2</td>
+            <td>${formatNumber(row.averageArea, 1)} m²</td>
+            <td>${formatNumber(row.minArea, 1)} m²</td>
+            <td>${formatNumber(row.maxArea, 1)} m²</td>
+            <td>${formatNumber(row.totalArea, 1)} m²</td>
           </tr>
         `).join("")}
         <tr>
@@ -5732,7 +5793,7 @@ function renderSchedule(output) {
           <td>-</td>
           <td>-</td>
           <td>-</td>
-          <td><strong>${formatNumber(totalArea, 1)} m2</strong></td>
+          <td><strong>${formatNumber(totalArea, 1)} m²</strong></td>
         </tr>
       </tbody>
     </table>
@@ -5752,7 +5813,7 @@ function renderSchedule(output) {
           <tr>
             <td>${escapeHtml(unit.id)}</td>
             <td>${escapeHtml(displayUnitType(unit.type))}</td>
-            <td>${formatNumber(unit.area, 1)} m2</td>
+            <td>${formatNumber(unit.area, 1)} m²</td>
             <td>${unit.rooms ? unit.rooms.length : 0}</td>
             <td>${formatNumber(unit.score, 3)}</td>
             <td>${escapeHtml(compactExternalId(unit.externalId || ""))}</td>
@@ -5800,7 +5861,7 @@ function renderRoomReviewSchedule(output) {
     ` : ""}
     <div class="room-schedule-total">
       <span>Total rooms</span>
-      <strong>${rooms.length} / ${formatNumber(totalArea, 1)} m2</strong>
+      <strong>${rooms.length} / ${formatNumber(totalArea, 1)} m²</strong>
     </div>
   `;
 }
@@ -5829,7 +5890,7 @@ function unitRoomScheduleGroup(unit, rooms, output) {
           aria-pressed="${active ? "true" : "false"}">
         <span>
           <strong>${escapeHtml(displayUnitType(unit.type))}</strong>
-          <small>${escapeHtml(unit.id)} - ${rooms.length} rooms - ${formatNumber(roomArea || unit.area || 0, 1)} m2</small>
+          <small>${escapeHtml(unit.id)} · ${rooms.length} rooms · ${formatNumber(roomArea || unit.area || 0, 1)} m²</small>
         </span>
         ${noteCount ? `<em>${noteCount} note${noteCount === 1 ? "" : "s"}</em>` : `<em>${formatNumber(unit.facadeLength || 0, 1)} m facade</em>`}
       </button>
@@ -5842,7 +5903,7 @@ function roomScheduleRow(room, output) {
   const active = isSelection("room", room.id);
   const roomName = displayRoomType(room);
   const dimensions = room.dimensions
-    ? `${formatNumber(room.dimensions.width, 1)} x ${formatNumber(room.dimensions.depth, 1)}`
+    ? `${formatNumber(room.dimensions.width, 1)} × ${formatNumber(room.dimensions.depth, 1)}`
     : roomDimensionText(room, boundsOfPoints(room.polygon ? room.polygon.points : []));
   const notes = diagnosticsForElement(output, [room.id, room.unitId, room.externalId]);
   return `
@@ -5852,9 +5913,9 @@ function roomScheduleRow(room, output) {
         aria-pressed="${active ? "true" : "false"}">
       <span>
         <strong>${escapeHtml(roomName)}</strong>
-        <small>${escapeHtml(dimensions || "-")} - ${room.daylight ? "Daylight" : "Interior"}</small>
+        <small>${escapeHtml(dimensions || "-")} · ${room.daylight ? "Daylight" : "Interior"}</small>
       </span>
-      <em>${notes.length ? `${notes.length} note${notes.length === 1 ? "" : "s"}` : `${formatNumber(room.area || 0, 1)} m2`}</em>
+      <em>${notes.length ? `${notes.length} note${notes.length === 1 ? "" : "s"}` : `${formatNumber(room.area || 0, 1)} m²`}</em>
     </button>
   `;
 }
@@ -5951,7 +6012,7 @@ function renderExportSummary(output) {
   els.exportSummary.innerHTML = `
     <div>
       <span>Export Ready</span>
-      <strong>${escapeHtml(variant ? `${variant.variantId} - ${validation.label}` : "Generate a variant first")}</strong>
+      <strong>${escapeHtml(variant ? `${variant.variantId} · ${validation.label}` : "Generate a variant first")}</strong>
     </div>
     <div>
       <span>Rhino / Grasshopper</span>
@@ -5977,7 +6038,7 @@ function renderExportSummary(output) {
       <summary>Technical contract</summary>
       <div>
         <span>Schema and Layers</span>
-        <strong>${escapeHtml(schema)}${layers ? ` - ${layers} layer keys` : ""}</strong>
+        <strong>${escapeHtml(schema)}${layers ? ` · ${layers} layer keys` : ""}</strong>
       </div>
       <div>
         <span>Hypergraph Contract</span>
@@ -6047,7 +6108,7 @@ function renderHypergraphPreview(output) {
         ${treeRows.map((row) => `
           <li class="${depthClass(row.depth)}">
             <b>${escapeHtml(row.name)}</b>
-            <em>${row.final ? "final" : "branch"}${row.area ? ` - ${formatNumber(row.area, 1)} m2` : ""}</em>
+            <em>${row.final ? "final" : "branch"}${row.area ? ` · ${formatNumber(row.area, 1)} m²` : ""}</em>
           </li>
         `).join("")}
       </ul>
@@ -7254,7 +7315,7 @@ function firstLine(value) {
 }
 
 function labelText(text) {
-  return String(text || "").replace(/\s+\d+(\.\d+)?\s*m2$/i, "");
+  return String(text || "").replace(/\s+\d+(\.\d+)?\s*m(?:2|²)$/i, "");
 }
 
 function humanizeCode(value) {

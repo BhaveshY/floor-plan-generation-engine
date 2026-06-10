@@ -1662,11 +1662,13 @@ textarea.dragging {
   white-space: nowrap;
 }
 
+/* Legend keys read as drawing swatches, not as checkboxes waiting to be
+   ticked: small soft-cornered chips with a quiet hairline. */
 .legend-row i {
-  width: 14px;
-  height: 14px;
-  border: 1px solid rgba(16, 24, 32, 0.3);
-  border-radius: 2px;
+  width: 12px;
+  height: 12px;
+  border: 1px solid rgba(33, 38, 43, 0.22);
+  border-radius: 4px;
   display: inline-block;
 }
 
