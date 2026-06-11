@@ -112,11 +112,12 @@ namespace FloorPlanGeneration.Generation
                 return variant;
             }
 
+            RoomStyle style = RoomStyle.FromRandom(random);
             int doorIndex = 0;
             foreach (UnitLayout unit in variant.Units)
             {
                 UnitTypeTarget target = _mixPlanner.FindTarget(unit.Type);
-                _roomGenerator.PopulateUnit(unit, corridor, target);
+                _roomGenerator.PopulateUnit(unit, corridor, target, style, doorIndex);
                 variant.Rooms.AddRange(unit.Rooms);
                 variant.DoorsOpenings.Add(_roomGenerator.CreateUnitDoor(unit, corridor, doorIndex++));
                 variant.Walls.AddRange(_roomGenerator.CreateUnitWalls(unit, corridor));
@@ -206,27 +207,32 @@ namespace FloorPlanGeneration.Generation
             Dictionary<string, int> currentCounts,
             SeededRandom random)
         {
-            double x = minX;
             double depth = maxY - minY;
+            // One bay rhythm per interval: scales every bay in the band so different
+            // seeds read as different unit cadences, not just centimeter noise.
+            double rhythm = random.Range(0.84, 1.22);
+            bool reverse = random.NextDouble() < 0.5;
+            double cursor = reverse ? maxX : minX;
             int safety = 0;
-            while (maxX - x > MinAnyUnitWidth() + _tolerance && safety++ < 50)
+            while ((reverse ? cursor - minX : maxX - cursor) > MinAnyUnitWidth() + _tolerance && safety++ < 50)
             {
-                double remaining = maxX - x;
+                double remaining = reverse ? cursor - minX : maxX - cursor;
                 double bayAreaHint = Math.Min(remaining, 8.0 + random.Range(-1.0, 1.0)) * depth;
                 string type = _mixPlanner.ChooseUnitType(bayAreaHint, currentCounts, _input.Source.GenerationSettings.WeightedVariation, random);
                 UnitTypeTarget target = _mixPlanner.FindTarget(type);
                 double desiredWidth = ((target.MinArea + target.MaxArea) * 0.5) / Math.Max(depth, 1.0);
-                desiredWidth = Clamp(desiredWidth + random.Range(-0.45, 0.45), MinUnitWidth(type), Math.Min(12.0, remaining));
+                desiredWidth = Clamp((desiredWidth * rhythm) + random.Range(-0.6, 0.6), MinUnitWidth(type), Math.Min(12.0, remaining));
                 if (remaining - desiredWidth < MinAnyUnitWidth() + _tolerance)
                 {
                     desiredWidth = remaining;
                 }
 
+                double bayMinX = reverse ? cursor - desiredWidth : cursor;
                 Polygon2 unitPolygon = Polygon2.Rectangle(
                     "unit-" + side + "-" + (variant.Units.Count + 1).ToString("00", CultureInfo.InvariantCulture),
-                    x,
+                    bayMinX,
                     minY,
-                    x + desiredWidth,
+                    bayMinX + desiredWidth,
                     maxY);
                 if (TryAddUnit(variant, unitPolygon, type, placedUnits, corridor))
                 {
@@ -246,7 +252,7 @@ namespace FloorPlanGeneration.Generation
                         unitPolygon.SourceId));
                 }
 
-                x += desiredWidth;
+                cursor = reverse ? cursor - desiredWidth : cursor + desiredWidth;
             }
         }
 
@@ -262,28 +268,31 @@ namespace FloorPlanGeneration.Generation
             Dictionary<string, int> currentCounts,
             SeededRandom random)
         {
-            double y = minY;
             double depth = maxX - minX;
+            double rhythm = random.Range(0.84, 1.22);
+            bool reverse = random.NextDouble() < 0.5;
+            double cursor = reverse ? maxY : minY;
             int safety = 0;
-            while (maxY - y > MinAnyUnitWidth() + _tolerance && safety++ < 50)
+            while ((reverse ? cursor - minY : maxY - cursor) > MinAnyUnitWidth() + _tolerance && safety++ < 50)
             {
-                double remaining = maxY - y;
+                double remaining = reverse ? cursor - minY : maxY - cursor;
                 double bayAreaHint = Math.Min(remaining, 8.0 + random.Range(-1.0, 1.0)) * depth;
                 string type = _mixPlanner.ChooseUnitType(bayAreaHint, currentCounts, _input.Source.GenerationSettings.WeightedVariation, random);
                 UnitTypeTarget target = _mixPlanner.FindTarget(type);
                 double desiredHeight = ((target.MinArea + target.MaxArea) * 0.5) / Math.Max(depth, 1.0);
-                desiredHeight = Clamp(desiredHeight + random.Range(-0.45, 0.45), MinUnitWidth(type), Math.Min(12.0, remaining));
+                desiredHeight = Clamp((desiredHeight * rhythm) + random.Range(-0.6, 0.6), MinUnitWidth(type), Math.Min(12.0, remaining));
                 if (remaining - desiredHeight < MinAnyUnitWidth() + _tolerance)
                 {
                     desiredHeight = remaining;
                 }
 
+                double bayMinY = reverse ? cursor - desiredHeight : cursor;
                 Polygon2 unitPolygon = Polygon2.Rectangle(
                     "unit-" + side + "-" + (variant.Units.Count + 1).ToString("00", CultureInfo.InvariantCulture),
                     minX,
-                    y,
+                    bayMinY,
                     maxX,
-                    y + desiredHeight);
+                    bayMinY + desiredHeight);
                 if (TryAddUnit(variant, unitPolygon, type, placedUnits, corridor))
                 {
                     if (!currentCounts.ContainsKey(type))
@@ -302,7 +311,7 @@ namespace FloorPlanGeneration.Generation
                         unitPolygon.SourceId));
                 }
 
-                y += desiredHeight;
+                cursor = reverse ? cursor - desiredHeight : cursor + desiredHeight;
             }
         }
 
@@ -385,49 +394,213 @@ namespace FloorPlanGeneration.Generation
             Bounds2 bounds = _input.Floorplate.Bounds();
             double width = Math.Max(_input.Source.Rules.MinCorridorWidth, 1.2);
             CorridorOrientation primary = bounds.Width >= bounds.Height ? CorridorOrientation.Horizontal : CorridorOrientation.Vertical;
-            CorridorStrategy strategy = TryCoreAdjacentCorridor(primary, width, diagnostics);
-            if (strategy != null)
+            CorridorOrientation secondary = primary == CorridorOrientation.Horizontal ? CorridorOrientation.Vertical : CorridorOrientation.Horizontal;
+
+            List<CorridorStrategy> candidates = new List<CorridorStrategy>();
+            List<CorridorStrategy> fallbacks = new List<CorridorStrategy>();
+            CollectCoreAdjacentCandidates(primary, width, candidates, fallbacks);
+            if (candidates.Count == 0)
             {
-                return strategy;
+                CollectCoreAdjacentCandidates(secondary, width, candidates, fallbacks);
             }
 
-            strategy = TryCoreAdjacentCorridor(
-                primary == CorridorOrientation.Horizontal ? CorridorOrientation.Vertical : CorridorOrientation.Horizontal,
-                width,
-                diagnostics);
-            if (strategy != null)
+            if (candidates.Count == 0 && fallbacks.Count > 0)
             {
-                return strategy;
+                candidates.AddRange(fallbacks);
+            }
+
+            if (candidates.Count > 0)
+            {
+                diagnostics.Add(Diagnostic.Info(
+                    "generation.corridor_core_adjacent",
+                    "Derived corridor adjacent to fixed core; seed selected among " +
+                        candidates.Count.ToString(CultureInfo.InvariantCulture) + " viable placements."));
+                return PickCorridorCandidate(candidates, variantIndex, random);
             }
 
             double[] offsets = new[] { 0.0, -0.08, 0.08, -0.16, 0.16, -0.24, 0.24, -0.32, 0.32 };
+            fallbacks.Clear();
             foreach (double offset in offsets)
             {
                 double jitter = _input.Source.GenerationSettings.WeightedVariation ? random.Range(-0.025, 0.025) : 0.0;
                 double fraction = Clamp(0.5 + offset + jitter, 0.20, 0.80);
-                strategy = TryCorridorAtFraction(primary, fraction, width, diagnostics);
-                if (strategy != null)
+                AddCorridorCandidate(candidates, fallbacks, TryCorridorAtFraction(primary, fraction, width, diagnostics));
+                if (candidates.Count >= 4)
                 {
-                    diagnostics.Add(Diagnostic.Info("generation.corridor_derived", "Derived central corridor from cleaned floorplate scan."));
-                    return strategy;
+                    break;
                 }
             }
 
-            CorridorOrientation secondary = primary == CorridorOrientation.Horizontal ? CorridorOrientation.Vertical : CorridorOrientation.Horizontal;
+            if (candidates.Count == 0 && fallbacks.Count > 0)
+            {
+                candidates.AddRange(fallbacks);
+            }
+
+            if (candidates.Count > 0)
+            {
+                diagnostics.Add(Diagnostic.Info(
+                    "generation.corridor_derived",
+                    "Derived central corridor from cleaned floorplate scan; seed selected among " +
+                        candidates.Count.ToString(CultureInfo.InvariantCulture) + " viable placements."));
+                return PickCorridorCandidate(candidates, variantIndex, random);
+            }
+
+            fallbacks.Clear();
             foreach (double offset in offsets)
             {
                 double fraction = Clamp(0.5 + offset, 0.20, 0.80);
-                strategy = TryCorridorAtFraction(secondary, fraction, width, diagnostics);
-                if (strategy != null)
+                AddCorridorCandidate(candidates, fallbacks, TryCorridorAtFraction(secondary, fraction, width, diagnostics));
+                if (candidates.Count >= 4)
                 {
-                    diagnostics.Add(Diagnostic.Warning(
-                        "generation.corridor_secondary_axis",
-                        "Primary corridor axis failed; derived corridor on secondary axis."));
-                    return strategy;
+                    break;
                 }
             }
 
+            if (candidates.Count == 0 && fallbacks.Count > 0)
+            {
+                candidates.AddRange(fallbacks);
+            }
+
+            if (candidates.Count > 0)
+            {
+                diagnostics.Add(Diagnostic.Warning(
+                    "generation.corridor_secondary_axis",
+                    "Primary corridor axis failed; derived corridor on secondary axis."));
+                return PickCorridorCandidate(candidates, variantIndex, random);
+            }
+
             return null;
+        }
+
+        private CorridorStrategy PickCorridorCandidate(List<CorridorStrategy> candidates, int variantIndex, SeededRandom random)
+        {
+            if (candidates.Count == 1)
+            {
+                return candidates[0];
+            }
+
+            // Offsetting the seeded pick by the variant index spreads sibling variants
+            // across distinct corridor placements instead of letting them collapse onto one.
+            return candidates[(variantIndex + random.Next(0, candidates.Count)) % candidates.Count];
+        }
+
+        private void CollectCoreAdjacentCandidates(
+            CorridorOrientation orientation,
+            double width,
+            List<CorridorStrategy> candidates,
+            List<CorridorStrategy> fallbacks)
+        {
+            CleanedFixedElement core = _input.FixedElements.FirstOrDefault(f => f.Type.IndexOf("core", StringComparison.OrdinalIgnoreCase) >= 0);
+            if (core == null)
+            {
+                return;
+            }
+
+            Bounds2 coreBounds = core.Polygon.Bounds();
+            if (orientation == CorridorOrientation.Horizontal)
+            {
+                AddCorridorCandidate(candidates, fallbacks, TryBuildHorizontalCorridor(coreBounds.MaxY + (width * 0.5), width));
+                AddCorridorCandidate(candidates, fallbacks, TryBuildHorizontalCorridor(coreBounds.MinY - (width * 0.5), width));
+            }
+            else
+            {
+                AddCorridorCandidate(candidates, fallbacks, TryBuildVerticalCorridor(coreBounds.MaxX + (width * 0.5), width));
+                AddCorridorCandidate(candidates, fallbacks, TryBuildVerticalCorridor(coreBounds.MinX - (width * 0.5), width));
+            }
+        }
+
+        private void AddCorridorCandidate(List<CorridorStrategy> candidates, List<CorridorStrategy> fallbacks, CorridorStrategy strategy)
+        {
+            if (strategy == null || !CorridorHostsUnits(strategy))
+            {
+                return;
+            }
+
+            if (ContainsCorridor(candidates, strategy) || ContainsCorridor(fallbacks, strategy))
+            {
+                return;
+            }
+
+            if (CorridorBandsWellProportioned(strategy))
+            {
+                candidates.Add(strategy);
+            }
+            else
+            {
+                fallbacks.Add(strategy);
+            }
+        }
+
+        private bool ContainsCorridor(List<CorridorStrategy> list, CorridorStrategy strategy)
+        {
+            foreach (CorridorStrategy existing in list)
+            {
+                if (Math.Abs(existing.MinX - strategy.MinX) <= _tolerance &&
+                    Math.Abs(existing.MaxX - strategy.MaxX) <= _tolerance &&
+                    Math.Abs(existing.MinY - strategy.MinY) <= _tolerance &&
+                    Math.Abs(existing.MaxY - strategy.MaxY) <= _tolerance)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private void CorridorBandDepths(CorridorStrategy corridor, out double bandThreshold, out double nearDepth, out double farDepth)
+        {
+            Bounds2 bounds = _input.Floorplate.Bounds();
+            if (corridor.Orientation == CorridorOrientation.Horizontal)
+            {
+                bandThreshold = Math.Max(5.0, _input.Source.Rules.MinRoomDepth * 1.8);
+                nearDepth = corridor.MinY - bounds.MinY;
+                farDepth = bounds.MaxY - corridor.MaxY;
+            }
+            else
+            {
+                bandThreshold = Math.Max(5.0, _input.Source.Rules.MinRoomWidth * 1.8);
+                nearDepth = corridor.MinX - bounds.MinX;
+                farDepth = bounds.MaxX - corridor.MaxX;
+            }
+        }
+
+        private bool CorridorHostsUnits(CorridorStrategy corridor)
+        {
+            double bandThreshold;
+            double nearDepth;
+            double farDepth;
+            CorridorBandDepths(corridor, out bandThreshold, out nearDepth, out farDepth);
+            return Math.Max(nearDepth, farDepth) >= bandThreshold;
+        }
+
+        private bool CorridorBandsWellProportioned(CorridorStrategy corridor)
+        {
+            double bandThreshold;
+            double nearDepth;
+            double farDepth;
+            CorridorBandDepths(corridor, out bandThreshold, out nearDepth, out farDepth);
+            double maxDepth = MaxUsefulBandDepth();
+            bool nearHosts = nearDepth >= bandThreshold;
+            bool farHosts = farDepth >= bandThreshold;
+            if (!nearHosts && !farHosts)
+            {
+                return false;
+            }
+
+            // A band much deeper than the largest target unit can absorb yields
+            // oversized units, so such placements only serve as a last resort.
+            return (!nearHosts || nearDepth <= maxDepth) && (!farHosts || farDepth <= maxDepth);
+        }
+
+        private double MaxUsefulBandDepth()
+        {
+            double best = 0.0;
+            foreach (UnitTypeTarget target in _mixPlanner.Targets)
+            {
+                best = Math.Max(best, target.MaxArea / Math.Max(MinUnitWidth(target.Type), 1.0));
+            }
+
+            return Math.Max(10.0, best * 1.25);
         }
 
         private CorridorStrategy CorridorFromLine(LineInput line, List<Diagnostic> diagnostics)
@@ -463,51 +636,6 @@ namespace FloorPlanGeneration.Generation
                 Width = width
             };
             return CorridorIsUsable(vertical) ? vertical : null;
-        }
-
-        private CorridorStrategy TryCoreAdjacentCorridor(CorridorOrientation orientation, double width, List<Diagnostic> diagnostics)
-        {
-            CleanedFixedElement core = _input.FixedElements.FirstOrDefault(f => f.Type.IndexOf("core", StringComparison.OrdinalIgnoreCase) >= 0);
-            if (core == null)
-            {
-                return null;
-            }
-
-            Bounds2 coreBounds = core.Polygon.Bounds();
-            if (orientation == CorridorOrientation.Horizontal)
-            {
-                CorridorStrategy above = TryBuildHorizontalCorridor(coreBounds.MaxY + (width * 0.5), width);
-                if (above != null)
-                {
-                    diagnostics.Add(Diagnostic.Info("generation.corridor_core_adjacent", "Derived corridor adjacent to fixed core.", core.Id));
-                    return above;
-                }
-
-                CorridorStrategy below = TryBuildHorizontalCorridor(coreBounds.MinY - (width * 0.5), width);
-                if (below != null)
-                {
-                    diagnostics.Add(Diagnostic.Info("generation.corridor_core_adjacent", "Derived corridor adjacent to fixed core.", core.Id));
-                    return below;
-                }
-            }
-            else
-            {
-                CorridorStrategy right = TryBuildVerticalCorridor(coreBounds.MaxX + (width * 0.5), width);
-                if (right != null)
-                {
-                    diagnostics.Add(Diagnostic.Info("generation.corridor_core_adjacent", "Derived corridor adjacent to fixed core.", core.Id));
-                    return right;
-                }
-
-                CorridorStrategy left = TryBuildVerticalCorridor(coreBounds.MinX - (width * 0.5), width);
-                if (left != null)
-                {
-                    diagnostics.Add(Diagnostic.Info("generation.corridor_core_adjacent", "Derived corridor adjacent to fixed core.", core.Id));
-                    return left;
-                }
-            }
-
-            return null;
         }
 
         private CorridorStrategy TryCorridorAtFraction(CorridorOrientation orientation, double fraction, double width, List<Diagnostic> diagnostics)

@@ -18,17 +18,23 @@ namespace FloorPlanGeneration.Generation
             _tolerance = input.Tolerance;
         }
 
-        public void PopulateUnit(UnitLayout unit, CorridorStrategy corridor, UnitTypeTarget target)
+        public void PopulateUnit(UnitLayout unit, CorridorStrategy corridor, UnitTypeTarget target, RoomStyle style, int unitIndex)
         {
+            if (style == null)
+            {
+                style = RoomStyle.Default();
+            }
+
             Polygon2 unitPolygon = ToPolygon(unit.Polygon);
             Bounds2 bounds = unitPolygon.Bounds();
+            bool mirror = style.MirrorUnit(unitIndex);
             if (corridor.Orientation == CorridorOrientation.Horizontal)
             {
-                PopulateHorizontalUnit(unit, corridor, target, bounds);
+                PopulateHorizontalUnit(unit, corridor, target, bounds, style, mirror);
             }
             else
             {
-                PopulateVerticalUnit(unit, corridor, target, bounds);
+                PopulateVerticalUnit(unit, corridor, target, bounds, style, mirror);
             }
 
             unit.Rooms = unit.Rooms.OrderBy(r => r.Id, StringComparer.OrdinalIgnoreCase).ToList();
@@ -203,11 +209,11 @@ namespace FloorPlanGeneration.Generation
             }
         }
 
-        private void PopulateHorizontalUnit(UnitLayout unit, CorridorStrategy corridor, UnitTypeTarget target, Bounds2 b)
+        private void PopulateHorizontalUnit(UnitLayout unit, CorridorStrategy corridor, UnitTypeTarget target, Bounds2 b, RoomStyle style, bool mirror)
         {
             double width = b.Width;
             double depth = b.Height;
-            double wetDepth = WetDepth(depth);
+            double wetDepth = WetDepth(depth, style.WetFraction);
             bool aboveCorridor = b.MinY >= corridor.MaxY - _tolerance;
             double wetMinY = aboveCorridor ? b.MinY : b.MaxY - wetDepth;
             double wetMaxY = aboveCorridor ? b.MinY + wetDepth : b.MaxY;
@@ -217,16 +223,16 @@ namespace FloorPlanGeneration.Generation
             string type = NormalizeUnitType(unit.Type);
             if (type == "studio")
             {
-                double bathWidth = Clamp(width * 0.36, _input.Source.Rules.MinRoomWidth, Math.Min(3.4, width * 0.55));
-                AddRoom(unit, "bathroom", b.MinX, wetMinY, b.MinX + bathWidth, wetMaxY, false);
-                AddRoom(unit, "kitchen", b.MinX + bathWidth, wetMinY, b.MaxX, wetMaxY, false);
-                AddRoom(unit, "living_sleeping", b.MinX, facadeMinY, b.MaxX, facadeMaxY, true);
+                double bathWidth = Clamp(width * style.StudioBathFraction, _input.Source.Rules.MinRoomWidth, Math.Min(3.4, width * 0.55));
+                AddRoomX(unit, "bathroom", b, mirror, b.MinX, wetMinY, b.MinX + bathWidth, wetMaxY, false);
+                AddRoomX(unit, "kitchen", b, mirror, b.MinX + bathWidth, wetMinY, b.MaxX, wetMaxY, false);
+                AddRoomX(unit, "living_sleeping", b, mirror, b.MinX, facadeMinY, b.MaxX, facadeMaxY, true);
                 return;
             }
 
             if (type == "two_bed")
             {
-                double bedWidth = Math.Max(_input.Source.Rules.MinRoomWidth, width * 0.29);
+                double bedWidth = Math.Max(_input.Source.Rules.MinRoomWidth, width * style.TwoBedFraction);
                 double livingStart = b.MinX + (bedWidth * 2.0);
                 if (b.MaxX - livingStart < _input.Source.Rules.MinRoomWidth)
                 {
@@ -234,29 +240,31 @@ namespace FloorPlanGeneration.Generation
                     livingStart = b.MinX + (bedWidth * 2.0);
                 }
 
-                AddRoom(unit, "bathroom", b.MinX, wetMinY, b.MinX + Math.Min(3.2, width * 0.32), wetMaxY, false);
-                AddRoom(unit, "kitchen", b.MinX + Math.Min(3.2, width * 0.32), wetMinY, b.MaxX, wetMaxY, false);
-                AddRoom(unit, "bedroom", b.MinX, facadeMinY, b.MinX + bedWidth, facadeMaxY, true);
-                AddRoom(unit, "bedroom", b.MinX + bedWidth, facadeMinY, livingStart, facadeMaxY, true);
-                AddRoom(unit, "living", livingStart, facadeMinY, b.MaxX, facadeMaxY, true);
+                double wetSplit = Math.Min(3.2, width * style.WetSplitFraction);
+                AddRoomX(unit, "bathroom", b, mirror, b.MinX, wetMinY, b.MinX + wetSplit, wetMaxY, false);
+                AddRoomX(unit, "kitchen", b, mirror, b.MinX + wetSplit, wetMinY, b.MaxX, wetMaxY, false);
+                AddRoomX(unit, "bedroom", b, mirror, b.MinX, facadeMinY, b.MinX + bedWidth, facadeMaxY, true);
+                AddRoomX(unit, "bedroom", b, mirror, b.MinX + bedWidth, facadeMinY, livingStart, facadeMaxY, true);
+                AddRoomX(unit, "living", b, mirror, livingStart, facadeMinY, b.MaxX, facadeMaxY, true);
                 return;
             }
 
             double bedroomWidth = Clamp(
-                width * 0.42,
+                width * style.OneBedFraction,
                 _input.Source.Rules.MinRoomWidth + 0.4,
                 Math.Max(_input.Source.Rules.MinRoomWidth, width - _input.Source.Rules.MinRoomWidth));
-            AddRoom(unit, "bathroom", b.MinX, wetMinY, b.MinX + Math.Min(3.2, width * 0.38), wetMaxY, false);
-            AddRoom(unit, "kitchen", b.MinX + Math.Min(3.2, width * 0.38), wetMinY, b.MaxX, wetMaxY, false);
-            AddRoom(unit, "bedroom", b.MinX, facadeMinY, b.MinX + bedroomWidth, facadeMaxY, true);
-            AddRoom(unit, "living", b.MinX + bedroomWidth, facadeMinY, b.MaxX, facadeMaxY, true);
+            double oneBedWetSplit = Math.Min(3.2, width * (style.WetSplitFraction + 0.06));
+            AddRoomX(unit, "bathroom", b, mirror, b.MinX, wetMinY, b.MinX + oneBedWetSplit, wetMaxY, false);
+            AddRoomX(unit, "kitchen", b, mirror, b.MinX + oneBedWetSplit, wetMinY, b.MaxX, wetMaxY, false);
+            AddRoomX(unit, "bedroom", b, mirror, b.MinX, facadeMinY, b.MinX + bedroomWidth, facadeMaxY, true);
+            AddRoomX(unit, "living", b, mirror, b.MinX + bedroomWidth, facadeMinY, b.MaxX, facadeMaxY, true);
         }
 
-        private void PopulateVerticalUnit(UnitLayout unit, CorridorStrategy corridor, UnitTypeTarget target, Bounds2 b)
+        private void PopulateVerticalUnit(UnitLayout unit, CorridorStrategy corridor, UnitTypeTarget target, Bounds2 b, RoomStyle style, bool mirror)
         {
             double width = b.Width;
             double depth = b.Height;
-            double wetDepth = WetDepth(width);
+            double wetDepth = WetDepth(width, style.WetFraction);
             bool rightOfCorridor = b.MinX >= corridor.MaxX - _tolerance;
             double wetMinX = rightOfCorridor ? b.MinX : b.MaxX - wetDepth;
             double wetMaxX = rightOfCorridor ? b.MinX + wetDepth : b.MaxX;
@@ -266,16 +274,16 @@ namespace FloorPlanGeneration.Generation
             string type = NormalizeUnitType(unit.Type);
             if (type == "studio")
             {
-                double bathDepth = Clamp(depth * 0.36, _input.Source.Rules.MinRoomDepth, Math.Min(3.4, depth * 0.55));
-                AddRoom(unit, "bathroom", wetMinX, b.MinY, wetMaxX, b.MinY + bathDepth, false);
-                AddRoom(unit, "kitchen", wetMinX, b.MinY + bathDepth, wetMaxX, b.MaxY, false);
-                AddRoom(unit, "living_sleeping", facadeMinX, b.MinY, facadeMaxX, b.MaxY, true);
+                double bathDepth = Clamp(depth * style.StudioBathFraction, _input.Source.Rules.MinRoomDepth, Math.Min(3.4, depth * 0.55));
+                AddRoomY(unit, "bathroom", b, mirror, wetMinX, b.MinY, wetMaxX, b.MinY + bathDepth, false);
+                AddRoomY(unit, "kitchen", b, mirror, wetMinX, b.MinY + bathDepth, wetMaxX, b.MaxY, false);
+                AddRoomY(unit, "living_sleeping", b, mirror, facadeMinX, b.MinY, facadeMaxX, b.MaxY, true);
                 return;
             }
 
             if (type == "two_bed")
             {
-                double bedDepth = Math.Max(_input.Source.Rules.MinRoomDepth, depth * 0.29);
+                double bedDepth = Math.Max(_input.Source.Rules.MinRoomDepth, depth * style.TwoBedFraction);
                 double livingStart = b.MinY + (bedDepth * 2.0);
                 if (b.MaxY - livingStart < _input.Source.Rules.MinRoomDepth)
                 {
@@ -283,22 +291,54 @@ namespace FloorPlanGeneration.Generation
                     livingStart = b.MinY + (bedDepth * 2.0);
                 }
 
-                AddRoom(unit, "bathroom", wetMinX, b.MinY, wetMaxX, b.MinY + Math.Min(3.2, depth * 0.32), false);
-                AddRoom(unit, "kitchen", wetMinX, b.MinY + Math.Min(3.2, depth * 0.32), wetMaxX, b.MaxY, false);
-                AddRoom(unit, "bedroom", facadeMinX, b.MinY, facadeMaxX, b.MinY + bedDepth, true);
-                AddRoom(unit, "bedroom", facadeMinX, b.MinY + bedDepth, facadeMaxX, livingStart, true);
-                AddRoom(unit, "living", facadeMinX, livingStart, facadeMaxX, b.MaxY, true);
+                double wetSplit = Math.Min(3.2, depth * style.WetSplitFraction);
+                AddRoomY(unit, "bathroom", b, mirror, wetMinX, b.MinY, wetMaxX, b.MinY + wetSplit, false);
+                AddRoomY(unit, "kitchen", b, mirror, wetMinX, b.MinY + wetSplit, wetMaxX, b.MaxY, false);
+                AddRoomY(unit, "bedroom", b, mirror, facadeMinX, b.MinY, facadeMaxX, b.MinY + bedDepth, true);
+                AddRoomY(unit, "bedroom", b, mirror, facadeMinX, b.MinY + bedDepth, facadeMaxX, livingStart, true);
+                AddRoomY(unit, "living", b, mirror, facadeMinX, livingStart, facadeMaxX, b.MaxY, true);
                 return;
             }
 
             double bedroomDepth = Clamp(
-                depth * 0.42,
+                depth * style.OneBedFraction,
                 _input.Source.Rules.MinRoomDepth + 0.4,
                 Math.Max(_input.Source.Rules.MinRoomDepth, depth - _input.Source.Rules.MinRoomDepth));
-            AddRoom(unit, "bathroom", wetMinX, b.MinY, wetMaxX, b.MinY + Math.Min(3.2, depth * 0.38), false);
-            AddRoom(unit, "kitchen", wetMinX, b.MinY + Math.Min(3.2, depth * 0.38), wetMaxX, b.MaxY, false);
-            AddRoom(unit, "bedroom", facadeMinX, b.MinY, facadeMaxX, b.MinY + bedroomDepth, true);
-            AddRoom(unit, "living", facadeMinX, b.MinY + bedroomDepth, facadeMaxX, b.MaxY, true);
+            double oneBedWetSplit = Math.Min(3.2, depth * (style.WetSplitFraction + 0.06));
+            AddRoomY(unit, "bathroom", b, mirror, wetMinX, b.MinY, wetMaxX, b.MinY + oneBedWetSplit, false);
+            AddRoomY(unit, "kitchen", b, mirror, wetMinX, b.MinY + oneBedWetSplit, wetMaxX, b.MaxY, false);
+            AddRoomY(unit, "bedroom", b, mirror, facadeMinX, b.MinY, facadeMaxX, b.MinY + bedroomDepth, true);
+            AddRoomY(unit, "living", b, mirror, facadeMinX, b.MinY + bedroomDepth, facadeMaxX, b.MaxY, true);
+        }
+
+        private void AddRoomX(
+            UnitLayout unit, string roomType, Bounds2 b, bool mirror,
+            double minX, double minY, double maxX, double maxY, bool expectsDaylight)
+        {
+            if (mirror)
+            {
+                double mirroredMin = b.MinX + (b.MaxX - maxX);
+                double mirroredMax = b.MaxX - (minX - b.MinX);
+                minX = mirroredMin;
+                maxX = mirroredMax;
+            }
+
+            AddRoom(unit, roomType, minX, minY, maxX, maxY, expectsDaylight);
+        }
+
+        private void AddRoomY(
+            UnitLayout unit, string roomType, Bounds2 b, bool mirror,
+            double minX, double minY, double maxX, double maxY, bool expectsDaylight)
+        {
+            if (mirror)
+            {
+                double mirroredMin = b.MinY + (b.MaxY - maxY);
+                double mirroredMax = b.MaxY - (minY - b.MinY);
+                minY = mirroredMin;
+                maxY = mirroredMax;
+            }
+
+            AddRoom(unit, roomType, minX, minY, maxX, maxY, expectsDaylight);
         }
 
         private void AddRoom(UnitLayout unit, string roomType, double minX, double minY, double maxX, double maxY, bool expectsDaylight)
@@ -324,10 +364,10 @@ namespace FloorPlanGeneration.Generation
             unit.Rooms.Add(room);
         }
 
-        private double WetDepth(double totalDepth)
+        private double WetDepth(double totalDepth, double fraction)
         {
             double minDepth = Math.Max(2.2, _input.Source.Rules.MinRoomDepth);
-            double wetDepth = Math.Min(3.2, Math.Max(minDepth, totalDepth * 0.35));
+            double wetDepth = Math.Min(3.2, Math.Max(minDepth, totalDepth * fraction));
             if (totalDepth - wetDepth < _input.Source.Rules.MinRoomDepth)
             {
                 wetDepth = Math.Max(1.8, totalDepth - _input.Source.Rules.MinRoomDepth);

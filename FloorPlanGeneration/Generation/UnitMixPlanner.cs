@@ -40,7 +40,9 @@ namespace FloorPlanGeneration.Generation
                 double areaFit = 1.0 - Math.Min(1.0, Math.Abs(bayArea - desiredArea) / Math.Max(desiredArea, 1.0));
                 double mixNeed = MixNeed(target, currentCounts, totalPlaced);
                 double weight = Math.Max(0.1, target.Weight);
-                double jitter = weightedVariation ? random.NextDouble() * 0.15 : 0.0;
+                // Jitter must stay below the 2.0-per-missing-unit mix-need term so explicit
+                // target counts remain strict, while still flipping close ratio-based calls.
+                double jitter = weightedVariation ? random.NextDouble() * 0.55 : 0.0;
                 double score = (mixNeed * 2.0) + areaFit + Math.Log(weight + 1.0) + jitter;
                 if (score > bestScore)
                 {
