@@ -1423,6 +1423,41 @@ namespace FloorPlanGeneration.Tests
         }
 
         [Fact]
+        public void GenerateFromPromptOwnsTheRunPipelineAgainstStaleAutoRuns()
+        {
+            string app = ReadWebFile("app.js");
+            string handleSetupInput = SliceFunction(app, "handleSetupInput");
+            string generateFromPrompt = SliceFunction(app, "generateFromPrompt");
+            string awaitEngineIdle = SliceFunction(app, "awaitEngineIdle");
+
+            // Regression: the brief textarea sits inside setupForm, so typing it (and
+            // the blur fired by clicking the generate button) scheduled an auto-run
+            // with the OLD settings. That stale run landed during the 15s AI parse,
+            // re-rendered the old plan and overwrote the progress status — the whole
+            // feature read as broken. The brief must never feed the auto-run pipeline.
+            Assert.Contains("event.target === els.projectName", handleSetupInput, StringComparison.Ordinal);
+            AssertBefore(
+                handleSetupInput,
+                "event.target === els.projectName",
+                "markInputDirty(",
+                "Brief edits must bail out before the auto-generate pipeline is armed.");
+
+            // The prompt flow owns the pipeline for its whole async span: pending
+            // timers and queued runs are cancelled up front, and its engine run only
+            // starts once any in-flight run has drained, so the prompt's plan is the
+            // one that renders last (and relax/navigation read the right response).
+            Assert.Contains("clearAutoGenerate();", generateFromPrompt, StringComparison.Ordinal);
+            Assert.Contains("state.pendingRunMode = \"\";", generateFromPrompt, StringComparison.Ordinal);
+            Assert.Contains("await awaitEngineIdle(", generateFromPrompt, StringComparison.Ordinal);
+            Assert.Contains("state.busy", awaitEngineIdle, StringComparison.Ordinal);
+
+            // Progress is visible at the point of interaction, not only in a distant
+            // status line: the button itself reports the AI read while it runs.
+            Assert.Contains("Reading brief with", generateFromPrompt, StringComparison.Ordinal);
+            Assert.Contains("els.promptGenerateBtn.textContent", generateFromPrompt, StringComparison.Ordinal);
+        }
+
+        [Fact]
         public void PlateRescaleCarriesCoreAlongTheSameAffineMap()
         {
             string app = ReadWebFile("app.js");

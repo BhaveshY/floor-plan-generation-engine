@@ -1146,6 +1146,57 @@ namespace FloorPlanGeneration.Tests
             return input;
         }
 
+        [Fact]
+        public void ExclusiveUnitMixIsHonored_ZeroRatioTypesAreDeliberateExclusions()
+        {
+            // Large plate: bays comfortably fit the demanded type.
+            AssertExclusiveTwoBedMixHonored(RectangularInput(seed: 31, variantCount: 4));
+
+            // Shallow-band plate (the AI-brief case that failed live): the ~8 m
+            // probe-bay area (8 x 5.25 = 42 m2) undershoots two_bed's candidacy
+            // floor (72 x 0.75 = 54 m2) although the full 24 m interval hosts one
+            // easily, so the demanded type silently vanished from every bay.
+            EngineInput shallow = RectangularInput(seed: 77, variantCount: 4);
+            shallow.Project.Id = "exclusive-mix-shallow";
+            shallow.Floorplate.Outer = new PolygonInput
+            {
+                Id = "shallow-outer",
+                Points = new List<Point2>
+                {
+                    new Point2(0, 0),
+                    new Point2(24, 0),
+                    new Point2(24, 12),
+                    new Point2(0, 12)
+                }
+            };
+            shallow.FixedElements = new List<FixedElementInput>();
+            shallow.Access.VerticalCoreAccess = new List<Point2>();
+            AssertExclusiveTwoBedMixHonored(shallow);
+        }
+
+        private static void AssertExclusiveTwoBedMixHonored(EngineInput input)
+        {
+            input.Program.TargetUnitTypes = new List<UnitTypeTarget>
+            {
+                new UnitTypeTarget { Type = "studio", MinArea = 32.0, MaxArea = 52.0, TargetRatio = 0.0, Weight = 1.0 },
+                new UnitTypeTarget { Type = "one_bed", MinArea = 50.0, MaxArea = 76.0, TargetRatio = 0.0, Weight = 1.0 },
+                new UnitTypeTarget { Type = "two_bed", MinArea = 72.0, MaxArea = 105.0, TargetRatio = 1.0, Weight = 1.0 }
+            };
+
+            EngineOutput output = new FloorPlanEngine().Generate(input);
+
+            Assert.Equal("succeeded", output.Status);
+            foreach (LayoutVariant variant in output.Variants)
+            {
+                int twoBed = variant.Units.Count(u => string.Equals(u.Type, "two_bed", System.StringComparison.OrdinalIgnoreCase));
+                int other = variant.Units.Count - twoBed;
+                Assert.True(
+                    twoBed > other,
+                    input.Project.Id + " " + variant.VariantId + " placed " + twoBed + " two_bed vs " + other +
+                    " excluded-type units under a 100% two_bed mix.");
+            }
+        }
+
         private static EngineInput LShapedInput(int seed, int variantCount)
         {
             EngineInput input = RectangularInput(seed, variantCount);

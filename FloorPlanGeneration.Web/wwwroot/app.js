@@ -367,8 +367,18 @@ function setInput(input, options = {}) {
   renderAll();
 }
 
-function handleSetupInput() {
+function handleSetupInput(event) {
   if (state.syncing) {
+    return;
+  }
+
+  // The brief is not a live generation input. Typing it (or the blur fired by
+  // clicking "Generate from prompt") must never arm the auto-generate pipeline:
+  // a stale run with the old settings would land mid-AI-parse, re-render the old
+  // plan and bury the prompt's result. The button is the brief's only trigger.
+  if (event && els.projectName && event.target === els.projectName) {
+    state.brief = els.projectName.value.trim();
+    saveDraft();
     return;
   }
 
@@ -909,17 +919,32 @@ async function generateFromPrompt() {
   let intent = parsePrompt(text);
   let aiUsed = false;
   let aiTried = false;
+  const defaultButtonLabel = els.promptGenerateBtn ? els.promptGenerateBtn.textContent : "";
+  // The prompt flow owns the run pipeline for its whole async span: cancel any
+  // pending auto-run and queued mode so nothing stale renders over its result.
+  clearAutoGenerate();
+  state.pendingRunMode = "";
   if (els.promptGenerateBtn) { els.promptGenerateBtn.disabled = true; }
   try {
     if (text && aiAssistEnabled()) {
       aiTried = true;
       setStatus(`Reading the brief with ${aiProviderLabel()}…`);
+      if (els.promptGenerateBtn) {
+        els.promptGenerateBtn.textContent = `Reading brief with ${aiProviderLabel()}…`;
+      }
       const aiIntent = await requestAiIntent(text);
       if (aiIntent) {
         intent = mergeAiIntent(intent, aiIntent);
         aiUsed = true;
       }
     }
+    if (els.promptGenerateBtn) { els.promptGenerateBtn.textContent = "Generating plan…"; }
+    // A run that slipped in before this flow started must fully drain first,
+    // so the prompt's run is the one that renders last and relax/navigation
+    // read the prompt's response rather than a stale one.
+    clearAutoGenerate();
+    state.pendingRunMode = "";
+    await awaitEngineIdle(10000);
     // Generating a fresh plan from a prompt starts a new edit history.
     state.undoStack = [];
     state.redoStack = [];
@@ -951,7 +976,10 @@ async function generateFromPrompt() {
     await relaxStrictnessIfNoVariants();
     navigateToHash("#plan");
   } finally {
-    if (els.promptGenerateBtn) { els.promptGenerateBtn.disabled = false; }
+    if (els.promptGenerateBtn) {
+      els.promptGenerateBtn.disabled = false;
+      els.promptGenerateBtn.textContent = defaultButtonLabel || "Generate from prompt";
+    }
   }
 }
 
@@ -1028,6 +1056,17 @@ function clearAutoGenerate() {
   if (state.autoGenerateTimer) {
     window.clearTimeout(state.autoGenerateTimer);
     state.autoGenerateTimer = 0;
+  }
+}
+
+// Waits for any in-flight engine run to drain so a caller's own run starts
+// immediately instead of being queued behind a stale response (runEngine
+// returns instantly when busy, which would let callers read the wrong
+// state.response right after awaiting it).
+async function awaitEngineIdle(maxMs) {
+  const deadline = Date.now() + (Number(maxMs) || 8000);
+  while (state.busy && Date.now() < deadline) {
+    await new Promise((resolve) => window.setTimeout(resolve, 80));
   }
 }
 

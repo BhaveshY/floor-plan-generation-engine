@@ -19,10 +19,20 @@ namespace FloorPlanGeneration.Generation
             get { return _targets; }
         }
 
-        public string ChooseUnitType(double bayArea, Dictionary<string, int> currentCounts, bool weightedVariation, SeededRandom random)
+        public string ChooseUnitType(
+            double bayArea,
+            double remainingCapacity,
+            Dictionary<string, int> currentCounts,
+            bool weightedVariation,
+            SeededRandom random)
         {
+            // Candidacy is judged against the WHOLE remaining interval, not the
+            // ~8 m probe bay: the bay is cut to the chosen type's size afterwards,
+            // so a demanded large type must not vanish just because the probe is
+            // smaller than it (shallow bands on small plates hit exactly this).
+            double capacity = Math.Max(bayArea, remainingCapacity);
             List<UnitTypeTarget> candidates = _targets
-                .Where(t => bayArea >= t.MinArea * 0.75 && bayArea <= t.MaxArea * 1.35)
+                .Where(t => capacity >= t.MinArea * 0.75 && bayArea <= t.MaxArea * 1.35)
                 .ToList();
 
             if (candidates.Count == 0)
@@ -30,6 +40,7 @@ namespace FloorPlanGeneration.Generation
                 candidates = _targets.ToList();
             }
 
+            bool exclusiveMix = _targets.Any(t => t.TargetCount > 0 || t.TargetRatio > 0.0);
             int totalPlaced = currentCounts.Values.Sum();
             UnitTypeTarget best = null;
             double bestScore = double.NegativeInfinity;
@@ -38,7 +49,7 @@ namespace FloorPlanGeneration.Generation
             {
                 double desiredArea = (target.MinArea + target.MaxArea) * 0.5;
                 double areaFit = 1.0 - Math.Min(1.0, Math.Abs(bayArea - desiredArea) / Math.Max(desiredArea, 1.0));
-                double mixNeed = MixNeed(target, currentCounts, totalPlaced);
+                double mixNeed = MixNeed(target, currentCounts, totalPlaced, exclusiveMix);
                 double weight = Math.Max(0.1, target.Weight);
                 // Jitter must stay below the 2.0-per-missing-unit mix-need term so explicit
                 // target counts remain strict, while still flipping close ratio-based calls.
@@ -132,7 +143,7 @@ namespace FloorPlanGeneration.Generation
             return actual.Values.Sum() == targetCountSum;
         }
 
-        private static double MixNeed(UnitTypeTarget target, Dictionary<string, int> currentCounts, int totalPlaced)
+        private static double MixNeed(UnitTypeTarget target, Dictionary<string, int> currentCounts, int totalPlaced, bool exclusiveMix)
         {
             int placed = currentCounts.ContainsKey(target.Type) ? currentCounts[target.Type] : 0;
             if (target.TargetCount > 0)
@@ -144,6 +155,14 @@ namespace FloorPlanGeneration.Generation
             {
                 double desiredThroughNextBay = (totalPlaced + 1) * target.TargetRatio;
                 return Math.Max(0.0, desiredThroughNextBay - placed);
+            }
+
+            // When the mix names other types explicitly, a zero share here is a
+            // deliberate exclusion, not indifference: keep it well below any named
+            // type so it only fills bays no demanded type can physically use.
+            if (exclusiveMix)
+            {
+                return -1.5;
             }
 
             return 1.0 / (1.0 + placed);

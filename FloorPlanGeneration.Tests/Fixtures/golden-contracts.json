@@ -15,7 +15,7 @@
                          {
                              "id":  "variant-02",
                              "seed":  -546508551,
-                             "score":  0.9069,
+                             "score":  0.9075,
                              "units":  9,
                              "rooms":  33,
                              "corridors":  1,
@@ -26,40 +26,18 @@
                          {
                              "id":  "variant-06",
                              "seed":  -546508547,
-                             "score":  0.8803,
+                             "score":  0.8796,
                              "units":  9,
-                             "rooms":  33,
+                             "rooms":  34,
                              "corridors":  1,
                              "firstUnit":  "unit-north-05",
-                             "topologyNodes":  45,
-                             "topologyEdges":  93
-                         },
-                         {
-                             "id":  "variant-04",
-                             "seed":  -546508545,
-                             "score":  0.8676,
-                             "units":  8,
-                             "rooms":  30,
-                             "corridors":  1,
-                             "firstUnit":  "unit-north-05",
-                             "topologyNodes":  41,
-                             "topologyEdges":  85
-                         },
-                         {
-                             "id":  "variant-05",
-                             "seed":  -546508546,
-                             "score":  0.8592,
-                             "units":  9,
-                             "rooms":  33,
-                             "corridors":  1,
-                             "firstUnit":  "unit-north-06",
-                             "topologyNodes":  45,
-                             "topologyEdges":  93
+                             "topologyNodes":  46,
+                             "topologyEdges":  96
                          },
                          {
                              "id":  "variant-01",
                              "seed":  -546508550,
-                             "score":  0.8569,
+                             "score":  0.8747,
                              "units":  9,
                              "rooms":  34,
                              "corridors":  1,
@@ -68,15 +46,37 @@
                              "topologyEdges":  96
                          },
                          {
-                             "id":  "variant-03",
-                             "seed":  -546508552,
-                             "score":  0.8384,
+                             "id":  "variant-04",
+                             "seed":  -546508545,
+                             "score":  0.8672,
                              "units":  8,
                              "rooms":  30,
                              "corridors":  1,
                              "firstUnit":  "unit-north-05",
                              "topologyNodes":  41,
                              "topologyEdges":  85
+                         },
+                         {
+                             "id":  "variant-03",
+                             "seed":  -546508552,
+                             "score":  0.8375,
+                             "units":  8,
+                             "rooms":  31,
+                             "corridors":  1,
+                             "firstUnit":  "unit-north-05",
+                             "topologyNodes":  42,
+                             "topologyEdges":  88
+                         },
+                         {
+                             "id":  "variant-05",
+                             "seed":  -546508546,
+                             "score":  0.8108,
+                             "units":  8,
+                             "rooms":  31,
+                             "corridors":  1,
+                             "firstUnit":  "unit-north-05",
+                             "topologyNodes":  42,
+                             "topologyEdges":  88
                          }
                      ]
     },
@@ -116,37 +116,37 @@
                              "topologyEdges":  96
                          },
                          {
-                             "id":  "variant-01",
-                             "seed":  2223596,
-                             "score":  0.8429,
+                             "id":  "variant-05",
+                             "seed":  2223592,
+                             "score":  0.8267,
                              "units":  6,
-                             "rooms":  22,
+                             "rooms":  23,
                              "corridors":  1,
                              "firstUnit":  "unit-north-05",
-                             "topologyNodes":  31,
-                             "topologyEdges":  63
+                             "topologyNodes":  32,
+                             "topologyEdges":  66
+                         },
+                         {
+                             "id":  "variant-01",
+                             "seed":  2223596,
+                             "score":  0.8246,
+                             "units":  6,
+                             "rooms":  23,
+                             "corridors":  1,
+                             "firstUnit":  "unit-north-05",
+                             "topologyNodes":  32,
+                             "topologyEdges":  66
                          },
                          {
                              "id":  "variant-03",
                              "seed":  2223598,
-                             "score":  0.8422,
+                             "score":  0.8229,
                              "units":  6,
-                             "rooms":  22,
+                             "rooms":  23,
                              "corridors":  1,
                              "firstUnit":  "unit-north-05",
-                             "topologyNodes":  31,
-                             "topologyEdges":  63
-                         },
-                         {
-                             "id":  "variant-05",
-                             "seed":  2223592,
-                             "score":  0.8381,
-                             "units":  6,
-                             "rooms":  22,
-                             "corridors":  1,
-                             "firstUnit":  "unit-north-05",
-                             "topologyNodes":  31,
-                             "topologyEdges":  63
+                             "topologyNodes":  32,
+                             "topologyEdges":  66
                          }
                      ]
     },

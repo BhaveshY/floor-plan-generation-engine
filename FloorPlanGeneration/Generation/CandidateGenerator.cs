@@ -218,7 +218,8 @@ namespace FloorPlanGeneration.Generation
             {
                 double remaining = reverse ? cursor - minX : maxX - cursor;
                 double bayAreaHint = Math.Min(remaining, 8.0 + random.Range(-1.0, 1.0)) * depth;
-                string type = _mixPlanner.ChooseUnitType(bayAreaHint, currentCounts, _input.Source.GenerationSettings.WeightedVariation, random);
+                string type = _mixPlanner.ChooseUnitType(
+                    bayAreaHint, remaining * depth, currentCounts, _input.Source.GenerationSettings.WeightedVariation, random);
                 UnitTypeTarget target = _mixPlanner.FindTarget(type);
                 double desiredWidth = ((target.MinArea + target.MaxArea) * 0.5) / Math.Max(depth, 1.0);
                 desiredWidth = Clamp((desiredWidth * rhythm) + random.Range(-0.6, 0.6), MinUnitWidth(type), Math.Min(12.0, remaining));
@@ -277,7 +278,8 @@ namespace FloorPlanGeneration.Generation
             {
                 double remaining = reverse ? cursor - minY : maxY - cursor;
                 double bayAreaHint = Math.Min(remaining, 8.0 + random.Range(-1.0, 1.0)) * depth;
-                string type = _mixPlanner.ChooseUnitType(bayAreaHint, currentCounts, _input.Source.GenerationSettings.WeightedVariation, random);
+                string type = _mixPlanner.ChooseUnitType(
+                    bayAreaHint, remaining * depth, currentCounts, _input.Source.GenerationSettings.WeightedVariation, random);
                 UnitTypeTarget target = _mixPlanner.FindTarget(type);
                 double desiredHeight = ((target.MinArea + target.MaxArea) * 0.5) / Math.Max(depth, 1.0);
                 desiredHeight = Clamp((desiredHeight * rhythm) + random.Range(-0.6, 0.6), MinUnitWidth(type), Math.Min(12.0, remaining));
