@@ -7,6 +7,7 @@ using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 using FloorPlanGeneration;
 using FloorPlanGeneration.Schema;
+using FloorPlanGeneration.Web;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
@@ -113,6 +114,19 @@ app.MapGet("/api/manifest", () => Results.Json(new
             path = "/api/generate",
             body = "{ input, sampleName, seed, variants, validateOnly }",
             result = "Response summary plus full EngineOutput JSON."
+        },
+        new
+        {
+            method = "GET",
+            path = "/api/prompt/status",
+            result = "Whether a local AI CLI (claude/codex) is available for brief parsing."
+        },
+        new
+        {
+            method = "POST",
+            path = "/api/prompt/parse",
+            body = "{ brief }",
+            result = "Sanitized brief intent parsed by the local AI CLI, or an error reason."
         }
     },
     limits = new
@@ -175,6 +189,36 @@ app.MapGet("/api/schemas/{kind}", (string kind) =>
     }
 
     return Results.Content(json, "application/json");
+});
+
+BriefIntentService briefIntentService = new BriefIntentService();
+
+app.MapGet("/api/prompt/status", () => Results.Json(briefIntentService.Status()));
+
+app.MapPost("/api/prompt/parse", async (HttpRequest httpRequest) =>
+{
+    if (!IsJsonRequest(httpRequest))
+    {
+        return UnsupportedMediaTypeResult();
+    }
+
+    BriefParseRequest request;
+    try
+    {
+        request = await JsonSerializer.DeserializeAsync<BriefParseRequest>(httpRequest.Body, EngineJsonOptions());
+    }
+    catch (Exception ex) when (ex is ArgumentException || ex is JsonException || ex is IOException)
+    {
+        return InvalidRequestResult();
+    }
+
+    if (request == null || string.IsNullOrWhiteSpace(request.Brief))
+    {
+        return Results.BadRequest(new { error = "empty_brief", message = "Provide a non-empty brief string." });
+    }
+
+    BriefParseOutcome outcome = await briefIntentService.ParseAsync(request.Brief, httpRequest.HttpContext.RequestAborted);
+    return Results.Json(outcome);
 });
 
 app.MapPost("/api/generate", async (HttpRequest httpRequest) =>

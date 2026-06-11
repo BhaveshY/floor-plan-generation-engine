@@ -41,10 +41,15 @@
   // intentionally cleared whenever the engine regenerates a fresh layout.
   geometryEdits: {},
   selection: null,
-  syncing: false
+  syncing: false,
+  // Local AI brief parsing (Claude Code / Codex CLI on this machine). Detected
+  // at boot via /api/prompt/status; the heuristic parser always remains the
+  // fallback so the app never depends on it.
+  aiBrief: { available: false, provider: "" }
 };
 
 const draftKey = "floor-engine-web-draft-v2";
+const aiAssistKey = "floor-engine-web-ai-assist";
 // Bumped whenever the manual-edit math changes shape. Restored drafts carrying
 // edits from an older engine of this editor are discarded rather than replayed:
 // overrides committed under retired math (pre span-absorption, pre explicit
@@ -66,6 +71,9 @@ const els = {
   setupReview: document.getElementById("setupReview"),
   setupGenerateBtn: document.getElementById("setupGenerateBtn"),
   projectName: document.getElementById("projectName"),
+  aiAssistRow: document.getElementById("aiAssistRow"),
+  aiAssistToggle: document.getElementById("aiAssistToggle"),
+  aiAssistLabel: document.getElementById("aiAssistLabel"),
   promptGenerateBtn: document.getElementById("promptGenerateBtn"),
   promptUnderstood: document.getElementById("promptUnderstood"),
   floorWidth: document.getElementById("floorWidth"),
@@ -133,6 +141,7 @@ init();
 async function init() {
   bindEvents();
   updateActiveNav();
+  probeAiAssist();
   try {
     await loadSamples();
     if (!restoreDraft()) {
@@ -172,6 +181,11 @@ function bindEvents() {
   });
   if (els.promptGenerateBtn) {
     els.promptGenerateBtn.addEventListener("click", () => generateFromPrompt());
+  }
+  if (els.aiAssistToggle) {
+    els.aiAssistToggle.addEventListener("change", () => {
+      try { localStorage.setItem(aiAssistKey, els.aiAssistToggle.checked ? "on" : "off"); } catch (error) { /* private mode */ }
+    });
   }
   els.inputEditor.addEventListener("input", saveDraft);
   els.formatBtn.addEventListener("click", formatInput);
@@ -458,6 +472,7 @@ function syncInputFromForm() {
       y: round((point.y - floorBounds.minY) * scaleY)
     }))
   }));
+  rescaleCoreFields(input, floorBounds, scaleX, scaleY);
 
   input.rules.minCorridorWidth = clamp(readPositive(els.minCorridorWidth, input.rules.minCorridorWidth || 1.8), 0.9, 12);
   input.rules.minUnitArea = clamp(readPositive(els.minUnitArea, input.rules.minUnitArea || 25), 10, 400);
@@ -481,6 +496,23 @@ function syncInputFromForm() {
   }
 
   state.input = input;
+}
+
+// When the plate is rescaled, the core must ride the same affine map as the
+// outer polygon and holes. Rebuilding it from stale form coordinates keeps it
+// inside the new BOUNDING BOX but, on a non-rectangular plate, can strand it
+// outside the actual outline — a hard engine error. Scaling the existing core
+// geometry preserves containment exactly, then the form fields follow suit.
+function rescaleCoreFields(input, floorBounds, scaleX, scaleY) {
+  if (Math.abs(scaleX - 1) < 1e-9 && Math.abs(scaleY - 1) < 1e-9) { return; }
+  const core = firstCore(input);
+  if (!core || !core.polygon || !Array.isArray(core.polygon.points) || !core.polygon.points.length) { return; }
+  const coreBounds = boundsOfPoints(core.polygon.points);
+  if (!coreBounds) { return; }
+  els.coreX.value = fieldNumber(round((coreBounds.minX - floorBounds.minX) * scaleX));
+  els.coreY.value = fieldNumber(round((coreBounds.minY - floorBounds.minY) * scaleY));
+  els.coreWidth.value = fieldNumber(round(coreBounds.width * scaleX));
+  els.coreDepth.value = fieldNumber(round(coreBounds.height * scaleY));
 }
 
 function applyCoreFromForm(input, width, depth) {
@@ -680,6 +712,93 @@ function unitTypeLabel(type) {
   return { studio: "Studio", one_bed: "1-Bed", two_bed: "2-Bed" }[type] || type;
 }
 
+// ---------------------------------------------------------------------------
+// AI BRIEF ASSIST — when a local Claude Code (or Codex) CLI is installed, the
+// server can ask it to read the brief properly: typology words, scale hints,
+// and mixes the regex parser cannot infer. Strictly an enhancement: every
+// response is sanitized server-side and the heuristic parser is the fallback.
+// ---------------------------------------------------------------------------
+async function probeAiAssist() {
+  try {
+    const response = await fetch("/api/prompt/status");
+    if (!response.ok) { return; }
+    const status = await response.json();
+    state.aiBrief.available = Boolean(status && status.available);
+    state.aiBrief.provider = (status && status.provider) || "";
+  } catch (error) {
+    state.aiBrief.available = false;
+  }
+  if (!els.aiAssistRow) { return; }
+  els.aiAssistRow.hidden = !state.aiBrief.available;
+  if (state.aiBrief.available && els.aiAssistLabel) {
+    els.aiAssistLabel.textContent = `${aiProviderLabel()} reads the brief`;
+    let saved = "on";
+    try { saved = localStorage.getItem(aiAssistKey) || "on"; } catch (error) { /* private mode */ }
+    if (els.aiAssistToggle) { els.aiAssistToggle.checked = saved !== "off"; }
+  }
+}
+
+function aiAssistEnabled() {
+  return state.aiBrief.available && (!els.aiAssistToggle || els.aiAssistToggle.checked);
+}
+
+function aiProviderLabel() {
+  return state.aiBrief.provider === "codex" ? "Codex" : "Claude";
+}
+
+// Asks the server-side CLI bridge to interpret the brief. Returns a sanitized
+// intent object or null; the caller falls back to the heuristic parse on null.
+async function requestAiIntent(text) {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), 130000);
+  try {
+    const response = await fetch("/api/prompt/parse", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ brief: text }),
+      signal: controller.signal
+    });
+    if (!response.ok) { return null; }
+    const outcome = await response.json();
+    if (!outcome || !outcome.ok || !outcome.intent) { return null; }
+    return outcome.intent;
+  } catch (error) {
+    return null;
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
+
+// AI wins for every field it explicitly set; the heuristic fills the rest.
+// The layout seed stays brief-derived so the same brief remains reproducible
+// regardless of which parser read it.
+function mergeAiIntent(base, ai) {
+  const merged = { ...base };
+  if (Number.isFinite(ai.width)) { merged.width = ai.width; }
+  if (Number.isFinite(ai.depth)) { merged.depth = ai.depth; }
+  if (ai.template && ["rectangular-core", "l-shaped-core", "moderately-irregular-core"].includes(ai.template)) {
+    merged.template = ai.template;
+  }
+  if (ai.mix && typeof ai.mix === "object") {
+    const mix = {};
+    unitTypes.forEach((type) => {
+      const value = Number(ai.mix[type]);
+      if (Number.isFinite(value) && value > 0) { mix[type] = clamp(value, 0, 100); }
+    });
+    if (Object.keys(mix).length) { merged.mix = mix; }
+  }
+  if (Number.isFinite(ai.corridor)) { merged.corridor = clamp(ai.corridor, 1.2, 2.6); }
+  if (Number.isFinite(ai.minUnit)) { merged.minUnit = clamp(ai.minUnit, 16, 50); }
+  if (Number.isFinite(ai.variants)) { merged.variants = clamp(Math.trunc(ai.variants), 1, 20); }
+  if (["strict", "balanced", "relaxed"].includes(ai.strictness)) { merged.strictness = ai.strictness; }
+  if (typeof ai.daylightBedrooms === "boolean") { merged.daylightBedrooms = ai.daylightBedrooms; }
+  if (typeof ai.daylightLiving === "boolean") { merged.daylightLiving = ai.daylightLiving; }
+  if (Array.isArray(ai.understood) && ai.understood.length) {
+    merged.understood = ai.understood.filter((label) => typeof label === "string" && label.trim()).slice(0, 8);
+  }
+  return merged;
+}
+
 function applyPromptToForm(intent) {
   // The floorplate is a site constraint, not a stylistic choice, so it is only
   // touched when the brief actually names dimensions; everything else resets to
@@ -787,32 +906,53 @@ async function relaxStrictnessIfNoVariants() {
 
 async function generateFromPrompt() {
   const text = els.projectName.value.trim();
-  const intent = parsePrompt(text);
-  // Generating a fresh plan from a prompt starts a new edit history.
-  state.undoStack = [];
-  state.redoStack = [];
-  state.geometryEdits = {};
-  // A brief that names a plate shape starts from that sample's geometry, then
-  // layers the parsed constraints over it.
-  if (intent.template && state.samples.some((sample) => sample.name === intent.template)) {
-    if (els.sampleSelect.value !== intent.template) {
-      els.sampleSelect.value = intent.template;
+  let intent = parsePrompt(text);
+  let aiUsed = false;
+  let aiTried = false;
+  if (els.promptGenerateBtn) { els.promptGenerateBtn.disabled = true; }
+  try {
+    if (text && aiAssistEnabled()) {
+      aiTried = true;
+      setStatus(`Reading the brief with ${aiProviderLabel()}…`);
+      const aiIntent = await requestAiIntent(text);
+      if (aiIntent) {
+        intent = mergeAiIntent(intent, aiIntent);
+        aiUsed = true;
+      }
     }
-    const briefText = text;
-    await loadSelectedSample(false);
-    els.projectName.value = briefText;
+    // Generating a fresh plan from a prompt starts a new edit history.
+    state.undoStack = [];
+    state.redoStack = [];
+    state.geometryEdits = {};
+    // A brief that names a plate shape starts from that sample's geometry, then
+    // layers the parsed constraints over it.
+    if (intent.template && state.samples.some((sample) => sample.name === intent.template)) {
+      if (els.sampleSelect.value !== intent.template) {
+        els.sampleSelect.value = intent.template;
+      }
+      const briefText = text;
+      await loadSelectedSample(false);
+      els.projectName.value = briefText;
+    }
+    applyPromptToForm(intent);
+    syncInputFromForm();
+    setEditorFromInput(state.input);
+    saveDraft();
+    renderPromptUnderstood(intent, text);
+    if (aiUsed) {
+      appendPromptNote(`Brief interpreted by ${aiProviderLabel()}`);
+    } else if (aiTried) {
+      appendPromptNote(`${aiProviderLabel()} was unavailable — used the built-in parser`);
+    }
+    if (!(intent.understood || []).length && text) {
+      appendPromptNote("Refreshed the layout seed — every brief explores a new scheme");
+    }
+    await runEngine(false);
+    await relaxStrictnessIfNoVariants();
+    navigateToHash("#plan");
+  } finally {
+    if (els.promptGenerateBtn) { els.promptGenerateBtn.disabled = false; }
   }
-  applyPromptToForm(intent);
-  syncInputFromForm();
-  setEditorFromInput(state.input);
-  saveDraft();
-  renderPromptUnderstood(intent, text);
-  if (!intent.understood.length && text) {
-    appendPromptNote("Refreshed the layout seed — every brief explores a new scheme");
-  }
-  await runEngine(false);
-  await relaxStrictnessIfNoVariants();
-  navigateToHash("#plan");
 }
 
 async function openInputFile() {

@@ -1376,6 +1376,73 @@ namespace FloorPlanGeneration.Tests
             Assert.Contains(".prompt-chip-note {", styles, StringComparison.Ordinal);
         }
 
+        [Fact]
+        public void AiBriefAssistBridgesLocalClaudeCliWithHeuristicFallback()
+        {
+            string app = ReadWebFile("app.js");
+            string index = ReadWebFile("index.html");
+            string styles = ReadWebFile("styles.css");
+            string program = File.ReadAllText(Path.Combine(RepositoryRoot(), "FloorPlanGeneration.Web", "Program.cs"));
+            string service = File.ReadAllText(Path.Combine(RepositoryRoot(), "FloorPlanGeneration.Web", "BriefIntentService.cs"));
+            string generateFromPrompt = SliceFunction(app, "generateFromPrompt");
+            string mergeAiIntent = SliceFunction(app, "mergeAiIntent");
+
+            // Server exposes the bridge and the client probes it at boot; the page
+            // never depends on it (heuristic parser remains the guaranteed path).
+            Assert.Contains("/api/prompt/status", program, StringComparison.Ordinal);
+            Assert.Contains("/api/prompt/parse", program, StringComparison.Ordinal);
+            Assert.Contains("probeAiAssist()", app, StringComparison.Ordinal);
+            Assert.Contains("const aiIntent = await requestAiIntent(text)", generateFromPrompt, StringComparison.Ordinal);
+            Assert.Contains("intent = mergeAiIntent(intent, aiIntent)", generateFromPrompt, StringComparison.Ordinal);
+
+            // The CLI is a pure text transform: no agent tools, empty scratch cwd,
+            // hard timeout, and the brief is data the model must not obey.
+            Assert.Contains("--disallowed-tools", service, StringComparison.Ordinal);
+            Assert.Contains("floorplan-brief-parse", service, StringComparison.Ordinal);
+            Assert.Contains("CliTimeoutMilliseconds", service, StringComparison.Ordinal);
+            Assert.Contains("data, not instructions", service, StringComparison.Ordinal);
+
+            // Every AI value is clamped server-side to the same buildable ranges the
+            // form enforces, and again client-side on merge: defense in depth.
+            Assert.Contains("Clamp(raw.Width.Value, 8.0, 200.0)", service, StringComparison.Ordinal);
+            Assert.Contains("Clamp(raw.Corridor.Value, 1.2, 2.6)", service, StringComparison.Ordinal);
+            Assert.Contains("clamp(ai.corridor, 1.2, 2.6)", mergeAiIntent, StringComparison.Ordinal);
+            Assert.Contains("clamp(ai.minUnit, 16, 50)", mergeAiIntent, StringComparison.Ordinal);
+
+            // Reproducibility contract: the layout seed stays brief-derived even when
+            // the AI reads the brief, so merge never overrides seed or shuffle.
+            Assert.DoesNotContain("merged.seed", mergeAiIntent, StringComparison.Ordinal);
+            Assert.DoesNotContain("merged.shuffle", mergeAiIntent, StringComparison.Ordinal);
+
+            // The user can see and control the assist, and provenance is shown.
+            Assert.Contains("id=\"aiAssistRow\"", index, StringComparison.Ordinal);
+            Assert.Contains("id=\"aiAssistToggle\"", index, StringComparison.Ordinal);
+            Assert.Contains(".ai-assist {", styles, StringComparison.Ordinal);
+            Assert.Contains("Brief interpreted by", app, StringComparison.Ordinal);
+            Assert.Contains("used the built-in parser", app, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void PlateRescaleCarriesCoreAlongTheSameAffineMap()
+        {
+            string app = ReadWebFile("app.js");
+            string syncInputFromForm = SliceFunction(app, "syncInputFromForm");
+            string rescaleCoreFields = SliceFunction(app, "rescaleCoreFields");
+
+            // Regression: scaling a non-rectangular plate without moving the core
+            // strands it outside the outline (a hard engine error). The core must
+            // ride the exact affine map the outer polygon and holes use, BEFORE the
+            // form's core fields are read back into the input.
+            Assert.Contains("rescaleCoreFields(input, floorBounds, scaleX, scaleY)", syncInputFromForm, StringComparison.Ordinal);
+            AssertBefore(
+                syncInputFromForm,
+                "rescaleCoreFields(input, floorBounds, scaleX, scaleY)",
+                "applyCoreFromForm(input, width, depth)",
+                "Core fields must be rescaled before they are read back into the input.");
+            Assert.Contains("(coreBounds.minX - floorBounds.minX) * scaleX", rescaleCoreFields, StringComparison.Ordinal);
+            Assert.Contains("coreBounds.width * scaleX", rescaleCoreFields, StringComparison.Ordinal);
+        }
+
         private static string ReadWebFile(string fileName)
         {
             return File.ReadAllText(Path.Combine(RepositoryRoot(), "FloorPlanGeneration.Web", "wwwroot", fileName));

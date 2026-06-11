@@ -688,6 +688,26 @@ legend {
   justify-content: center;
 }
 
+.ai-assist {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--faint);
+  cursor: pointer;
+  user-select: none;
+}
+
+.ai-assist[hidden] {
+  display: none;
+}
+
+.ai-assist input {
+  margin: 0;
+  accent-color: var(--teal);
+}
+
 .prompt-understood {
   display: flex;
   flex-wrap: wrap;

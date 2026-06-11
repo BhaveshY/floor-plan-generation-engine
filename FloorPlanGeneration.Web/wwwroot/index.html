@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Floor Plan Generation Engine</title>
-  <link rel="stylesheet" href="styles.css?v=20260610-5">
+  <link rel="stylesheet" href="styles.css?v=20260611-1">
 </head>
 <body>
   <main class="app-shell">
@@ -56,6 +56,10 @@
                 placeholder="Generate a 2BHK apartment with daylight bedrooms and open living"></textarea>
             </label>
             <button id="promptGenerateBtn" class="primary prompt-generate" type="button">Generate from prompt</button>
+            <label id="aiAssistRow" class="ai-assist" hidden>
+              <input id="aiAssistToggle" type="checkbox" checked>
+              <span id="aiAssistLabel">Claude reads the brief</span>
+            </label>
             <div id="promptUnderstood" class="prompt-understood" aria-live="polite" hidden></div>
             <input id="variantInput" type="hidden">
             <input id="seedInput" type="hidden">
@@ -371,7 +375,7 @@
     </section>
   </main>
 
-  <script src="app.js?v=20260610-5"></script>
+  <script src="app.js?v=20260611-1"></script>
 </body>
 </html>
 
