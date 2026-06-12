@@ -2,6 +2,8 @@
 
 The core engine remains RhinoCommon-free and JSON-only. Rhino and Grasshopper integrations should live in adapter projects that translate Rhino geometry into `EngineInput`, call the engine or CLI, and bake selected `EngineOutput` variants back to Rhino layers.
 
+A working reference implementation ships in [`adapters/grasshopper/`](../adapters/grasshopper/README.md): a paste-in Python script component (Rhino 7 GHPython and Rhino 8 Python 3) that generates plans from a written brief via the local server, outputs rooms/units/walls/doors/corridors as Rhino geometry, and bakes to the contract layers with stable external ids.
+
 ## Contract Inputs
 
 Adapter components should emit JSON matching `schemas/floor-plan-engine-input.schema.json`.

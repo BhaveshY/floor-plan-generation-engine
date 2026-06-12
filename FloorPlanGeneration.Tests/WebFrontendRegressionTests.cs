@@ -1561,6 +1561,48 @@ namespace FloorPlanGeneration.Tests
         }
 
         [Fact]
+        public void GrasshopperAdapterShipsAndMirrorsTheStudioContracts()
+        {
+            string adapter = File.ReadAllText(Path.Combine(RepositoryRoot(), "adapters", "grasshopper", "fp_generate.py"));
+            string harness = File.ReadAllText(Path.Combine(RepositoryRoot(), "adapters", "grasshopper", "test_fp_generate.py"));
+            string guide = File.ReadAllText(Path.Combine(RepositoryRoot(), "adapters", "grasshopper", "README.md"));
+            string app = ReadWebFile("app.js");
+
+            // The paste-in component must keep working in Rhino 7 (IronPython 2.7)
+            // and Rhino 8 (Python 3): stdlib HTTP only, with the py2 fallback.
+            Assert.Contains("from urllib.request import Request, urlopen", adapter, StringComparison.Ordinal);
+            Assert.Contains("from urllib2 import Request, urlopen", adapter, StringComparison.Ordinal);
+            Assert.Contains("/api/generate", adapter, StringComparison.Ordinal);
+            Assert.Contains("/api/prompt/parse", adapter, StringComparison.Ordinal);
+            Assert.Contains("FP::Generated::Rooms", adapter, StringComparison.Ordinal);
+            Assert.Contains("SetUserString(\"externalId\"", adapter, StringComparison.Ordinal);
+
+            // The adapter mirrors the studio's dwelling presets and seed math so a
+            // brief reproduces the same layout in Grasshopper and in the browser.
+            // When the studio presets change, change the adapter in the same commit.
+            foreach (string preset in new[]
+            {
+                "{\"width\": 7.2, \"depth\": 5.6, \"type\": \"studio\"",
+                "{\"width\": 11.2, \"depth\": 8.4, \"type\": \"two_bed\"",
+                "{\"width\": 15.0, \"depth\": 10.5, \"type\": \"three_bed\""
+            })
+            {
+                Assert.Contains(preset, adapter, StringComparison.Ordinal);
+            }
+
+            Assert.Contains("0x811C9DC5", adapter, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("0x811c9dc5", app, StringComparison.OrdinalIgnoreCase);
+
+            // The pipeline stays verifiable without Rhino, and the guide documents
+            // the exact component wiring for both Rhino generations.
+            Assert.Contains("run_component", harness, StringComparison.Ordinal);
+            Assert.Contains("no corridors for a single dwelling", harness, StringComparison.Ordinal);
+            Assert.Contains("Rhino 7", guide, StringComparison.Ordinal);
+            Assert.Contains("Rhino 8", guide, StringComparison.Ordinal);
+            Assert.Contains("fp_generate.py", guide, StringComparison.Ordinal);
+        }
+
+        [Fact]
         public void PlateRescaleCarriesCoreAlongTheSameAffineMap()
         {
             string app = ReadWebFile("app.js");

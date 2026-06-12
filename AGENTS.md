@@ -16,6 +16,10 @@ or natural-language briefs, with a browser studio for editing and exporting them
 - `FloorPlanGeneration.Cli/` — headless JSON-in/JSON-out runner.
 - `FloorPlanGeneration.Tests/` — xUnit suite (engine + frontend contract tests).
 - `schemas/` — published input/output JSON Schemas. `samples/` — runnable inputs.
+- `adapters/grasshopper/` — paste-in Rhino/Grasshopper component (`fp_generate.py`)
+  that generates from briefs via the local server and bakes to contract layers;
+  `test_fp_generate.py` exercises its full pipeline without Rhino
+  (`python test_fp_generate.py` with the server running).
 
 ## Setup and run (one command, installs everything)
 
