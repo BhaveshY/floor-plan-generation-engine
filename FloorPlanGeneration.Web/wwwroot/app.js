@@ -2145,6 +2145,141 @@ function axonBox(proj, points, zBottom, zTop, tone, extend) {
   return { depth: ring.length ? depthSum / ring.length : 0, faces };
 }
 
+// Door and window openings to carve out of each wall volume, keyed by wall id.
+// Doors come straight from the model (hostWall); window spans reuse the exact
+// 2D glazing geometry and attach to the facade wall they sit on.
+const axonOpenings = {
+  doorHead: 2.08,
+  sillTop: 0.95,
+  glassTop: 2.25
+};
+
+function axonWallCuts(variant, floorBounds) {
+  const cuts = new Map();
+  const add = (wallId, cut) => {
+    if (!cuts.has(wallId)) {
+      cuts.set(wallId, []);
+    }
+    cuts.get(wallId).push(cut);
+  };
+
+  const wallGeometry = new Map();
+  (variant.walls || []).forEach((wall) => {
+    const line = wall && wall.centerline;
+    if (!line || !line.start || !line.end) {
+      return;
+    }
+    const sx = Number(line.start.x);
+    const sy = Number(line.start.y);
+    const ex = Number(line.end.x);
+    const ey = Number(line.end.y);
+    const horizontal = Math.abs(ex - sx) >= Math.abs(ey - sy);
+    wallGeometry.set(String(wall.id || ""), {
+      horizontal,
+      axisLo: horizontal ? Math.min(sx, ex) : Math.min(sy, ey),
+      axisHi: horizontal ? Math.max(sx, ex) : Math.max(sy, ey),
+      cross: horizontal ? (sy + ey) / 2 : (sx + ex) / 2
+    });
+  });
+
+  (variant.doorsOpenings || []).forEach((door) => {
+    const geometry = wallGeometry.get(String(door && door.hostWall || ""));
+    if (!geometry || !door.location) {
+      return;
+    }
+    const along = geometry.horizontal ? Number(door.location.x) : Number(door.location.y);
+    const half = Math.max(Number(door.width) || 0.9, 0.6) / 2;
+    add(String(door.hostWall), { lo: along - half, hi: along + half, kind: "door" });
+  });
+
+  (variant.rooms || []).forEach((room) => {
+    if (!room || !room.daylight) {
+      return;
+    }
+    const roomBounds = roomVisualBounds(room);
+    if (!roomBounds) {
+      return;
+    }
+    facadeSidesFor(roomBounds, floorBounds).forEach((side) => {
+      const span = windowSpanForSide(roomBounds, side);
+      if (!span) {
+        return;
+      }
+      wallGeometry.forEach((geometry, wallId) => {
+        if (geometry.horizontal !== span.horizontal || Math.abs(geometry.cross - span.edge) > 0.12) {
+          return;
+        }
+        const lo = Math.max(span.a, geometry.axisLo + 0.08);
+        const hi = Math.min(span.b, geometry.axisHi - 0.08);
+        if (hi - lo > 0.35) {
+          add(wallId, { lo, hi, kind: "window" });
+        }
+      });
+    });
+  });
+  return cuts;
+}
+
+// Emits the volume set for one wall: solid segments between openings, a
+// lintel bridging each door, and sill + glass + header stacks at windows.
+function axonWallVolumes(proj, wall, cuts, extend) {
+  const thickness = Math.max(Number(wall.thickness) || 0.1, 0.06);
+  const footprint = wallFootprint(wall, thickness);
+  if (!footprint) {
+    return [];
+  }
+  const partition = String(wall.layerType || "") === "room_partition";
+  const height = partition ? axonSettings.partitionHeight : axonSettings.wallHeight;
+  const tone = partition ? "axon-wall-partition" : "axon-wall";
+  if (!cuts || !cuts.length) {
+    return [axonBox(proj, footprint, 0, height, tone, extend)];
+  }
+
+  const frame = boundsOfPoints(footprint);
+  const horizontal = frame.width >= frame.height;
+  const axisLo = horizontal ? frame.minX : frame.minY;
+  const axisHi = horizontal ? frame.maxX : frame.maxY;
+  const crossLo = horizontal ? frame.minY : frame.minX;
+  const crossHi = horizontal ? frame.maxY : frame.maxX;
+  const segmentRect = (lo, hi) => (horizontal
+    ? [{ x: lo, y: crossLo }, { x: hi, y: crossLo }, { x: hi, y: crossHi }, { x: lo, y: crossHi }]
+    : [{ x: crossLo, y: lo }, { x: crossHi, y: lo }, { x: crossHi, y: hi }, { x: crossLo, y: hi }]);
+
+  // Doors win where openings collide; everything is clamped into the wall.
+  const doors = cuts.filter((c) => c.kind === "door");
+  const ordered = cuts
+    .map((cut) => ({ ...cut, lo: Math.max(cut.lo, axisLo + 0.02), hi: Math.min(cut.hi, axisHi - 0.02) }))
+    .filter((cut) => cut.hi - cut.lo > 0.2)
+    .filter((cut) => cut.kind === "door"
+      || !doors.some((door) => intervalOverlap(cut.lo, cut.hi, door.lo, door.hi) > 0.01))
+    .sort((a, b) => a.lo - b.lo);
+
+  const volumes = [];
+  let cursor = axisLo;
+  ordered.forEach((cut) => {
+    const lo = Math.max(cut.lo, cursor);
+    const hi = Math.max(cut.hi, lo);
+    if (lo - cursor > 0.04) {
+      volumes.push(axonBox(proj, segmentRect(cursor, lo), 0, height, tone, extend));
+    }
+    if (hi - lo > 0.04) {
+      const rect = segmentRect(lo, hi);
+      if (cut.kind === "door") {
+        volumes.push(axonBox(proj, rect, axonOpenings.doorHead, height, tone, extend));
+      } else {
+        volumes.push(axonBox(proj, rect, 0, axonOpenings.sillTop, tone, extend));
+        volumes.push(axonBox(proj, rect, axonOpenings.sillTop, axonOpenings.glassTop, "axon-glass", extend));
+        volumes.push(axonBox(proj, rect, axonOpenings.glassTop, height, tone, extend));
+      }
+    }
+    cursor = Math.max(cursor, hi);
+  });
+  if (axisHi - cursor > 0.04) {
+    volumes.push(axonBox(proj, segmentRect(cursor, axisHi), 0, height, tone, extend));
+  }
+  return volumes;
+}
+
 function renderAxonView(variant, input, bounds) {
   const proj = axonProjector(bounds);
   let minX = Infinity;
@@ -2180,16 +2315,11 @@ function renderAxonView(variant, input, bounds) {
     (variant.corridors || []).forEach((corridor) => {
       floors.push(axonFace(proj, corridor.polygon.points, 0.012, "axon-floor axon-floor-corridor", extend));
     });
+    // Walls carry their openings: door gaps bridged by lintels and facade
+    // windows glazed as sill + glass + header bands, carved per wall.
+    const cutsByWall = axonWallCuts(variant, bounds);
     (variant.walls || []).forEach((wall) => {
-      // Reuses the plan renderer's footprint: ends extend half a thickness so
-      // wall volumes close their corners instead of leaving notches.
-      const footprint = wallFootprint(wall, Math.max(Number(wall.thickness) || 0.1, 0.06));
-      if (!footprint) {
-        return;
-      }
-      const partition = String(wall.layerType || "") === "room_partition";
-      const height = partition ? axonSettings.partitionHeight : axonSettings.wallHeight;
-      boxes.push(axonBox(proj, footprint, 0, height, partition ? "axon-wall-partition" : "axon-wall", extend));
+      boxes.push(...axonWallVolumes(proj, wall, cutsByWall.get(String(wall.id || "")), extend));
     });
   }
 
@@ -2221,6 +2351,27 @@ function renderAxonView(variant, input, bounds) {
   slabAndBack.forEach((box) => box.faces.forEach(emit));
   floors.forEach(emit);
   boxes.filter((box) => box.depth !== Infinity).forEach((box) => box.faces.forEach(emit));
+
+  // Billboard room tags: small upright labels anchored on each floor, so the
+  // model stays readable without turning back to the 2D plan.
+  if (variant && state.labelsVisible) {
+    (variant.rooms || []).forEach((room) => {
+      const roomBounds = roomVisualBounds(room);
+      if (!roomBounds || Math.min(roomBounds.width, roomBounds.height) < 1.6) {
+        return;
+      }
+      const anchor = proj.point(roomBounds.minX + roomBounds.width / 2, roomBounds.minY + roomBounds.height / 2, 0.02);
+      const tag = svgEl("text", {
+        class: "axon-room-tag",
+        x: round(anchor.x),
+        y: round(-anchor.y),
+        "text-anchor": "middle",
+        "font-size": "0.42"
+      });
+      tag.textContent = compactRoomLabel(room);
+      els.planSvg.appendChild(tag);
+    });
+  }
 }
 
 function renderDimensionGuides(bounds, units = "m") {
@@ -2473,10 +2624,30 @@ function renderPlanGlyphLayer(group, variant, bounds) {
   if (state.editMode || state.viewMode === "circulation") {
     renderCorridorCenterlines(layer, variant);
   }
+  renderWetRoomFloors(layer, variant);
   renderRoomFixtures(layer, variant);
   if (layer.childElementCount > 0) {
     group.appendChild(layer);
   }
+}
+
+// Bathrooms and kitchens read as tiled floors — under the fixtures, so the
+// material hint never competes with the line work above it.
+function renderWetRoomFloors(layer, variant) {
+  (variant.rooms || []).forEach((room) => {
+    const type = String(room && (room.roomType || "")).toLowerCase();
+    if (!type.includes("bath") && !type.includes("kitchen") && !type.includes("wc")) {
+      return;
+    }
+    // roomVisualBounds applies any manual edits, so the tiling follows the
+    // room when a wall is dragged (rooms are rectangles by construction).
+    const roomBounds = roomVisualBounds(room);
+    if (roomBounds && roomBounds.width > 0.4 && roomBounds.height > 0.4) {
+      const tile = rectEl(roomBounds.minX, roomBounds.minY, roomBounds.width, roomBounds.height, "floor-tile");
+      tile.setAttribute("data-room-ref", String(room.id || ""));
+      layer.appendChild(tile);
+    }
+  });
 }
 
 // Windows are openings punched through the wall poché, so this layer MUST
@@ -2527,23 +2698,20 @@ function facadeSidesFor(roomBounds, floorBounds) {
   return sides.sort((a, b) => b[1] - a[1]).slice(0, 2).map((entry) => entry[0]);
 }
 
-// Draws a glazed window symbol (sill + glass pane + mullion + jambs) set into
-// the facade wall of a daylit room, the way a real plan shows openings.
-function appendWindowSymbol(layer, bounds, side) {
+// The glazed span a daylit room cuts into its facade: shared by the 2D window
+// symbol and the 3D axon glass band so both views open the same wall segment.
+function windowSpanForSide(bounds, side) {
   const horizontal = side === "top" || side === "bottom";
   const span = horizontal ? bounds.width : bounds.height;
   if (span < 0.85) {
-    return;
+    return null;
   }
-
   const inset = clamp(span * 0.16, 0.16, 0.6);
   const a = (horizontal ? bounds.minX : bounds.minY) + inset;
   const b = (horizontal ? bounds.maxX : bounds.maxY) - inset;
   if (b - a < 0.4) {
-    return;
+    return null;
   }
-
-  const t = 0.12;
   let edge;
   if (side === "top") {
     edge = bounds.maxY;
@@ -2554,6 +2722,21 @@ function appendWindowSymbol(layer, bounds, side) {
   } else {
     edge = bounds.maxX;
   }
+  return { horizontal, a, b, edge };
+}
+
+// Draws a glazed window symbol (sill + glass pane + mullion + jambs) set into
+// the facade wall of a daylit room, the way a real plan shows openings.
+function appendWindowSymbol(layer, bounds, side) {
+  const spanInfo = windowSpanForSide(bounds, side);
+  if (!spanInfo) {
+    return;
+  }
+  const horizontal = spanInfo.horizontal;
+  const a = spanInfo.a;
+  const b = spanInfo.b;
+  const edge = spanInfo.edge;
+  const t = 0.12;
 
   const lo = horizontal ? { x: a, y: edge } : { x: edge, y: a };
   const hi = horizontal ? { x: b, y: edge } : { x: edge, y: b };
@@ -3097,6 +3280,16 @@ function renderSvgDefs() {
   });
   arrow.appendChild(svgEl("path", { d: "M 0 1 L 8 5 L 0 9 z", class: "circ-arrow-head" }));
   defs.appendChild(arrow);
+  // Wet-room flooring: a quiet 45 cm tile grid in real metres, the material
+  // hint a drawn plan gives bathrooms and kitchens.
+  const tile = svgEl("pattern", {
+    id: "wetTile",
+    patternUnits: "userSpaceOnUse",
+    width: "0.45",
+    height: "0.45"
+  });
+  tile.appendChild(svgEl("path", { d: "M 0.45 0 L 0 0 L 0 0.45", class: "wet-tile-line" }));
+  defs.appendChild(tile);
   els.planSvg.appendChild(defs);
 }
 
@@ -8060,7 +8253,7 @@ function svgStyleElement() {
     .corridor-centerline{fill:none;stroke:${ink300};stroke-width:0.045;stroke-dasharray:0.42 0.28;stroke-linecap:round}
     .svg-label{fill:${ink900};paint-order:stroke;stroke:rgba(255,255,255,0.85);stroke-width:0.09;stroke-linejoin:round}
     .unit-label{fill:${ink300};stroke:rgba(255,255,255,0.6);stroke-width:0.06;font-weight:800}
-    .room-label{fill:${ink900};stroke:rgba(255,255,255,0.78);stroke-width:0.07;font-weight:650;letter-spacing:0.07em}
+    .room-label{fill:${ink900};stroke:rgba(255,255,255,0.92);stroke-width:0.1;font-weight:650;letter-spacing:0.07em}
     .room-label-meta{fill:${ink500};font-weight:560;letter-spacing:0.02em}
     .dimension-line,.dimension-tick{fill:none;stroke:${ink300};stroke-width:0.04}
     .dimension-tick{stroke:${ink500}}
@@ -8071,6 +8264,39 @@ function svgStyleElement() {
     .scale-bar-label{fill:#26313b;paint-order:stroke;stroke:rgba(248,250,251,0.92);stroke-width:0.14;stroke-linejoin:round;font-weight:800}
     .north-arrow-needle{fill:rgba(27,36,48,0.82);stroke:rgba(255,255,255,0.85);stroke-width:0.02}
     .north-arrow-label{fill:rgba(27,36,48,0.78);paint-order:stroke;stroke:rgba(244,247,248,0.9);stroke-width:0.12;stroke-linejoin:round;font-weight:850}
+    .wet-tile-line{fill:none;stroke:${ink150};stroke-width:0.014}
+    .floor-tile{fill:url(#wetTile);stroke:none}
+    .axon-shadow{fill:rgba(33,38,43,0.10);stroke:none}
+    .axon-top.axon-slab{fill:#eef0ee;stroke:${ink900};stroke-width:0.03}
+    .axon-side-x.axon-slab,.axon-side-y.axon-slab{fill:#d8dcda;stroke:${ink900};stroke-width:0.025}
+    .axon-top.axon-wall{fill:#fdfdfc;stroke:${ink900};stroke-width:0.022}
+    .axon-side-x.axon-wall{fill:#e7e9e7;stroke:${ink900};stroke-width:0.018}
+    .axon-side-y.axon-wall{fill:#d3d7d5;stroke:${ink900};stroke-width:0.018}
+    .axon-top.axon-wall-partition{fill:#fbfbfa;stroke:${ink900};stroke-width:0.016}
+    .axon-side-x.axon-wall-partition{fill:#ecedeb;stroke:${ink900};stroke-width:0.014}
+    .axon-side-y.axon-wall-partition{fill:#dde0de;stroke:${ink900};stroke-width:0.014}
+    .axon-top.axon-core{fill:#5d6a70;stroke:${ink900};stroke-width:0.03}
+    .axon-side-x.axon-core{fill:#4a565c;stroke:${ink900};stroke-width:0.025}
+    .axon-side-y.axon-core{fill:#3d484d;stroke:${ink900};stroke-width:0.025}
+    .axon-top.axon-glass{fill:#cfe2e0;stroke:${ink700};stroke-width:0.016}
+    .axon-side-x.axon-glass{fill:rgba(151,196,192,0.62);stroke:${ink700};stroke-width:0.014}
+    .axon-side-y.axon-glass{fill:rgba(122,172,168,0.62);stroke:${ink700};stroke-width:0.014}
+    .axon-floor{stroke:none;fill:#faf6ee}
+    .axon-floor.room-bedroom{fill:#f8f5ef}
+    .axon-floor.room-bathroom{fill:#eef3f4}
+    .axon-floor.room-kitchen{fill:#f3f1e9}
+    .axon-floor.room-living{fill:#faf6ee}
+    .axon-floor.room-balcony{fill:#f0f3ef}
+    .axon-floor.room-service{fill:#f1f0ec}
+    .axon-floor-corridor{fill:#e9eef0}
+    .axon-room-tag{fill:${ink500};font-weight:640;letter-spacing:0.1em;paint-order:stroke;stroke:rgba(255,255,255,0.85);stroke-width:0.08;stroke-linejoin:round}
+    .circ-spine{stroke:#007d78;stroke-width:0.16;stroke-dasharray:0.5 0.32;stroke-linecap:round;fill:none;opacity:0.9}
+    .circ-flow{stroke:#007d78;stroke-width:0.085;stroke-dasharray:0.3 0.22;stroke-linecap:round;stroke-linejoin:round;fill:none;opacity:0.95}
+    .circ-entry-flow{stroke-width:0.14;stroke-dasharray:none}
+    .circ-spine-arrow{stroke-dasharray:none;stroke-width:0.12}
+    .circ-arrow-head{fill:#007d78}
+    .circ-door-dot{fill:#fff;stroke:#007d78;stroke-width:0.06}
+    .circ-entry-dot{fill:#007d78;stroke:#fff;stroke-width:0.06}
   `;
   return style;
 }

@@ -1676,6 +1676,32 @@ namespace FloorPlanGeneration.Tests
             Assert.Contains("id: \"circ-arrow\"", app, StringComparison.Ordinal);
             Assert.Contains("[data-view-mode=\"circulation\"] .wall", styles, StringComparison.Ordinal);
             Assert.Contains(".circ-flow", styles, StringComparison.Ordinal);
+
+            // Walls carry their openings: door gaps bridged by lintels and facade
+            // windows glazed as sill + glass + header bands, sharing the exact 2D
+            // window-span geometry. Room tags keep the model readable, and floor
+            // tints carry explicit fills (an unmatched class renders BLACK floors).
+            Assert.Contains("function axonWallCuts", app, StringComparison.Ordinal);
+            Assert.Contains("function axonWallVolumes", app, StringComparison.Ordinal);
+            Assert.Contains("windowSpanForSide(roomBounds, side)", SliceFunction(app, "axonWallCuts"), StringComparison.Ordinal);
+            Assert.Contains("axonOpenings.doorHead", app, StringComparison.Ordinal);
+            Assert.Contains("\"axon-glass\"", app, StringComparison.Ordinal);
+            Assert.Contains(".axon-side-y.axon-glass", styles, StringComparison.Ordinal);
+            Assert.Contains(".axon-room-tag", styles, StringComparison.Ordinal);
+            Assert.Contains(".axon-floor { stroke: none; fill:", styles, StringComparison.Ordinal);
+            Assert.Contains(".axon-floor.room-bathroom", styles, StringComparison.Ordinal);
+
+            // Wet rooms read as tiled floors in the 2D plan, under the fixtures.
+            Assert.Contains("function renderWetRoomFloors", app, StringComparison.Ordinal);
+            Assert.Contains("id: \"wetTile\"", app, StringComparison.Ordinal);
+            Assert.Contains(".floor-tile", styles, StringComparison.Ordinal);
+
+            // Save SVG must carry every view's classes as literals.
+            string exportStyles = SliceFunction(app, "svgStyleElement");
+            Assert.Contains(".axon-top.axon-glass", exportStyles, StringComparison.Ordinal);
+            Assert.Contains(".axon-floor.room-bathroom", exportStyles, StringComparison.Ordinal);
+            Assert.Contains(".circ-flow", exportStyles, StringComparison.Ordinal);
+            Assert.Contains(".floor-tile", exportStyles, StringComparison.Ordinal);
         }
 
         [Fact]
