@@ -839,18 +839,20 @@ namespace FloorPlanGeneration.Tests
             // What a non-technical user needs stays visible and wired: the brief
             // prompt, templates, the review card, and one primary generate action.
             Assert.Contains("id=\"setupReview\"", index, StringComparison.Ordinal);
-            Assert.Contains("id=\"setupGenerateBtn\"", index, StringComparison.Ordinal);
             Assert.Contains("Design Brief", index, StringComparison.Ordinal);
             Assert.Contains("class=\"brief-prompt\"", index, StringComparison.Ordinal);
             Assert.Contains("class=\"template-strip\"", index, StringComparison.Ordinal);
             Assert.Contains("await runEngine(false)", bindEvents, StringComparison.Ordinal);
             Assert.Contains("renderSetupGuide(output)", renderAll, StringComparison.Ordinal);
-            Assert.Contains("els.setupGenerateBtn.disabled = state.busy", renderSetupGuide, StringComparison.Ordinal);
+            // The sticky duplicate generate button was retired (the header
+            // Generate and the prompt button are the two honest actions); the
+            // render path must tolerate its absence — an unguarded reference
+            // here once killed renderAll and aborted boot.
+            Assert.Contains("if (els.setupGenerateBtn)", renderSetupGuide, StringComparison.Ordinal);
             Assert.Contains("buildSetupReview(output)", renderSetupGuide, StringComparison.Ordinal);
             Assert.Contains("Readiness", buildSetupReview, StringComparison.Ordinal);
             Assert.Contains(".brief-prompt", styles, StringComparison.Ordinal);
             Assert.Contains(".template-strip", styles, StringComparison.Ordinal);
-            Assert.Contains(".setup-guide-actions", styles, StringComparison.Ordinal);
             Assert.Contains(".setup-review-card", styles, StringComparison.Ordinal);
         }
 
@@ -1503,6 +1505,49 @@ namespace FloorPlanGeneration.Tests
 
             // The published input schema documents the new mode.
             Assert.Contains("single_dwelling", inputSchema, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void BoundaryPlaneAbsorptionCatchesSliverOverlapsAndUiStaysModeAware()
+        {
+            string app = ReadWebFile("app.js");
+            string index = ReadWebFile("index.html");
+            string absorb = SliceFunction(app, "absorbSpanOnLine");
+            string boundaryEdges = SliceFunction(app, "collectBoundaryEdges");
+            string beginWallDrag = SliceFunction(app, "beginWallDrag");
+            string renderLegend = SliceFunction(app, "renderLegend");
+            string syncFormFromInput = SliceFunction(app, "syncFormFromInput");
+            string inlineSummary = SliceFunction(app, "selectionInlineSummary");
+            string setupGuide = SliceFunction(app, "renderSetupGuide");
+
+            // Regression: span absorption used the coarse follower threshold
+            // (0.15 m), so an 8 cm sliver of shared wall neither joined the plane
+            // nor grew the span — half the wall moved, half stayed, leaving
+            // overlapping rooms and detached doors. Growth now scans EVERY polygon
+            // with a tiny positive threshold; both drag paths share the helper.
+            Assert.Contains("> 1e-4", absorb, StringComparison.Ordinal);
+            Assert.Contains("absorbSpanOnLine(variant, excludeIds", boundaryEdges, StringComparison.Ordinal);
+            Assert.Contains("absorbSpanOnLine(", beginWallDrag, StringComparison.Ordinal);
+            Assert.DoesNotContain("boundaryMinOverlap", boundaryEdges, StringComparison.Ordinal);
+            Assert.DoesNotContain("boundaryMinOverlap", beginWallDrag, StringComparison.Ordinal);
+
+            // Regression: removing the sticky generate button without guarding its
+            // render reference killed renderAll and aborted boot entirely.
+            Assert.Contains("if (els.setupGenerateBtn)", setupGuide, StringComparison.Ordinal);
+            Assert.DoesNotContain("id=\"setupGenerateBtn\"", index, StringComparison.Ordinal);
+            Assert.DoesNotContain("data-nav=\"rhino\"", index, StringComparison.Ordinal);
+
+            // Mode-aware chrome: dwellings hide core/mix sections and the legend
+            // only lists what the plan actually contains.
+            Assert.Contains("id=\"coreFieldset\"", index, StringComparison.Ordinal);
+            Assert.Contains("id=\"unitMixFieldset\"", index, StringComparison.Ordinal);
+            Assert.Contains("coreFieldset.hidden = dwellingDocument", syncFormFromInput, StringComparison.Ordinal);
+            Assert.Contains("unitMixFieldset.hidden = dwellingDocument", syncFormFromInput, StringComparison.Ordinal);
+            Assert.Contains("hasCorridor", renderLegend, StringComparison.Ordinal);
+
+            // Humans read "Bathroom · 8.7 m²", not engine ids.
+            Assert.Contains("displayRoomType(detail.item)", inlineSummary, StringComparison.Ordinal);
+            Assert.DoesNotContain("${selectionKindLabel(detail.kind)} ${detail.id} ·", inlineSummary, StringComparison.Ordinal);
         }
 
         [Fact]

@@ -175,10 +175,12 @@ function bindEvents() {
   els.setupForm.addEventListener("input", handleSetupInput);
   els.setupForm.addEventListener("change", handleSetupInput);
   els.setupForm.addEventListener("click", handleStepperClick);
-  els.setupGenerateBtn.addEventListener("click", async () => {
-    await runEngine(false);
-    navigateToHash("#plan");
-  });
+  if (els.setupGenerateBtn) {
+    els.setupGenerateBtn.addEventListener("click", async () => {
+      await runEngine(false);
+      navigateToHash("#plan");
+    });
+  }
   if (els.promptGenerateBtn) {
     els.promptGenerateBtn.addEventListener("click", () => generateFromPrompt());
   }
@@ -428,6 +430,13 @@ function syncFormFromInput(input) {
     els.projectName.value = (typeof state.brief === "string" && state.brief.length) ? state.brief : (project.name || "");
     els.floorWidth.value = fieldNumber(floorBounds ? floorBounds.width : 42);
     els.floorDepth.value = fieldNumber(floorBounds ? floorBounds.height : 22);
+    // A dwelling has no building core and no unit mix: hiding those sections
+    // keeps the panel honest instead of showing stale, ignored values.
+    const dwellingDocument = isDwellingInput(input);
+    const coreFieldset = document.getElementById("coreFieldset");
+    if (coreFieldset) { coreFieldset.hidden = dwellingDocument; }
+    const unitMixFieldset = document.getElementById("unitMixFieldset");
+    if (unitMixFieldset) { unitMixFieldset.hidden = dwellingDocument; }
     els.coreX.value = fieldNumber(coreBounds ? coreBounds.minX : 18);
     els.coreY.value = fieldNumber(coreBounds ? coreBounds.minY : 8);
     els.coreWidth.value = fieldNumber(coreBounds ? coreBounds.width : 6);
@@ -449,7 +458,7 @@ function syncFormFromInput(input) {
       row.querySelector('[data-field="maxArea"]').value = fieldNumber(target.maxArea || defaultUnitTarget(type).maxArea);
     });
 
-    els.setupSubtitle.textContent = project.id || "project";
+    els.setupSubtitle.textContent = project.name || titleCase(project.id || "project");
   } finally {
     state.syncing = false;
   }
@@ -667,8 +676,10 @@ function parsePrompt(text) {
     note(bedrooms === 0 ? "single dwelling · 1 room + kitchen" : `single dwelling · ${bedrooms} bedroom${bedrooms > 1 ? "s" : ""}`);
   }
 
-  const wh = t.match(/(\d{2,3}(?:\.\d+)?)\s*(?:m|metres?|meters?)?\s*(?:x|by|×)\s*(\d{2,3}(?:\.\d+)?)/);
-  if (wh) {
+  // Single-digit dimensions are real for dwellings ("a studio 7 x 5"); values
+  // below 3 m are counts, not meters ("2 x 1 bed"), and are ignored.
+  const wh = t.match(/(\d{1,3}(?:\.\d+)?)\s*(?:m|metres?|meters?)?\s*(?:x|by|×)\s*(\d{1,3}(?:\.\d+)?)/);
+  if (wh && Number(wh[1]) >= 3 && Number(wh[2]) >= 3) {
     intent.width = Number(wh[1]);
     intent.depth = Number(wh[2]);
     note(`${round(intent.width)}×${round(intent.depth)} m plate`);
@@ -1412,7 +1423,9 @@ function updateExportActions(output) {
 // retired — it only re-highlighted buttons without changing the panel). This
 // keeps the primary action state and the Run Review card current.
 function renderSetupGuide(output) {
-  els.setupGenerateBtn.disabled = state.busy;
+  if (els.setupGenerateBtn) {
+    els.setupGenerateBtn.disabled = state.busy;
+  }
   els.setupReview.innerHTML = buildSetupReview(output);
 }
 
@@ -1440,7 +1453,7 @@ function buildSetupReview(output) {
   const readiness = state.inputDirty
     ? "Edits pending"
     : output && variant
-      ? `${friendlyStatus(output.status)} · ${variant.units.length} units`
+      ? `${friendlyStatus(output.status)} · ${variant.units.length} ${variant.units.length === 1 ? "unit" : "units"}`
       : "Ready to generate";
 
   const rows = [
@@ -1513,7 +1526,9 @@ function renderSubtitles(output, visualOutput = output) {
     .filter((target) => Number(target.targetRatio) > 0)
     .map((target) => `${shortUnitType(target.type)} ${Math.round(Number(target.targetRatio) * 100)}%`)
     .join(", ");
-  els.setupSubtitle.textContent = state.input && state.input.project ? state.input.project.id : "project";
+  els.setupSubtitle.textContent = state.input && state.input.project
+    ? (state.input.project.name || titleCase(state.input.project.id || "project"))
+    : "Project";
 
   if (!output) {
     els.resultSubtitle.textContent = `${projectName} ready for generation`;
@@ -3746,7 +3761,7 @@ function selectedElementDetails(output) {
       return {
         kind: "unit",
         id: unit.id,
-        title: `${displayUnitType(unit.type)} ${unit.id}`,
+        title: `${displayUnitType(unit.type)} unit`,
         item: unit,
         points,
         bounds: boundsOfPoints(points),
@@ -3766,7 +3781,7 @@ function selectedElementDetails(output) {
       return {
         kind: "room",
         id: room.id,
-        title: `${displayRoomType(room)} ${room.id}`,
+        title: displayRoomType(room),
         item: room,
         unit: parentUnit,
         points,
@@ -3787,7 +3802,7 @@ function selectedElementDetails(output) {
       return {
         kind: "corridor",
         id: corridor.id,
-        title: `Corridor ${corridor.id}`,
+        title: "Corridor",
         item: corridor,
         points,
         bounds,
@@ -4045,7 +4060,13 @@ function selectionInlineSummary(detail) {
   }
 
   if (detail.kind === "unit" || detail.kind === "room" || detail.kind === "corridor") {
-    return `${selectionKindLabel(detail.kind)} ${detail.id} · ${formatNumber(detail.area, 1)} m²`;
+    // Humans read "Bathroom · 8.7 m²", not engine ids — those stay in exports.
+    const name = detail.kind === "room"
+      ? displayRoomType(detail.item)
+      : detail.kind === "unit"
+        ? `${displayUnitType(detail.item && detail.item.type)} unit`
+        : "Corridor";
+    return `${name} · ${formatNumber(detail.area, 1)} m²`;
   }
 
   if (detail.bounds) {
@@ -5253,6 +5274,50 @@ function intervalOverlap(aLo, aHi, bLo, bHi) {
   return Math.min(aHi, bHi) - Math.max(aLo, bLo);
 }
 
+// Widens [lo, hi] to the transitive closure of every polygon edge interval on
+// the plane that genuinely shares wall with the span. The follower threshold
+// (boundaryMinOverlap, 0.15 m) is deliberately coarse so corner-touching
+// neighbours stay out — but it is far too coarse for SPAN GROWTH: an 8 cm
+// sliver of shared wall still ties its room to the plane, and skipping it
+// tears the plane into a partial move (half the wall travels, half stays —
+// overlapping rooms and detached doors). Growth therefore uses a tiny
+// positive threshold and scans EVERY polygon, not just current followers.
+function absorbSpanOnLine(variant, excludeIds, axis, line, spanLo, spanHi) {
+  let lo = spanLo;
+  let hi = spanHi;
+  const polygons = [];
+  const visit = (items, kind) => {
+    (items || []).forEach((item) => {
+      const id = String(item && item.id || "");
+      if (!item || !item.polygon || excludeIds.has(`${kind}:${id}`)) {
+        return;
+      }
+      const points = (item.polygon.points || []).map((p) => ({ x: Number(p.x), y: Number(p.y) }));
+      if (points.length >= 3) {
+        polygons.push(points);
+      }
+    });
+  };
+  visit(variant.units, "unit");
+  visit(variant.rooms, "room");
+  visit(variant.corridors, "corridor");
+  for (let pass = 0; pass < 12; pass += 1) {
+    let grew = false;
+    polygons.forEach((points) => {
+      polygonEdgeIntervalsOnLine(points, axis, line).forEach(([a, b]) => {
+        if (intervalOverlap(a, b, lo, hi) > 1e-4) {
+          if (a < lo - 1e-6) { lo = a; grew = true; }
+          if (b > hi + 1e-6) { hi = b; grew = true; }
+        }
+      });
+    });
+    if (!grew) {
+      break;
+    }
+  }
+  return [lo, hi];
+}
+
 // Every room/unit/corridor (except the dragged element and, for unit drags,
 // its own rooms, which scale with the unit instead) that shares the boundary
 // line. side = +1 when the polygon's body lies on the positive-axis side.
@@ -5398,24 +5463,8 @@ function collectBoundaryEdges(variant, kind, id, startBounds, childRooms, floorB
     // straight wall plane moves as one — so the span grows to swallow every
     // overlapping edge (and any edges THOSE newly expose) before followers
     // are final.
-    let lo = spanLo;
-    let hi = spanHi;
-    let followers = [];
-    for (let pass = 0; pass < 4; pass += 1) {
-      followers = collectEdgeFollowers(variant, excludeIds, axis, line, lo, hi);
-      let grew = false;
-      followers.forEach((follower) => {
-        polygonEdgeIntervalsOnLine(follower.points, axis, line).forEach(([a, b]) => {
-          if (intervalOverlap(a, b, lo, hi) > boundaryMinOverlap) {
-            if (a < lo - 1e-6) { lo = a; grew = true; }
-            if (b > hi + 1e-6) { hi = b; grew = true; }
-          }
-        });
-      });
-      if (!grew) {
-        break;
-      }
-    }
+    const [lo, hi] = absorbSpanOnLine(variant, excludeIds, axis, line, spanLo, spanHi);
+    const followers = collectEdgeFollowers(variant, excludeIds, axis, line, lo, hi);
     const range = boundaryLineRange(followers, axis, floorBounds, line, lo, hi);
     // The plane's current position is always legal, even when the engine
     // produced a neighbour thinner than the minimum — never force a jump.
@@ -5559,26 +5608,15 @@ function beginWallDrag(event, point, wallId) {
       return false;
     }
   }
-  // Span absorption (see collectBoundaryEdges): the plane a wall lives on
-  // moves as one, so the grabbed segment's span grows to cover every
-  // overlapping room/unit edge before followers are final.
-  let followers = [];
-  for (let pass = 0; pass < 4; pass += 1) {
-    followers = collectEdgeFollowers(
-      variant, new Set(), candidate.axis, candidate.line, candidate.spanLo, candidate.spanHi);
-    let grew = false;
-    followers.forEach((follower) => {
-      polygonEdgeIntervalsOnLine(follower.points, candidate.axis, candidate.line).forEach(([a, b]) => {
-        if (intervalOverlap(a, b, candidate.spanLo, candidate.spanHi) > boundaryMinOverlap) {
-          if (a < candidate.spanLo - 1e-6) { candidate.spanLo = a; grew = true; }
-          if (b > candidate.spanHi + 1e-6) { candidate.spanHi = b; grew = true; }
-        }
-      });
-    });
-    if (!grew) {
-      break;
-    }
-  }
+  // Span absorption (see absorbSpanOnLine): the plane a wall lives on moves
+  // as one, so the grabbed segment's span grows to cover every overlapping
+  // room/unit edge — sliver overlaps included — before followers are final.
+  const [absorbedLo, absorbedHi] = absorbSpanOnLine(
+    variant, new Set(), candidate.axis, candidate.line, candidate.spanLo, candidate.spanHi);
+  candidate.spanLo = absorbedLo;
+  candidate.spanHi = absorbedHi;
+  const followers = collectEdgeFollowers(
+    variant, new Set(), candidate.axis, candidate.line, candidate.spanLo, candidate.spanHi);
   if (!followers.length) {
     return false;
   }
@@ -6130,12 +6168,21 @@ function editHandle(action, x, y, radius, label, cursor = "") {
 // Selection inspector, and the drawing itself is now the manipulation surface.
 
 function renderLegend(hasVariant) {
-  const items = [
-    ["Boundary", "boundary-swatch"],
-    ["Core", "core-swatch"]
-  ];
+  // The legend only lists what this plan actually contains: a single dwelling
+  // has no core and no corridor, so those chips would just be noise.
+  const variant = hasVariant ? selectedVariant(currentVisualOutput()) : null;
+  const hasCore = (((state.input || {}).fixedElements) || []).length > 0;
+  const hasCorridor = Boolean(variant && (variant.corridors || []).length);
+  const items = [["Boundary", "boundary-swatch"]];
+  if (hasCore) {
+    items.push(["Core", "core-swatch"]);
+  }
   if (hasVariant) {
-    items.push(["Units", "unit-swatch"], ["Rooms", "room-swatch"], ["Corridor", "corridor-swatch"], ["Doors", "door-swatch"]);
+    items.push(["Units", "unit-swatch"], ["Rooms", "room-swatch"]);
+    if (hasCorridor) {
+      items.push(["Corridor", "corridor-swatch"]);
+    }
+    items.push(["Doors", "door-swatch"]);
   }
 
   els.legendRow.innerHTML = items

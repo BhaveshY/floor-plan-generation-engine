@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Floor Plan Generation Engine</title>
-  <link rel="stylesheet" href="styles.css?v=20260612-1">
+  <link rel="stylesheet" href="styles.css?v=20260612-3">
 </head>
 <body>
   <main class="app-shell">
@@ -21,7 +21,6 @@
         <span class="top-nav-action" data-nav="edit" role="link" tabindex="0">Edit</span>
         <span class="top-nav-action" data-nav="variants" role="link" tabindex="0">Variants</span>
         <span class="top-nav-action" data-nav="export" role="link" tabindex="0">Export</span>
-        <span class="top-nav-action" data-nav="rhino" role="link" tabindex="0">Rhino</span>
       </nav>
       <div class="top-actions">
         <button id="validateBtn" type="button">Check</button>
@@ -36,13 +35,6 @@
             <h2>Design Brief</h2>
             <p id="setupSubtitle">Residential floorplate</p>
           </div>
-        </div>
-        <div class="template-strip">
-          <label class="field">
-            <span>Template</span>
-            <select id="sampleSelect"></select>
-          </label>
-          <button id="loadSampleBtn" type="button">Load</button>
         </div>
         <form id="setupForm" class="setup-form">
           <fieldset data-setup-step="floorplate">
@@ -87,7 +79,7 @@
             </div>
           </fieldset>
 
-          <fieldset data-setup-step="core">
+          <fieldset id="coreFieldset" data-setup-step="core">
             <legend>Core Position</legend>
             <div class="field-grid">
               <label class="field">
@@ -145,7 +137,7 @@
             </div>
           </fieldset>
 
-          <fieldset data-setup-step="mix">
+          <fieldset id="unitMixFieldset" data-setup-step="mix">
             <legend>Unit Mix</legend>
             <div class="mix-table" id="unitMixRows">
               <div class="mix-head">
@@ -181,8 +173,12 @@
           </fieldset>
         </form>
 
-        <div class="setup-guide-actions" aria-label="Setup actions">
-          <button id="setupGenerateBtn" class="primary" type="button">Generate Variants</button>
+        <div class="template-strip">
+          <label class="field">
+            <span>Start from a template</span>
+            <select id="sampleSelect"></select>
+          </label>
+          <button id="loadSampleBtn" type="button">Load</button>
         </div>
 
         <details class="advanced-details input-details">
@@ -375,7 +371,7 @@
     </section>
   </main>
 
-  <script src="app.js?v=20260612-1"></script>
+  <script src="app.js?v=20260612-3"></script>
 </body>
 </html>
 
