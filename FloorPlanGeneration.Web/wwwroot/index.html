@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>EBA Floor Plan Generator</title>
-  <link rel="stylesheet" href="styles.css?v=20260612-8">
+  <link rel="stylesheet" href="styles.css?v=20260612-9">
 </head>
 <body>
   <main class="app-shell">
@@ -207,6 +207,7 @@
             <div class="mode-tabs" role="toolbar" aria-label="Preview mode">
               <button class="active" type="button" data-view-mode="plan" aria-pressed="true">2D Plan</button>
               <button type="button" data-view-mode="axon" aria-pressed="false">3D Axon</button>
+              <button type="button" data-view-mode="model3d" aria-pressed="false">3D Model</button>
               <button type="button" data-view-mode="circulation" aria-pressed="false">Circulation</button>
             </div>
             <select id="variantSelect"></select>
@@ -258,6 +259,15 @@
           <div id="editReadout" class="edit-readout" aria-live="polite"></div>
           <div id="planTitleBlock" class="title-block" hidden aria-hidden="true"></div>
           <svg id="planSvg" role="img" aria-label="Generated floor plan preview"></svg>
+          <div id="modelViewport" hidden>
+            <div class="viewer-toolbar" role="toolbar" aria-label="3D model tools">
+              <button id="viewerOrbitBtn" class="active" type="button" aria-pressed="true">Orbit</button>
+              <button id="viewerWalkBtn" type="button" aria-pressed="false">Walk</button>
+              <span id="viewerHint" class="viewer-hint" aria-live="polite">Drag to orbit · scroll to zoom · click a room to select it</span>
+              <button id="viewerGlbBtn" type="button">Download .glb</button>
+            </div>
+            <div id="viewerCanvasHost" class="viewer-canvas-host" aria-label="Interactive 3D model of the floor plan"></div>
+          </div>
           <div id="emptyPreview" class="empty-preview">No plan available</div>
         </div>
         <div id="legendRow" class="legend-row"></div>
@@ -374,7 +384,7 @@
     </section>
   </main>
 
-  <script src="app.js?v=20260612-9"></script>
+  <script src="app.js?v=20260612-10"></script>
 </body>
 </html>
 

@@ -1714,6 +1714,57 @@ namespace FloorPlanGeneration.Tests
         }
 
         [Fact]
+        public void ThreeDModelViewerIsALazyLocalWebGlScene()
+        {
+            string app = ReadWebFile("app.js");
+            string index = ReadWebFile("index.html");
+            string styles = ReadWebFile("styles.css");
+            string viewer = File.ReadAllText(Path.Combine(RepositoryRoot(), "FloorPlanGeneration.Web", "wwwroot", "viewer3d.js"));
+
+            // The page CSP is script-src 'self': three.js ships as vendored local
+            // modules with their bare 'three' specifiers rewritten to relative paths.
+            string vendorRoot = Path.Combine(RepositoryRoot(), "FloorPlanGeneration.Web", "wwwroot", "vendor");
+            Assert.True(File.Exists(Path.Combine(vendorRoot, "three.module.js")), "vendor/three.module.js must ship with the app.");
+            foreach (string module in new[] { "OrbitControls.js", "GLTFExporter.js", "TextureUtils.js" })
+            {
+                string source = File.ReadAllText(Path.Combine(vendorRoot, module));
+                Assert.Contains("from './three.module.js'", source, StringComparison.Ordinal);
+                Assert.DoesNotContain("from 'three'", source, StringComparison.Ordinal);
+            }
+            Assert.DoesNotContain("https://", viewer, StringComparison.Ordinal);
+
+            // Fourth preview tab swaps the SVG sheet for a WebGL viewport that
+            // brings its own toolbar (camera modes + glb export).
+            Assert.Contains("data-view-mode=\"model3d\"", index, StringComparison.Ordinal);
+            Assert.Contains("id=\"modelViewport\"", index, StringComparison.Ordinal);
+            Assert.Contains("id=\"viewerWalkBtn\"", index, StringComparison.Ordinal);
+            Assert.Contains("id=\"viewerGlbBtn\"", index, StringComparison.Ordinal);
+            Assert.Contains(".preview-frame[data-view-mode=\"model3d\"] .canvas-tools", styles, StringComparison.Ordinal);
+            Assert.Contains(".viewer-toolbar", styles, StringComparison.Ordinal);
+
+            // The viewer module loads lazily (the 2D studio never pays for it) and
+            // the scene is computed in app.js as data, reusing the axon's opening
+            // intervals so the SVG and WebGL views can never disagree on a window.
+            Assert.Contains("import(viewer3dModuleUrl)", SliceFunction(app, "ensureViewer3d"), StringComparison.Ordinal);
+            Assert.Contains("\"plan\", \"axon\", \"circulation\", \"model3d\"", SliceFunction(app, "setViewMode"), StringComparison.Ordinal);
+            string buildModelScene = SliceFunction(app, "buildModelScene");
+            Assert.Contains("axonWallCuts(variant, bounds)", buildModelScene, StringComparison.Ordinal);
+            Assert.Contains("wallVolumeParts(wall", buildModelScene, StringComparison.Ordinal);
+            Assert.Contains("wallCutIntervals(cuts, axisLo, axisHi)", SliceFunction(app, "axonWallVolumes"), StringComparison.Ordinal);
+            Assert.Contains("wallCutIntervals(cuts, axisLo, axisHi)", SliceFunction(app, "wallVolumeParts"), StringComparison.Ordinal);
+
+            // Orbit + first-person walk cameras, room picking synced back into the
+            // 2D selection, and binary glTF export from the same scene graph.
+            Assert.Contains("from \"./vendor/three.module.js\"", viewer, StringComparison.Ordinal);
+            Assert.Contains("OrbitControls", viewer, StringComparison.Ordinal);
+            Assert.Contains("GLTFExporter", viewer, StringComparison.Ordinal);
+            Assert.Contains("requestPointerLock", viewer, StringComparison.Ordinal);
+            Assert.Contains("EYE_HEIGHT", viewer, StringComparison.Ordinal);
+            Assert.Contains("onPickRoom", viewer, StringComparison.Ordinal);
+            Assert.Contains("binary: true", viewer, StringComparison.Ordinal);
+        }
+
+        [Fact]
         public void PlateRescaleCarriesCoreAlongTheSameAffineMap()
         {
             string app = ReadWebFile("app.js");
@@ -1752,8 +1803,12 @@ namespace FloorPlanGeneration.Tests
             {
                 foreach (string path in Directory.EnumerateFiles(Path.Combine(root, directory), "*.*", SearchOption.AllDirectories))
                 {
+                    // wwwroot/vendor holds third-party modules (three.js) shipped
+                    // verbatim apart from import-specifier rewrites; the repo's
+                    // own style rules do not apply to vendored code.
                     if (path.Contains(Path.DirectorySeparatorChar + "bin" + Path.DirectorySeparatorChar, StringComparison.Ordinal)
-                        || path.Contains(Path.DirectorySeparatorChar + "obj" + Path.DirectorySeparatorChar, StringComparison.Ordinal))
+                        || path.Contains(Path.DirectorySeparatorChar + "obj" + Path.DirectorySeparatorChar, StringComparison.Ordinal)
+                        || path.Contains(Path.DirectorySeparatorChar + "vendor" + Path.DirectorySeparatorChar, StringComparison.Ordinal))
                     {
                         continue;
                     }

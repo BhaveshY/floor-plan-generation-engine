@@ -4198,3 +4198,110 @@ button:active:not(:disabled) {
   background: var(--teal-soft);
   border-color: rgba(16, 121, 107, 0.25);
 }
+
+/* ------------------------------------------------------------------------ */
+/* 3D MODEL VIEWER — the WebGL viewport that replaces the SVG sheet on the  */
+/* "3D Model" tab. The canvas host fills the preview frame; the toolbar      */
+/* floats at the top like the canvas tools float at the bottom.              */
+/* ------------------------------------------------------------------------ */
+#modelViewport {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+#modelViewport[hidden] {
+  display: none;
+}
+
+.viewer-canvas-host {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.viewer-canvas-host canvas.viewer-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  outline: none;
+  touch-action: none;
+}
+
+.viewer-toolbar {
+  position: absolute;
+  z-index: 3;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-pill);
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.16), 0 2px 6px rgba(15, 23, 42, 0.07);
+  backdrop-filter: blur(16px) saturate(1.12);
+}
+
+.viewer-toolbar button {
+  min-height: 32px;
+  padding: 0 14px;
+  color: var(--ink-soft);
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+  border-radius: var(--radius-pill);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+}
+
+.viewer-toolbar button:hover {
+  border-color: transparent;
+  color: var(--ink);
+  background: rgba(16, 24, 32, 0.06);
+  box-shadow: none;
+}
+
+.viewer-toolbar button.active {
+  border-color: transparent;
+  color: #fff;
+  background: var(--teal-fill);
+  box-shadow: 0 2px 8px rgba(16, 121, 107, 0.28);
+}
+
+.viewer-toolbar button.active:hover {
+  color: #fff;
+  background: var(--teal-hover);
+}
+
+.viewer-hint {
+  padding: 0 10px;
+  color: var(--muted);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+
+/* The SVG canvas tools serve the 2D sheet; the 3D viewport brings its own. */
+.preview-frame[data-view-mode="model3d"] .canvas-tools,
+.preview-frame[data-view-mode="model3d"] #planSvg,
+.preview-frame[data-view-mode="model3d"] .title-block {
+  display: none;
+}
+
+.viewer-unavailable::after {
+  content: "WebGL is unavailable in this browser, so the 3D model cannot render.";
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  color: var(--muted);
+  text-align: center;
+}

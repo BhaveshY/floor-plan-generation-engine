@@ -109,6 +109,12 @@ const els = {
   saveSvgBtn: document.getElementById("saveSvgBtn"),
   planSvg: document.getElementById("planSvg"),
   previewFrame: document.querySelector(".preview-frame"),
+  modelViewport: document.getElementById("modelViewport"),
+  viewerCanvasHost: document.getElementById("viewerCanvasHost"),
+  viewerOrbitBtn: document.getElementById("viewerOrbitBtn"),
+  viewerWalkBtn: document.getElementById("viewerWalkBtn"),
+  viewerGlbBtn: document.getElementById("viewerGlbBtn"),
+  viewerHint: document.getElementById("viewerHint"),
   editReadout: document.getElementById("editReadout"),
   zoomLevel: document.getElementById("zoomLevel"),
   planTitleBlock: document.getElementById("planTitleBlock"),
@@ -205,6 +211,17 @@ function bindEvents() {
   els.exportCardGrid.addEventListener("click", handleExportAction);
   els.modeButtons.forEach((button) => button.addEventListener("click", () => setViewMode(button.dataset.viewMode)));
   els.canvasButtons.forEach((button) => button.addEventListener("click", () => handleCanvasAction(button.dataset.canvasAction)));
+  // Camera mode switches must run synchronously when the viewer is already
+  // loaded: requestPointerLock only works inside the user's click gesture.
+  if (els.viewerOrbitBtn) {
+    els.viewerOrbitBtn.addEventListener("click", () => withViewer3d((viewer) => viewer.setCameraMode("orbit")));
+  }
+  if (els.viewerWalkBtn) {
+    els.viewerWalkBtn.addEventListener("click", () => withViewer3d((viewer) => viewer.setCameraMode("walk")));
+  }
+  if (els.viewerGlbBtn) {
+    els.viewerGlbBtn.addEventListener("click", () => withViewer3d((viewer) => viewer.exportGlb()));
+  }
   els.topNavLinks.forEach((link) => link.addEventListener("click", (event) => {
     event.preventDefault();
     navigateToHash(link.getAttribute("href"));
@@ -1457,7 +1474,7 @@ function updateExportActions(output) {
       button.disabled = !exportReady || !hasVariant;
     }
   });
-  els.saveSvgBtn.disabled = !exportReady || !hasPreview || staleGeneratedPreview;
+  els.saveSvgBtn.disabled = !exportReady || !hasPreview || staleGeneratedPreview || state.viewMode === "model3d";
 }
 
 // The setup panel is one honest scrolling form (the step-wizard chrome was
@@ -1631,9 +1648,11 @@ function renderPreview(output) {
   const metadata = output ? output.metadata : null;
   const bounds = metadata && metadata.floorplate ? metadata.floorplate.bounds : collectBounds(output, variant, input);
 
+  els.previewFrame.dataset.viewMode = state.viewMode;
   if (!bounds || bounds.width <= 0 || bounds.height <= 0) {
     els.planSvg.removeAttribute("viewBox");
     els.planSvg.dataset.viewMode = state.viewMode;
+    hideModelViewport();
     els.emptyPreview.hidden = false;
     els.emptyPreview.textContent = "No plan available";
     renderLegend(false);
@@ -1643,6 +1662,15 @@ function renderPreview(output) {
   els.emptyPreview.hidden = Boolean(variant);
   renderEmptyPreviewContent();
   els.planSvg.dataset.viewMode = state.viewMode;
+
+  // The 3D model tab swaps the SVG sheet for a WebGL viewport: the scene is
+  // computed here as data and handed to the lazily loaded three.js module.
+  if (state.viewMode === "model3d") {
+    renderModelView(variant, input, bounds);
+    renderLegend(Boolean(variant));
+    return;
+  }
+  hideModelViewport();
 
   // The 3D axon is a real projected scene, not a sheared plan: it owns its
   // geometry, depth sorting and view box, so it branches off here entirely.
@@ -2266,14 +2294,7 @@ function axonWallVolumes(proj, wall, cuts, extend, sortSplits) {
     }
   };
 
-  // Doors win where openings collide; everything is clamped into the wall.
-  const doors = (cuts || []).filter((c) => c.kind === "door");
-  const ordered = (cuts || [])
-    .map((cut) => ({ ...cut, lo: Math.max(cut.lo, axisLo + 0.02), hi: Math.min(cut.hi, axisHi - 0.02) }))
-    .filter((cut) => cut.hi - cut.lo > 0.2)
-    .filter((cut) => cut.kind === "door"
-      || !doors.some((door) => intervalOverlap(cut.lo, cut.hi, door.lo, door.hi) > 0.01))
-    .sort((a, b) => a.lo - b.lo);
+  const ordered = wallCutIntervals(cuts, axisLo, axisHi);
 
   let cursor = axisLo;
   ordered.forEach((cut) => {
@@ -2402,6 +2423,283 @@ function renderAxonView(variant, input, bounds) {
       els.planSvg.appendChild(tag);
     });
   }
+}
+
+// ---------------------------------------------------------------------------
+// 3D MODEL — a real-time three.js walkthrough of the selected variant. The
+// scene is computed HERE as plain data (axis-aligned boxes, polygon prisms,
+// floor plates and label anchors in model metres, z up) so it shares the
+// axon's exact opening math; every WebGL concern lives in viewer3d.js, which
+// is lazy-loaded from local vendored modules the first time the tab opens.
+// ---------------------------------------------------------------------------
+const viewer3dModuleUrl = "./viewer3d.js?v=20260612-1";
+let viewer3dPromise = null;
+let viewer3dApi = null;
+
+function ensureViewer3d() {
+  if (!viewer3dPromise) {
+    viewer3dPromise = import(viewer3dModuleUrl)
+      .then((module) => {
+        viewer3dApi = module.createViewer(els.viewerCanvasHost, {
+          onPickRoom: handleViewerPick,
+          onModeChange: updateViewerToolbar,
+          onStatus: setStatus
+        });
+        return viewer3dApi;
+      })
+      .catch((error) => {
+        viewer3dPromise = null;
+        setStatus("3D viewer failed to load");
+        console.error("viewer3d load failed", error);
+        return null;
+      });
+  }
+  return viewer3dPromise;
+}
+
+// Runs synchronously once the module is up so camera-mode clicks keep their
+// user-gesture context (pointer lock is refused outside of one).
+function withViewer3d(fn) {
+  if (viewer3dApi) {
+    fn(viewer3dApi);
+    return;
+  }
+  ensureViewer3d().then((viewer) => {
+    if (viewer) {
+      fn(viewer);
+    }
+  });
+}
+
+function hideModelViewport() {
+  if (els.modelViewport) {
+    els.modelViewport.hidden = true;
+  }
+  if (viewer3dApi) {
+    viewer3dApi.setActive(false);
+  }
+}
+
+function renderModelView(variant, input, bounds) {
+  els.emptyPreview.hidden = Boolean(variant);
+  renderEmptyPreviewContent();
+  if (!variant || !els.modelViewport) {
+    hideModelViewport();
+    return;
+  }
+  els.modelViewport.hidden = false;
+  const sceneData = buildModelScene(variant, input, bounds);
+  ensureViewer3d().then((viewer) => {
+    if (viewer && state.viewMode === "model3d") {
+      viewer.setScene(sceneData);
+      viewer.setActive(true);
+      updateViewerToolbar(viewer.cameraMode());
+    }
+  });
+}
+
+function handleViewerPick(roomId) {
+  if (!roomId) {
+    state.selection = null;
+    renderAll();
+    return;
+  }
+  state.selection = { kind: "room", id: String(roomId) };
+  setStatus("Room selected");
+  renderAll();
+}
+
+function updateViewerToolbar(mode) {
+  const walking = mode === "walk";
+  if (els.viewerOrbitBtn) {
+    els.viewerOrbitBtn.classList.toggle("active", !walking);
+    els.viewerOrbitBtn.setAttribute("aria-pressed", walking ? "false" : "true");
+  }
+  if (els.viewerWalkBtn) {
+    els.viewerWalkBtn.classList.toggle("active", walking);
+    els.viewerWalkBtn.setAttribute("aria-pressed", walking ? "true" : "false");
+  }
+  if (els.viewerHint) {
+    els.viewerHint.textContent = walking
+      ? "W A S D to move · mouse to look · Esc to exit"
+      : "Drag to orbit · scroll to zoom · click a room to select it";
+  }
+}
+
+// Shared by the SVG axon and the 3D model: openings clamped into the wall,
+// doors winning where a window overlaps one, ordered along the wall axis.
+// One implementation so the two views can never disagree about an opening.
+function wallCutIntervals(cuts, axisLo, axisHi) {
+  const doors = (cuts || []).filter((cut) => cut.kind === "door");
+  return (cuts || [])
+    .map((cut) => ({ ...cut, lo: Math.max(cut.lo, axisLo + 0.02), hi: Math.min(cut.hi, axisHi - 0.02) }))
+    .filter((cut) => cut.hi - cut.lo > 0.2)
+    .filter((cut) => cut.kind === "door"
+      || !doors.some((door) => intervalOverlap(cut.lo, cut.hi, door.lo, door.hi) > 0.01))
+    .sort((a, b) => a.lo - b.lo);
+}
+
+// Model-space volume decomposition of one wall: solid runs between openings,
+// a lintel above each door gap, and sill + glass + header stacks at windows —
+// the same bands the axon extrudes, emitted as data boxes for the viewer.
+function wallVolumeParts(wall, cuts) {
+  const thickness = Math.max(Number(wall.thickness) || 0.1, 0.06);
+  const footprint = wallFootprint(wall, thickness);
+  if (!footprint) {
+    return [];
+  }
+  const partition = String(wall.layerType || "") === "room_partition";
+  const height = partition ? axonSettings.partitionHeight : axonSettings.wallHeight;
+  const wallKind = partition ? "wall-partition" : "wall";
+  const frame = boundsOfPoints(footprint);
+  const horizontal = frame.width >= frame.height;
+  const axisLo = horizontal ? frame.minX : frame.minY;
+  const axisHi = horizontal ? frame.maxX : frame.maxY;
+  const crossLo = horizontal ? frame.minY : frame.minX;
+  const crossHi = horizontal ? frame.maxY : frame.maxX;
+
+  const parts = [];
+  const emit = (lo, hi, z0, z1, kind) => {
+    if (hi - lo <= 0.04 || z1 - z0 <= 0.01) {
+      return;
+    }
+    parts.push(horizontal
+      ? { x0: lo, y0: crossLo, x1: hi, y1: crossHi, z0, z1, kind }
+      : { x0: crossLo, y0: lo, x1: crossHi, y1: hi, z0, z1, kind });
+  };
+
+  let cursor = axisLo;
+  wallCutIntervals(cuts, axisLo, axisHi).forEach((cut) => {
+    const lo = Math.max(cut.lo, cursor);
+    const hi = Math.max(cut.hi, lo);
+    if (lo - cursor > 0.04) {
+      emit(cursor, lo, 0, height, wallKind);
+    }
+    if (cut.kind === "door") {
+      emit(lo, hi, axonOpenings.doorHead, height, wallKind);
+    } else {
+      emit(lo, hi, 0, axonOpenings.sillTop, wallKind);
+      emit(lo, hi, axonOpenings.sillTop, axonOpenings.glassTop, "glass");
+      emit(lo, hi, axonOpenings.glassTop, height, wallKind);
+    }
+    cursor = Math.max(cursor, hi);
+  });
+  if (axisHi - cursor > 0.04) {
+    emit(cursor, axisHi, 0, height, wallKind);
+  }
+  return parts;
+}
+
+function ringPoints(points) {
+  const ring = (points || []).map((p) => ({ x: Number(p.x), y: Number(p.y) }));
+  if (ring.length > 1) {
+    const first = ring[0];
+    const last = ring[ring.length - 1];
+    if (Math.abs(first.x - last.x) < 1e-9 && Math.abs(first.y - last.y) < 1e-9) {
+      ring.pop();
+    }
+  }
+  return ring;
+}
+
+// White-model furniture: a few honest volumes at real heights so rooms read
+// at eye level during the walkthrough — never decoration the plan doesn't claim.
+function modelFurnitureFor(room) {
+  const bounds = roomVisualBounds(room);
+  if (!bounds) {
+    return [];
+  }
+  const inner = insetBounds(bounds, 0.24);
+  if (inner.width < 1.15 || inner.height < 1.15) {
+    return [];
+  }
+  const type = roomCategoryClass(room);
+  const boxes = [];
+  const push = (x0, y0, x1, y1, z1) => {
+    const cx0 = Math.max(inner.minX, Math.min(x0, x1));
+    const cy0 = Math.max(inner.minY, Math.min(y0, y1));
+    const cx1 = Math.min(inner.maxX, Math.max(x0, x1));
+    const cy1 = Math.min(inner.maxY, Math.max(y0, y1));
+    if (cx1 - cx0 > 0.18 && cy1 - cy0 > 0.18) {
+      boxes.push({ x0: cx0, y0: cy0, x1: cx1, y1: cy1, z0: 0.06, z1, kind: "furniture" });
+    }
+  };
+  const cx = inner.minX + inner.width / 2;
+  if (type === "room-bedroom") {
+    const width = Math.min(1.7, inner.width * 0.55);
+    push(cx - width / 2, inner.minY, cx + width / 2, inner.minY + Math.min(2.05, inner.height * 0.6), 0.52);
+    push(cx - width / 2 - 0.55, inner.minY, cx - width / 2 - 0.12, inner.minY + 0.45, 0.5);
+    push(cx + width / 2 + 0.12, inner.minY, cx + width / 2 + 0.55, inner.minY + 0.45, 0.5);
+  } else if (type === "room-living") {
+    const width = Math.min(2.3, inner.width * 0.62);
+    push(cx - width / 2, inner.maxY - 0.92, cx + width / 2, inner.maxY, 0.74);
+    push(cx - 0.55, inner.maxY - 2.05, cx + 0.55, inner.maxY - 1.45, 0.38);
+    push(cx - Math.min(0.9, width / 2), inner.minY, cx + Math.min(0.9, width / 2), inner.minY + 0.42, 0.5);
+  } else if (type === "room-kitchen") {
+    if (inner.width >= inner.height) {
+      push(inner.minX, inner.minY, inner.maxX, inner.minY + 0.62, 0.92);
+    } else {
+      push(inner.minX, inner.minY, inner.minX + 0.62, inner.maxY, 0.92);
+    }
+  } else if (type === "room-bathroom") {
+    push(inner.minX, inner.minY, inner.minX + Math.min(1.05, inner.width * 0.5), inner.minY + 0.52, 0.86);
+    push(inner.maxX - 0.42, inner.minY, inner.maxX, inner.minY + 0.66, 0.42);
+  } else if (type === "room-service") {
+    push(inner.minX, inner.minY, inner.minX + 0.5, inner.maxY, 1.9);
+  }
+  return boxes;
+}
+
+function buildModelScene(variant, input, bounds) {
+  const sceneData = {
+    name: variant && variant.variantId ? String(variant.variantId) : "floor-plan",
+    bounds: { minX: bounds.minX, minY: bounds.minY, width: bounds.width, height: bounds.height },
+    slabDepth: axonSettings.slabDepth,
+    boxes: [],
+    prisms: [],
+    floors: [],
+    labels: [],
+    selectedRoomId: state.selection && state.selection.kind === "room" ? String(state.selection.id) : ""
+  };
+
+  const plate = input && input.floorplate && input.floorplate.outer ? input.floorplate.outer.points : null;
+  if (plate) {
+    sceneData.prisms.push({ points: ringPoints(plate), z0: -axonSettings.slabDepth, z1: 0, kind: "slab" });
+  }
+  ((input && input.fixedElements) || []).forEach((fixed) => {
+    if (fixed.polygon && fixed.polygon.points) {
+      sceneData.prisms.push({ points: ringPoints(fixed.polygon.points), z0: 0, z1: axonSettings.coreHeight, kind: "core" });
+    }
+  });
+
+  if (variant) {
+    (variant.rooms || []).forEach((room) => {
+      sceneData.floors.push({
+        points: ringPoints(room.polygon.points),
+        kind: roomCategoryClass(room).replace("room-", "floor-"),
+        roomId: String(room.id || ""),
+        name: planRoomLabelName(room)
+      });
+      modelFurnitureFor(room).forEach((box) => sceneData.boxes.push(box));
+      const roomBounds = roomVisualBounds(room);
+      if (roomBounds && Math.min(roomBounds.width, roomBounds.height) >= 1.6) {
+        sceneData.labels.push({
+          x: roomBounds.minX + roomBounds.width / 2,
+          y: roomBounds.minY + roomBounds.height / 2,
+          z: 1.55,
+          text: compactRoomLabel(room)
+        });
+      }
+    });
+    (variant.corridors || []).forEach((corridor) => {
+      sceneData.floors.push({ points: ringPoints(corridor.polygon.points), kind: "floor-corridor", roomId: "", name: "" });
+    });
+    const cutsByWall = axonWallCuts(variant, bounds);
+    (variant.walls || []).forEach((wall) => {
+      wallVolumeParts(wall, cutsByWall.get(String(wall.id || ""))).forEach((box) => sceneData.boxes.push(box));
+    });
+  }
+  return sceneData;
 }
 
 function renderDimensionGuides(bounds, units = "m") {
@@ -3579,7 +3877,7 @@ function safeClassToken(value) {
 }
 
 function setViewMode(mode) {
-  if (!["plan", "axon", "circulation"].includes(mode)) {
+  if (!["plan", "axon", "circulation", "model3d"].includes(mode)) {
     return;
   }
 
@@ -3587,7 +3885,7 @@ function setViewMode(mode) {
   state.zoom = 1;
   state.panX = 0;
   state.panY = 0;
-  if (mode === "axon") {
+  if (mode === "axon" || mode === "model3d") {
     state.editMode = false;
     state.dragEdit = null;
   }
@@ -3598,7 +3896,7 @@ function setViewMode(mode) {
 
 function handleCanvasAction(action) {
   if (action === "edit-toggle") {
-    if (state.viewMode === "axon") {
+    if (state.viewMode === "axon" || state.viewMode === "model3d") {
       state.viewMode = "plan";
     }
     state.editMode = !state.editMode;
@@ -4010,6 +4308,11 @@ const canvasKeyShortcuts = {
 };
 
 function handleEditorKeyDown(event) {
+  // The 3D model viewport owns the keyboard while it is open (WASD walking,
+  // Esc) — the SVG canvas shortcuts would fight the walkthrough controls.
+  if (state.viewMode === "model3d") {
+    return;
+  }
   // The plan IS the default view, so canvas shortcuts must work for an empty
   // or foreign hash too — normalize instead of demanding exactly "#plan".
   const onPlan = normalizeNavHash(window.location.hash) === "#plan";
@@ -8637,6 +8940,8 @@ function viewModeLabel(mode) {
   switch (mode) {
     case "axon":
       return "3D axon";
+    case "model3d":
+      return "3D model";
     case "circulation":
       return "Circulation";
     default:
