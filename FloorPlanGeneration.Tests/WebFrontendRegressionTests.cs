@@ -454,7 +454,7 @@ namespace FloorPlanGeneration.Tests
             // Every habitable room on the dense floorplate gets labelled (relaxed gate), with a
             // compact area line beneath the name so the plan reads like a real document.
             Assert.Contains("minDimension >= 1.7 && area >= 3.2", shouldShowRoomLabel, StringComparison.Ordinal);
-            Assert.Contains("const showMeta = densePlan ? minSpan >= 2.1 : minSpan >= 2.6", renderRoomLabels, StringComparison.Ordinal);
+            Assert.Contains("const showMeta = densePlan ? minSpan >= 2.1 : minSpan >= 2.8", renderRoomLabels, StringComparison.Ordinal);
             Assert.Contains("formatNumber(areaValue, 1)", renderRoomLabels, StringComparison.Ordinal);
 
             // One warm-graphite ink at four strengths, windows punched as white breaks
@@ -957,7 +957,7 @@ namespace FloorPlanGeneration.Tests
             string inspectorMarkup = SliceFunction(app, "inspectorMarkup");
             string renderDimensionGuides = SliceFunction(app, "renderDimensionGuides");
             string renderPlanGlyphLayer = SliceFunction(app, "renderPlanGlyphLayer");
-            string renderDaylightAndWindowBands = SliceFunction(app, "renderDaylightAndWindowBands");
+            string renderDaylightAndWindowBands = SliceFunction(app, "renderWindowLayer");
             string renderRoomFixtures = SliceFunction(app, "renderRoomFixtures");
             string appendRoomFixture = SliceFunction(app, "appendRoomFixture");
             string renderSelectedRoomHalo = SliceFunction(app, "renderSelectedRoomHalo");
@@ -990,11 +990,13 @@ namespace FloorPlanGeneration.Tests
             Assert.Contains("renderDoorOpening(group, door, wallById.get(door.hostWall), bounds)", renderPreview, StringComparison.Ordinal);
             Assert.Contains("renderRoomLabels(variant)", renderPreview, StringComparison.Ordinal);
             Assert.Contains("renderScaleBar(group, bounds, units || \"m\", offset)", renderDimensionGuides, StringComparison.Ordinal);
-            Assert.Contains("renderDaylightAndWindowBands(layer, variant, bounds)", renderPlanGlyphLayer, StringComparison.Ordinal);
+            // Windows moved to their own post-wall layer (renderWindowLayer): they
+            // punch white openings through the poché and must paint above it.
+            Assert.Contains("renderWindowLayer(group, variant, bounds)", renderPreview, StringComparison.Ordinal);
             Assert.Contains("renderCorridorCenterlines(layer, variant)", renderPlanGlyphLayer, StringComparison.Ordinal);
             Assert.Contains("renderRoomFixtures(layer, variant)", renderPlanGlyphLayer, StringComparison.Ordinal);
             Assert.Contains("room.daylight", renderDaylightAndWindowBands, StringComparison.Ordinal);
-            Assert.Contains("closestFacadeSide(bounds, floorBounds)", renderDaylightAndWindowBands, StringComparison.Ordinal);
+            Assert.Contains("facadeSidesFor(bounds, floorBounds)", renderDaylightAndWindowBands, StringComparison.Ordinal);
             Assert.Contains("appendRoomFixture(wrap, room)", renderRoomFixtures, StringComparison.Ordinal);
             Assert.Contains("room.roomType || room.type", appendRoomFixture, StringComparison.Ordinal);
             Assert.Contains("appendBedroomFixture(group, bounds)", appendRoomFixture, StringComparison.Ordinal);
@@ -1600,6 +1602,47 @@ namespace FloorPlanGeneration.Tests
             Assert.Contains("Rhino 7", guide, StringComparison.Ordinal);
             Assert.Contains("Rhino 8", guide, StringComparison.Ordinal);
             Assert.Contains("fp_generate.py", guide, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void WindowsPaintAboveWallsAndLabelsStayClearOfFixtures()
+        {
+            string app = ReadWebFile("app.js");
+            string styles = ReadWebFile("styles.css");
+            string renderPreview = SliceFunction(app, "renderPreview");
+            string glyphLayer = SliceFunction(app, "renderPlanGlyphLayer");
+
+            // Regression: windows are openings punched through the wall poché, so
+            // they must render AFTER the walls — drawn earlier they vanish under
+            // the ink, which made every window invisible for an entire release.
+            Assert.Contains("function renderWindowLayer", app, StringComparison.Ordinal);
+            Assert.DoesNotContain("renderDaylightAndWindowBands", glyphLayer, StringComparison.Ordinal);
+            AssertBefore(
+                renderPreview,
+                "renderWallSegment(group, wall)",
+                "renderWindowLayer(group, variant, bounds)",
+                "Walls must render before the window layer punches openings through them.");
+
+            // A corner room glazes every side that truly lies on the floorplate
+            // boundary, and the layer never blocks wall clicks.
+            Assert.Contains("function facadeSidesFor", app, StringComparison.Ordinal);
+            Assert.Contains(".slice(0, 2)", SliceFunction(app, "facadeSidesFor"), StringComparison.Ordinal);
+            Assert.Contains(".plan-window-layer,", styles, StringComparison.Ordinal);
+
+            // Fixtures never strike through labels: the rug is a fill-only floor
+            // marking, the media wall faces the sofa from across the room, and
+            // small wet rooms keep only their name (no cramped dimension line).
+            Assert.Contains("fill: rgba(33, 38, 43, 0.04)", styles, StringComparison.Ordinal);
+            Assert.DoesNotContain("stroke-dasharray", SliceCssRule(styles, ".fixture-rug {"), StringComparison.Ordinal);
+            Assert.Contains("minSpan >= 2.8", app, StringComparison.Ordinal);
+        }
+
+        private static string SliceCssRule(string source, string selector)
+        {
+            int start = source.IndexOf(selector, StringComparison.Ordinal);
+            Assert.True(start >= 0, "Missing css rule " + selector + ".");
+            int end = source.IndexOf("}", start, StringComparison.Ordinal);
+            return end > start ? source.Substring(start, end - start) : source.Substring(start);
         }
 
         [Fact]

@@ -3133,8 +3133,8 @@ pre {
 
 .room-label {
   fill: var(--ink-900);
-  stroke: rgba(255, 255, 255, 0.78);
-  stroke-width: 0.07;
+  stroke: rgba(255, 255, 255, 0.92);
+  stroke-width: 0.1;
   font-weight: 650;
   letter-spacing: 0.07em;
 }
@@ -3147,6 +3147,7 @@ pre {
 }
 
 .plan-visual-layer,
+.plan-window-layer,
 .room-fixtures {
   pointer-events: none;
 }
@@ -3163,12 +3164,11 @@ pre {
   pointer-events: none;
 }
 
-/* Rug: open dashed outline, no fill — a floor marking, not an object. */
+/* Rug: a faint fill with no outline — a floor marking, not an object. A
+   stroked border used to draw a line straight through the room label. */
 .fixture-rug {
-  fill: none;
-  stroke: var(--ink-300);
-  stroke-width: 0.028;
-  stroke-dasharray: 0.18 0.12;
+  fill: rgba(33, 38, 43, 0.04);
+  stroke: none;
 }
 
 .fixture-bed {

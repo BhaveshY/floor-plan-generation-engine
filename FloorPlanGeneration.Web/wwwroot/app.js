@@ -1759,6 +1759,7 @@ function renderPreview(output) {
     (variant.doorsOpenings || []).forEach((door) => {
       renderDoorOpening(group, door, wallById.get(door.hostWall), bounds);
     });
+    renderWindowLayer(group, variant, bounds);
     if (state.viewMode === "circulation") {
       renderCirculationOverlay(group, variant, bounds);
     }
@@ -2469,7 +2470,6 @@ function renderPlanGlyphLayer(group, variant, bounds) {
   }
 
   const layer = svgEl("g", { class: "plan-visual-layer", "aria-hidden": "true" });
-  renderDaylightAndWindowBands(layer, variant, bounds);
   if (state.editMode || state.viewMode === "circulation") {
     renderCorridorCenterlines(layer, variant);
   }
@@ -2479,7 +2479,14 @@ function renderPlanGlyphLayer(group, variant, bounds) {
   }
 }
 
-function renderDaylightAndWindowBands(layer, variant, floorBounds) {
+// Windows are openings punched through the wall poché, so this layer MUST
+// paint after the walls — rendered earlier it disappears under the ink, which
+// is exactly the regression that once made every window invisible.
+function renderWindowLayer(group, variant, floorBounds) {
+  if (!variant) {
+    return;
+  }
+  const layer = svgEl("g", { class: "plan-window-layer", "aria-hidden": "true" });
   (variant.rooms || []).forEach((room) => {
     if (!room || !room.daylight) {
       return;
@@ -2490,13 +2497,34 @@ function renderDaylightAndWindowBands(layer, variant, floorBounds) {
       return;
     }
 
-    const side = closestFacadeSide(bounds, floorBounds);
     const wrap = svgEl("g", { "data-room-ref": String(room.id || "") });
-    appendWindowSymbol(wrap, bounds, side);
+    facadeSidesFor(bounds, floorBounds).forEach((side) => appendWindowSymbol(wrap, bounds, side));
     if (wrap.childElementCount > 0) {
       layer.appendChild(wrap);
     }
   });
+  if (layer.childElementCount > 0) {
+    group.appendChild(layer);
+  }
+}
+
+// Every side of the room that genuinely lies on the floorplate boundary gets
+// glazing (a corner room reads with two windows, like a real plan); rooms
+// whose facade the bounding box cannot prove fall back to the nearest side.
+function facadeSidesFor(roomBounds, floorBounds) {
+  if (!floorBounds) {
+    return [roomBounds.width >= roomBounds.height ? "top" : "right"];
+  }
+  const tol = 0.05;
+  const sides = [];
+  if (Math.abs(roomBounds.minX - floorBounds.minX) <= tol) { sides.push(["left", roomBounds.height]); }
+  if (Math.abs(roomBounds.maxX - floorBounds.maxX) <= tol) { sides.push(["right", roomBounds.height]); }
+  if (Math.abs(roomBounds.minY - floorBounds.minY) <= tol) { sides.push(["bottom", roomBounds.width]); }
+  if (Math.abs(roomBounds.maxY - floorBounds.maxY) <= tol) { sides.push(["top", roomBounds.width]); }
+  if (!sides.length) {
+    return [closestFacadeSide(roomBounds, floorBounds)];
+  }
+  return sides.sort((a, b) => b[1] - a[1]).slice(0, 2).map((entry) => entry[0]);
 }
 
 // Draws a glazed window symbol (sill + glass pane + mullion + jambs) set into
@@ -2767,14 +2795,17 @@ function appendLivingFixture(group, bounds) {
     appendFixtureRect(group, x0 + r, y0 + r, rw, rh, "fixture-rug", roundedAttr(0.18));
   }
 
+  // The media wall sits across the room from the sofa, which also keeps the
+  // central label band clear — a fixture line through "LIVING" reads as a
+  // strikethrough, not as furniture.
   if (horizontal) {
     appendSofa(group, x0 + w * 0.03, y0 + h * 0.16, w * 0.13, h * 0.66, false);
     appendFixtureRect(group, x0 + w * 0.24, y0 + h * 0.36, w * 0.12, h * 0.28, "fixture-table", roundedAttr(0.05));
-    appendFixtureRect(group, x0 + w * 0.47, y0 + h * 0.2, w * 0.05, h * 0.6, "fixture-tv");
+    appendFixtureRect(group, x0 + w * 0.92, y0 + h * 0.2, w * 0.05, h * 0.6, "fixture-tv");
   } else {
     appendSofa(group, x0 + w * 0.16, y0 + h * 0.03, w * 0.66, h * 0.13, true);
-    appendFixtureRect(group, x0 + w * 0.36, y0 + h * 0.24, w * 0.28, h * 0.12, "fixture-table", roundedAttr(0.05));
-    appendFixtureRect(group, x0 + w * 0.2, y0 + h * 0.47, w * 0.6, h * 0.05, "fixture-tv");
+    appendFixtureRect(group, x0 + w * 0.36, y0 + h * 0.17, w * 0.28, h * 0.12, "fixture-table", roundedAttr(0.05));
+    appendFixtureRect(group, x0 + w * 0.2, y0 + h * 0.92, w * 0.6, h * 0.05, "fixture-tv");
   }
 }
 
@@ -3206,7 +3237,9 @@ function renderRoomLabels(variant) {
     title.textContent = densePlan ? compactRoomLabel(room) : planRoomLabelName(room);
     text.appendChild(title);
     const minSpan = Math.min(bounds.width, bounds.height);
-    const showMeta = densePlan ? minSpan >= 2.1 : minSpan >= 2.6;
+    // Small wet rooms keep only their name: a dimension line under "KITCHEN"
+    // in a 2.7 m room collides with the counter fixtures and reads as noise.
+    const showMeta = densePlan ? minSpan >= 2.1 : minSpan >= 2.8;
     if (showMeta) {
       const meta = svgEl("tspan", {
         class: "room-label-meta",
@@ -8005,7 +8038,7 @@ function svgStyleElement() {
     .window-mullion{fill:none;stroke:${ink500};stroke-width:0.025}
     .window-jamb{fill:none;stroke:${ink900};stroke-width:0.055}
     .fixture{fill:#ffffff;stroke:${ink500};stroke-width:0.035;stroke-linecap:round;stroke-linejoin:round}
-    .fixture-rug{fill:none;stroke:${ink300};stroke-width:0.028;stroke-dasharray:0.18 0.12}
+    .fixture-rug{fill:rgba(33,38,43,0.04);stroke:none}
     .fixture-bed{fill:#ffffff;stroke:${ink700};stroke-width:0.04}
     .fixture-headboard{fill:#f2f1ee;stroke:${ink500}}
     .fixture-pillow{fill:#ffffff;stroke:${ink300};stroke-width:0.028}
