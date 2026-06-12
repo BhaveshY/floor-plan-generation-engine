@@ -45,11 +45,12 @@
   // Local AI brief parsing (Claude Code / Codex CLI on this machine). Detected
   // at boot via /api/prompt/status; the heuristic parser always remains the
   // fallback so the app never depends on it.
-  aiBrief: { available: false, provider: "" }
+  aiBrief: { available: false, provider: "", providers: [] }
 };
 
 const draftKey = "floor-engine-web-draft-v2";
 const aiAssistKey = "floor-engine-web-ai-assist";
+const aiProviderKey = "floor-engine-web-ai-provider";
 // Bumped whenever the manual-edit math changes shape. Restored drafts carrying
 // edits from an older engine of this editor are discarded rather than replayed:
 // overrides committed under retired math (pre span-absorption, pre explicit
@@ -74,6 +75,7 @@ const els = {
   aiAssistRow: document.getElementById("aiAssistRow"),
   aiAssistToggle: document.getElementById("aiAssistToggle"),
   aiAssistLabel: document.getElementById("aiAssistLabel"),
+  aiProviderSelect: document.getElementById("aiProviderSelect"),
   promptGenerateBtn: document.getElementById("promptGenerateBtn"),
   promptUnderstood: document.getElementById("promptUnderstood"),
   floorWidth: document.getElementById("floorWidth"),
@@ -187,6 +189,12 @@ function bindEvents() {
   if (els.aiAssistToggle) {
     els.aiAssistToggle.addEventListener("change", () => {
       try { localStorage.setItem(aiAssistKey, els.aiAssistToggle.checked ? "on" : "off"); } catch (error) { /* private mode */ }
+    });
+  }
+  if (els.aiProviderSelect) {
+    els.aiProviderSelect.addEventListener("change", () => {
+      try { localStorage.setItem(aiProviderKey, els.aiProviderSelect.value); } catch (error) { /* private mode */ }
+      refreshAiAssistLabel();
     });
   }
   els.inputEditor.addEventListener("input", saveDraft);
@@ -374,10 +382,14 @@ function handleSetupInput(event) {
     return;
   }
 
-  // The brief is not a live generation input. Typing it (or the blur fired by
-  // clicking "Generate from prompt") must never arm the auto-generate pipeline:
-  // a stale run with the old settings would land mid-AI-parse, re-render the old
-  // plan and bury the prompt's result. The button is the brief's only trigger.
+  // Prompt-area controls are not live generation inputs. The brief (and the
+  // blur fired by clicking "Generate from prompt"), the AI toggle and the
+  // provider picker must never arm the auto-generate pipeline: a stale run
+  // with the old settings would land mid-AI-parse, re-render the old plan and
+  // bury the prompt's result. The button is the prompt's only trigger.
+  if (event && (event.target === els.aiAssistToggle || event.target === els.aiProviderSelect)) {
+    return;
+  }
   if (event && els.projectName && event.target === els.projectName) {
     state.brief = els.projectName.value.trim();
     saveDraft();
@@ -846,25 +858,54 @@ async function probeAiAssist() {
     const status = await response.json();
     state.aiBrief.available = Boolean(status && status.available);
     state.aiBrief.provider = (status && status.provider) || "";
+    state.aiBrief.providers = Array.isArray(status && status.providers) ? status.providers : [];
   } catch (error) {
     state.aiBrief.available = false;
   }
   if (!els.aiAssistRow) { return; }
   els.aiAssistRow.hidden = !state.aiBrief.available;
-  if (state.aiBrief.available && els.aiAssistLabel) {
-    els.aiAssistLabel.textContent = `${aiProviderLabel()} reads the brief`;
-    let saved = "on";
-    try { saved = localStorage.getItem(aiAssistKey) || "on"; } catch (error) { /* private mode */ }
-    if (els.aiAssistToggle) { els.aiAssistToggle.checked = saved !== "off"; }
+  if (!state.aiBrief.available) { return; }
+  let saved = "on";
+  try { saved = localStorage.getItem(aiAssistKey) || "on"; } catch (error) { /* private mode */ }
+  if (els.aiAssistToggle) { els.aiAssistToggle.checked = saved !== "off"; }
+  // Both subscriptions are first-class: when more than one CLI is installed,
+  // a small picker chooses who reads the brief (persisted per browser).
+  if (els.aiProviderSelect) {
+    const providers = state.aiBrief.providers.length ? state.aiBrief.providers : [state.aiBrief.provider];
+    els.aiProviderSelect.innerHTML = providers
+      .map((p) => `<option value="${escapeHtml(p)}">${escapeHtml(providerDisplayName(p))}</option>`)
+      .join("");
+    let savedProvider = "";
+    try { savedProvider = localStorage.getItem(aiProviderKey) || ""; } catch (error) { /* private mode */ }
+    els.aiProviderSelect.value = providers.includes(savedProvider) ? savedProvider : state.aiBrief.provider;
+    els.aiProviderSelect.hidden = providers.length < 2;
   }
+  refreshAiAssistLabel();
 }
 
 function aiAssistEnabled() {
   return state.aiBrief.available && (!els.aiAssistToggle || els.aiAssistToggle.checked);
 }
 
+function selectedAiProvider() {
+  if (els.aiProviderSelect && !els.aiProviderSelect.hidden && els.aiProviderSelect.value) {
+    return els.aiProviderSelect.value;
+  }
+  return state.aiBrief.provider || "claude";
+}
+
+function providerDisplayName(provider) {
+  return provider === "codex" ? "Codex" : "Claude";
+}
+
 function aiProviderLabel() {
-  return state.aiBrief.provider === "codex" ? "Codex" : "Claude";
+  return providerDisplayName(selectedAiProvider());
+}
+
+function refreshAiAssistLabel() {
+  if (els.aiAssistLabel) {
+    els.aiAssistLabel.textContent = `${aiProviderLabel()} reads the brief`;
+  }
 }
 
 // Asks the server-side CLI bridge to interpret the brief. Returns a sanitized
@@ -876,7 +917,7 @@ async function requestAiIntent(text) {
     const response = await fetch("/api/prompt/parse", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ brief: text }),
+      body: JSON.stringify({ brief: text, provider: selectedAiProvider() }),
       signal: controller.signal
     });
     if (!response.ok) { return null; }

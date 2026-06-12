@@ -1422,6 +1422,16 @@ namespace FloorPlanGeneration.Tests
             Assert.Contains(".ai-assist {", styles, StringComparison.Ordinal);
             Assert.Contains("Brief interpreted by", app, StringComparison.Ordinal);
             Assert.Contains("used the built-in parser", app, StringComparison.Ordinal);
+
+            // Claude and Codex subscriptions are both first-class: the server
+            // detects every installed CLI, the client may request one per parse,
+            // and the picker never arms the stale auto-generate pipeline.
+            Assert.Contains("public string Provider { get; set; }", service, StringComparison.Ordinal);
+            Assert.Contains("--output-last-message", service, StringComparison.Ordinal);
+            Assert.Contains("providers = _cliPaths.Keys", service, StringComparison.Ordinal);
+            Assert.Contains("id=\"aiProviderSelect\"", index, StringComparison.Ordinal);
+            Assert.Contains("provider: selectedAiProvider()", app, StringComparison.Ordinal);
+            Assert.Contains("event.target === els.aiProviderSelect", SliceFunction(app, "handleSetupInput"), StringComparison.Ordinal);
         }
 
         [Fact]

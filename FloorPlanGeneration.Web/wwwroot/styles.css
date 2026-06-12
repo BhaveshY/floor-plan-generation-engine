@@ -691,11 +691,11 @@ legend {
 .ai-assist {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
   margin-top: 10px;
   font-size: 12px;
   color: var(--faint);
-  cursor: pointer;
   user-select: none;
 }
 
@@ -703,9 +703,26 @@ legend {
   display: none;
 }
 
-.ai-assist input {
+.ai-assist-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.ai-assist input[type="checkbox"] {
   margin: 0;
   accent-color: var(--teal);
+}
+
+.ai-assist select {
+  font-size: 12px;
+  padding: 2px 6px;
+  max-width: 96px;
+}
+
+.ai-assist select[hidden] {
+  display: none;
 }
 
 .prompt-understood {

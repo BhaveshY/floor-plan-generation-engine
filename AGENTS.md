@@ -56,14 +56,18 @@ Headless generation without the web app: `./scripts/run-sample.ps1` (or `.sh`).
 The suite must be fully green before any commit. **Stop the dev server before
 running tests** — a running server locks `FloorPlanGeneration.Web.dll`.
 
-## Optional: AI brief parsing
+## Optional: AI brief parsing (Claude and/or Codex)
 
-If a `claude` or `codex` CLI is on PATH, the server exposes `/api/prompt/parse`
-and the studio shows a "Claude reads the brief" toggle: natural-language briefs
-are interpreted by the local CLI (10–20 s per parse), with a built-in heuristic
-parser as automatic fallback. Env overrides: `FLOORPLAN_AI_PROVIDER`
-(`claude`/`codex`/`off`), `FLOORPLAN_AI_MODEL`, `FLOORPLAN_AI_CLI` (full path).
-The app is fully functional without any AI CLI installed.
+If a `claude` (Claude Code) or `codex` (OpenAI Codex) CLI is on PATH — each
+using its own subscription login — the server detects every installed one and
+exposes them via `GET /api/prompt/status` (`{available, provider, providers}`).
+Natural-language briefs are then interpreted by the chosen CLI (10–20 s per
+parse) via `POST /api/prompt/parse` `{brief, provider?}`, with the built-in
+heuristic parser as automatic fallback. When both CLIs are installed the studio
+shows a provider picker next to the "reads the brief" toggle (persisted per
+browser). Env overrides: `FLOORPLAN_AI_PROVIDER` (`claude`/`codex`/`off`
+restricts detection), `FLOORPLAN_AI_MODEL`, `FLOORPLAN_AI_CLI` (full path to
+one CLI). The app is fully functional without any AI CLI installed.
 
 ## Rules that keep changes safe
 

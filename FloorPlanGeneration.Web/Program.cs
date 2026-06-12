@@ -217,7 +217,7 @@ app.MapPost("/api/prompt/parse", async (HttpRequest httpRequest) =>
         return Results.BadRequest(new { error = "empty_brief", message = "Provide a non-empty brief string." });
     }
 
-    BriefParseOutcome outcome = await briefIntentService.ParseAsync(request.Brief, httpRequest.HttpContext.RequestAborted);
+    BriefParseOutcome outcome = await briefIntentService.ParseAsync(request.Brief, request.Provider, httpRequest.HttpContext.RequestAborted);
     return Results.Json(outcome);
 });
 

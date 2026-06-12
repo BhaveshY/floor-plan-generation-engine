@@ -13,6 +13,7 @@ namespace FloorPlanGeneration.Web
     public sealed class BriefParseRequest
     {
         public string Brief { get; set; }
+        public string Provider { get; set; }
     }
 
     /// <summary>
@@ -61,27 +62,38 @@ namespace FloorPlanGeneration.Web
 
         private readonly object _probeLock = new object();
         private bool _probed;
-        private string _provider;
-        private string _cliPath;
+        private readonly Dictionary<string, string> _cliPaths = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        private string _defaultProvider;
 
         public object Status()
         {
             Probe();
-            return new { available = _cliPath != null, provider = _provider };
+            return new
+            {
+                available = _cliPaths.Count > 0,
+                provider = _defaultProvider,
+                providers = _cliPaths.Keys.OrderBy(p => p, StringComparer.OrdinalIgnoreCase).ToList()
+            };
         }
 
-        public async Task<BriefParseOutcome> ParseAsync(string brief, CancellationToken cancellationToken)
+        public async Task<BriefParseOutcome> ParseAsync(string brief, string requestedProvider, CancellationToken cancellationToken)
         {
             Probe();
-            if (_cliPath == null)
+            if (_cliPaths.Count == 0)
             {
                 return new BriefParseOutcome { Ok = false, Provider = null, Error = "cli_unavailable" };
             }
 
+            // The client may ask for a specific installed provider; anything else
+            // (missing, unknown, not installed) falls back to the default.
+            string provider = !string.IsNullOrWhiteSpace(requestedProvider) && _cliPaths.ContainsKey(requestedProvider.Trim())
+                ? requestedProvider.Trim().ToLowerInvariant()
+                : _defaultProvider;
+
             string trimmed = (brief ?? string.Empty).Trim();
             if (trimmed.Length == 0)
             {
-                return new BriefParseOutcome { Ok = false, Provider = _provider, Error = "empty_brief" };
+                return new BriefParseOutcome { Ok = false, Provider = provider, Error = "empty_brief" };
             }
 
             if (trimmed.Length > MaxBriefLength)
@@ -92,16 +104,16 @@ namespace FloorPlanGeneration.Web
             await Gate.WaitAsync(cancellationToken);
             try
             {
-                string rawText = await RunCliAsync(BuildPrompt(trimmed), cancellationToken);
+                string rawText = await RunCliAsync(BuildPrompt(trimmed), provider, cancellationToken);
                 if (rawText == null)
                 {
-                    return new BriefParseOutcome { Ok = false, Provider = _provider, Error = "cli_failed" };
+                    return new BriefParseOutcome { Ok = false, Provider = provider, Error = "cli_failed" };
                 }
 
                 string json = ExtractJsonObject(rawText);
                 if (json == null)
                 {
-                    return new BriefParseOutcome { Ok = false, Provider = _provider, Error = "unparseable" };
+                    return new BriefParseOutcome { Ok = false, Provider = provider, Error = "unparseable" };
                 }
 
                 BriefIntent intent;
@@ -111,14 +123,14 @@ namespace FloorPlanGeneration.Web
                 }
                 catch (JsonException)
                 {
-                    return new BriefParseOutcome { Ok = false, Provider = _provider, Error = "unparseable" };
+                    return new BriefParseOutcome { Ok = false, Provider = provider, Error = "unparseable" };
                 }
 
-                return new BriefParseOutcome { Ok = true, Provider = _provider, Intent = Sanitize(intent) };
+                return new BriefParseOutcome { Ok = true, Provider = provider, Intent = Sanitize(intent) };
             }
             catch (OperationCanceledException)
             {
-                return new BriefParseOutcome { Ok = false, Provider = _provider, Error = "timeout" };
+                return new BriefParseOutcome { Ok = false, Provider = provider, Error = "timeout" };
             }
             finally
             {
@@ -145,20 +157,21 @@ namespace FloorPlanGeneration.Web
                 string overridePath = Environment.GetEnvironmentVariable("FLOORPLAN_AI_CLI");
                 if (!string.IsNullOrWhiteSpace(overridePath) && File.Exists(overridePath))
                 {
-                    _cliPath = overridePath;
                     string name = Path.GetFileNameWithoutExtension(overridePath).ToLowerInvariant();
-                    _provider = name.Contains("codex") ? "codex" : "claude";
+                    string overrideProvider = name.Contains("codex") ? "codex" : "claude";
+                    _cliPaths[overrideProvider] = overridePath;
+                    _defaultProvider = overrideProvider;
                     return;
                 }
 
+                // Both subscriptions are first-class: every installed CLI is offered
+                // and the UI lets the user pick. FLOORPLAN_AI_PROVIDER narrows to one.
                 if (mode != "codex")
                 {
                     string claude = FindOnPath("claude");
                     if (claude != null)
                     {
-                        _cliPath = claude;
-                        _provider = "claude";
-                        return;
+                        _cliPaths["claude"] = claude;
                     }
                 }
 
@@ -167,10 +180,11 @@ namespace FloorPlanGeneration.Web
                     string codex = FindOnPath("codex");
                     if (codex != null)
                     {
-                        _cliPath = codex;
-                        _provider = "codex";
+                        _cliPaths["codex"] = codex;
                     }
                 }
+
+                _defaultProvider = _cliPaths.ContainsKey("claude") ? "claude" : (_cliPaths.Count > 0 ? "codex" : null);
             }
         }
 
@@ -195,7 +209,7 @@ namespace FloorPlanGeneration.Web
             return null;
         }
 
-        private async Task<string> RunCliAsync(string prompt, CancellationToken cancellationToken)
+        private async Task<string> RunCliAsync(string prompt, string provider, CancellationToken cancellationToken)
         {
             // The CLI runs in an empty temp directory with agent tools disabled:
             // the parse is a pure text transform and must never touch this machine.
@@ -204,7 +218,7 @@ namespace FloorPlanGeneration.Web
 
             ProcessStartInfo info = new ProcessStartInfo
             {
-                FileName = _cliPath,
+                FileName = _cliPaths[provider],
                 UseShellExecute = false,
                 RedirectStandardInput = true,
                 RedirectStandardOutput = true,
@@ -216,7 +230,8 @@ namespace FloorPlanGeneration.Web
             };
 
             string model = Environment.GetEnvironmentVariable("FLOORPLAN_AI_MODEL");
-            if (_provider == "claude")
+            string lastMessagePath = null;
+            if (provider == "claude")
             {
                 info.ArgumentList.Add("-p");
                 info.ArgumentList.Add("--output-format");
@@ -230,10 +245,15 @@ namespace FloorPlanGeneration.Web
             }
             else
             {
+                // codex exec writes its final message to a file (-o): far more
+                // robust than scraping the answer out of its progress log.
+                lastMessagePath = Path.Combine(scratch, "codex-last-" + Guid.NewGuid().ToString("N") + ".txt");
                 info.ArgumentList.Add("exec");
                 info.ArgumentList.Add("--sandbox");
                 info.ArgumentList.Add("read-only");
                 info.ArgumentList.Add("--skip-git-repo-check");
+                info.ArgumentList.Add("--output-last-message");
+                info.ArgumentList.Add(lastMessagePath);
                 if (!string.IsNullOrWhiteSpace(model))
                 {
                     info.ArgumentList.Add("--model");
@@ -265,17 +285,43 @@ namespace FloorPlanGeneration.Web
                 await process.WaitForExitAsync(timeout.Token);
                 string stdout = await stdoutTask;
                 await stderrTask;
-                if (process.ExitCode != 0 || string.IsNullOrWhiteSpace(stdout))
+                if (process.ExitCode != 0)
                 {
                     return null;
                 }
 
-                return UnwrapCliEnvelope(stdout);
+                if (lastMessagePath != null && File.Exists(lastMessagePath))
+                {
+                    string lastMessage = await File.ReadAllTextAsync(lastMessagePath, cancellationToken);
+                    TryDelete(lastMessagePath);
+                    if (!string.IsNullOrWhiteSpace(lastMessage))
+                    {
+                        return lastMessage;
+                    }
+                }
+
+                return string.IsNullOrWhiteSpace(stdout) ? null : UnwrapCliEnvelope(stdout);
             }
             catch (OperationCanceledException)
             {
                 TryKill(process);
+                if (lastMessagePath != null)
+                {
+                    TryDelete(lastMessagePath);
+                }
+
                 throw;
+            }
+        }
+
+        private static void TryDelete(string path)
+        {
+            try
+            {
+                File.Delete(path);
+            }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+            {
             }
         }
 
