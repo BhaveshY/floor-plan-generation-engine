@@ -2120,7 +2120,7 @@ function axonBox(proj, points, zBottom, zTop, tone, extend) {
     && Math.abs(ring[0].y - ring[ring.length - 1].y) < 1e-9) {
     ring.pop();
   }
-  let depthSum = 0;
+  let nearestDepth = Infinity;
   for (let i = 0; i < ring.length; i += 1) {
     const a = ring[i];
     const b = ring[(i + 1) % ring.length];
@@ -2133,7 +2133,7 @@ function axonBox(proj, points, zBottom, zTop, tone, extend) {
     extend(projected);
     const horizontal = Math.abs(a.y - b.y) <= Math.abs(a.x - b.x);
     const depth = (proj.depth(a.x, a.y) + proj.depth(b.x, b.y)) / 2;
-    depthSum += proj.depth(a.x, a.y);
+    nearestDepth = Math.min(nearestDepth, proj.depth(a.x, a.y));
     faces.push({
       className: `axon-side-${horizontal ? "x" : "y"} ${tone}`,
       projected,
@@ -2142,7 +2142,10 @@ function axonBox(proj, points, zBottom, zTop, tone, extend) {
   }
   faces.sort((a, b) => b.depth - a.depth);
   faces.push(axonFace(proj, ring, zTop, `axon-top ${tone}`, extend));
-  return { depth: ring.length ? depthSum / ring.length : 0, faces };
+  // A box's paint order is keyed by its NEAREST footprint corner: a centroid
+  // key let thin walls beside the large core draw before it and slice through
+  // its mass — the closest point decides who is really in front.
+  return { depth: Number.isFinite(nearestDepth) ? nearestDepth : 0, faces };
 }
 
 // Door and window openings to carve out of each wall volume, keyed by wall id.
@@ -2222,7 +2225,10 @@ function axonWallCuts(variant, floorBounds) {
 
 // Emits the volume set for one wall: solid segments between openings, a
 // lintel bridging each door, and sill + glass + header stacks at windows.
-function axonWallVolumes(proj, wall, cuts, extend) {
+// Solid runs additionally split at the core's boundary lines: a long wall
+// that passes behind the core while extending toward the viewer cannot be
+// painter-ordered as one box — no single depth key is correct for it.
+function axonWallVolumes(proj, wall, cuts, extend, sortSplits) {
   const thickness = Math.max(Number(wall.thickness) || 0.1, 0.06);
   const footprint = wallFootprint(wall, thickness);
   if (!footprint) {
@@ -2231,9 +2237,6 @@ function axonWallVolumes(proj, wall, cuts, extend) {
   const partition = String(wall.layerType || "") === "room_partition";
   const height = partition ? axonSettings.partitionHeight : axonSettings.wallHeight;
   const tone = partition ? "axon-wall-partition" : "axon-wall";
-  if (!cuts || !cuts.length) {
-    return [axonBox(proj, footprint, 0, height, tone, extend)];
-  }
 
   const frame = boundsOfPoints(footprint);
   const horizontal = frame.width >= frame.height;
@@ -2245,22 +2248,39 @@ function axonWallVolumes(proj, wall, cuts, extend) {
     ? [{ x: lo, y: crossLo }, { x: hi, y: crossLo }, { x: hi, y: crossHi }, { x: lo, y: crossHi }]
     : [{ x: crossLo, y: lo }, { x: crossHi, y: lo }, { x: crossHi, y: hi }, { x: crossLo, y: hi }]);
 
+  const volumes = [];
+  const splits = (sortSplits && (horizontal ? sortSplits.x : sortSplits.y)) || [];
+  const emitSolid = (lo, hi) => {
+    const stops = [lo];
+    splits.forEach((value) => {
+      if (value > lo + 0.05 && value < hi - 0.05) {
+        stops.push(value);
+      }
+    });
+    stops.push(hi);
+    stops.sort((a, b) => a - b);
+    for (let i = 0; i < stops.length - 1; i += 1) {
+      if (stops[i + 1] - stops[i] > 0.04) {
+        volumes.push(axonBox(proj, segmentRect(stops[i], stops[i + 1]), 0, height, tone, extend));
+      }
+    }
+  };
+
   // Doors win where openings collide; everything is clamped into the wall.
-  const doors = cuts.filter((c) => c.kind === "door");
-  const ordered = cuts
+  const doors = (cuts || []).filter((c) => c.kind === "door");
+  const ordered = (cuts || [])
     .map((cut) => ({ ...cut, lo: Math.max(cut.lo, axisLo + 0.02), hi: Math.min(cut.hi, axisHi - 0.02) }))
     .filter((cut) => cut.hi - cut.lo > 0.2)
     .filter((cut) => cut.kind === "door"
       || !doors.some((door) => intervalOverlap(cut.lo, cut.hi, door.lo, door.hi) > 0.01))
     .sort((a, b) => a.lo - b.lo);
 
-  const volumes = [];
   let cursor = axisLo;
   ordered.forEach((cut) => {
     const lo = Math.max(cut.lo, cursor);
     const hi = Math.max(cut.hi, lo);
     if (lo - cursor > 0.04) {
-      volumes.push(axonBox(proj, segmentRect(cursor, lo), 0, height, tone, extend));
+      emitSolid(cursor, lo);
     }
     if (hi - lo > 0.04) {
       const rect = segmentRect(lo, hi);
@@ -2275,7 +2295,7 @@ function axonWallVolumes(proj, wall, cuts, extend) {
     cursor = Math.max(cursor, hi);
   });
   if (axisHi - cursor > 0.04) {
-    volumes.push(axonBox(proj, segmentRect(cursor, axisHi), 0, height, tone, extend));
+    emitSolid(cursor, axisHi);
   }
   return volumes;
 }
@@ -2316,10 +2336,20 @@ function renderAxonView(variant, input, bounds) {
       floors.push(axonFace(proj, corridor.polygon.points, 0.012, "axon-floor axon-floor-corridor", extend));
     });
     // Walls carry their openings: door gaps bridged by lintels and facade
-    // windows glazed as sill + glass + header bands, carved per wall.
+    // windows glazed as sill + glass + header bands, carved per wall. The
+    // core's boundary lines also split solid runs so painter order stays
+    // correct beside the one genuinely large volume in the scene.
+    const sortSplits = { x: [], y: [] };
+    ((input && input.fixedElements) || []).forEach((fixed) => {
+      const fixedBounds = fixed && fixed.polygon ? boundsOfPoints(fixed.polygon.points) : null;
+      if (fixedBounds) {
+        sortSplits.x.push(fixedBounds.minX, fixedBounds.maxX);
+        sortSplits.y.push(fixedBounds.minY, fixedBounds.maxY);
+      }
+    });
     const cutsByWall = axonWallCuts(variant, bounds);
     (variant.walls || []).forEach((wall) => {
-      boxes.push(...axonWallVolumes(proj, wall, cutsByWall.get(String(wall.id || "")), extend));
+      boxes.push(...axonWallVolumes(proj, wall, cutsByWall.get(String(wall.id || "")), extend, sortSplits));
     });
   }
 

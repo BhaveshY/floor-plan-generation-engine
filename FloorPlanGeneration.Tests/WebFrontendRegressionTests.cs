@@ -1683,6 +1683,15 @@ namespace FloorPlanGeneration.Tests
             // tints carry explicit fills (an unmatched class renders BLACK floors).
             Assert.Contains("function axonWallCuts", app, StringComparison.Ordinal);
             Assert.Contains("function axonWallVolumes", app, StringComparison.Ordinal);
+
+            // Painter order beside the core: boxes sort by their NEAREST footprint
+            // corner (a centroid key let walls slice through the core's mass), and
+            // solid wall runs split at the core's boundary lines because a long
+            // wall passing behind the core while extending toward the viewer has
+            // no single correct depth key.
+            Assert.Contains("nearestDepth", SliceFunction(app, "axonBox"), StringComparison.Ordinal);
+            Assert.Contains("sortSplits", SliceFunction(app, "renderAxonView"), StringComparison.Ordinal);
+            Assert.Contains("horizontal ? sortSplits.x : sortSplits.y", SliceFunction(app, "axonWallVolumes"), StringComparison.Ordinal);
             Assert.Contains("windowSpanForSide(roomBounds, side)", SliceFunction(app, "axonWallCuts"), StringComparison.Ordinal);
             Assert.Contains("axonOpenings.doorHead", app, StringComparison.Ordinal);
             Assert.Contains("\"axon-glass\"", app, StringComparison.Ordinal);
