@@ -235,6 +235,7 @@ namespace FloorPlanGeneration.Schema
             TimeLimitMilliseconds = 1000;
             Strictness = "balanced";
             WeightedVariation = true;
+            LayoutMode = "multi_unit";
             ScoringWeights = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
         }
 
@@ -242,6 +243,14 @@ namespace FloorPlanGeneration.Schema
         public int TimeLimitMilliseconds { get; set; }
         public string Strictness { get; set; }
         public bool WeightedVariation { get; set; }
+
+        /// <summary>
+        /// "multi_unit" (default): corridor + unit bands across a building floor.
+        /// "single_dwelling": the floorplate IS one apartment; rooms are generated
+        /// directly with no corridor, no core and no unit banding.
+        /// </summary>
+        public string LayoutMode { get; set; }
+
         public Dictionary<string, double> ScoringWeights { get; set; }
     }
 
@@ -295,6 +304,7 @@ namespace FloorPlanGeneration.Schema
             TimeLimitMilliseconds = 1000;
             Strictness = "balanced";
             WeightedVariation = true;
+            LayoutMode = "multi_unit";
             ScoringWeights = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
         }
 
@@ -302,6 +312,7 @@ namespace FloorPlanGeneration.Schema
         public int TimeLimitMilliseconds { get; set; }
         public string Strictness { get; set; }
         public bool WeightedVariation { get; set; }
+        public string LayoutMode { get; set; }
         public Dictionary<string, double> ScoringWeights { get; set; }
     }
 

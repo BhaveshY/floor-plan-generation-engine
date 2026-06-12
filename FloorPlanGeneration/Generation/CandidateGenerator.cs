@@ -38,6 +38,7 @@ namespace FloorPlanGeneration.Generation
             requested = Math.Max(1, Math.Min(20, requested));
             int timeLimitMilliseconds = _input.Source.GenerationSettings != null ? _input.Source.GenerationSettings.TimeLimitMilliseconds : 1000;
             timeLimitMilliseconds = Math.Max(1, timeLimitMilliseconds);
+            bool singleDwelling = FloorPlanEngine.IsSingleDwelling(_input.Source);
             Stopwatch stopwatch = Stopwatch.StartNew();
             List<LayoutVariant> variants = new List<LayoutVariant>();
 
@@ -55,12 +56,44 @@ namespace FloorPlanGeneration.Generation
                 int seed = CombineSeed(_input.Source.Project.Seed, i);
                 SeededRandom random = new SeededRandom(seed);
                 List<Diagnostic> diagnostics = new List<Diagnostic>();
-                CorridorStrategy corridor = TryResolveCorridor(i, random, diagnostics);
-                LayoutVariant variant = BuildVariant(i, seed, corridor, random, diagnostics);
+                LayoutVariant variant;
+                if (singleDwelling)
+                {
+                    variant = BuildDwellingVariant(i, seed, random, diagnostics);
+                }
+                else
+                {
+                    CorridorStrategy corridor = TryResolveCorridor(i, random, diagnostics);
+                    variant = BuildVariant(i, seed, corridor, random, diagnostics);
+                }
+
                 variants.Add(variant);
             }
 
             return variants;
+        }
+
+        private LayoutVariant BuildDwellingVariant(int index, int seed, SeededRandom random, List<Diagnostic> diagnostics)
+        {
+            LayoutVariant variant = new LayoutVariant
+            {
+                VariantId = "variant-" + (index + 1).ToString("00", CultureInfo.InvariantCulture),
+                Seed = seed,
+                Status = "candidate"
+            };
+            variant.Diagnostics.AddRange(diagnostics);
+
+            RoomStyle style = RoomStyle.FromRandom(random);
+            DwellingTemplateGenerator dwellingGenerator = new DwellingTemplateGenerator(_input);
+            dwellingGenerator.Populate(variant, _mixPlanner, style, random, index, variant.Diagnostics);
+            if (variant.Units.Count == 0)
+            {
+                variant.Status = "failed";
+                variant.Diagnostics.Add(Diagnostic.Error("generation.no_units", "Dwelling generation produced no unit."));
+            }
+
+            variant.Topology = BuildTopology(variant, null);
+            return variant;
         }
 
         private LayoutVariant BuildVariant(int index, int seed, CorridorStrategy corridor, SeededRandom random, List<Diagnostic> diagnostics)
@@ -920,7 +953,7 @@ namespace FloorPlanGeneration.Generation
             {
                 graph.AddNode(fixedElement.Id, fixedElement.Type, fixedElement.Id, "floorplate");
                 graph.AddEdge(fixedElement.Id, "floorplate", "belongs_to", "fixed_element");
-                if (FixedElementConnectsToCorridor(corridorPolygon, fixedElement))
+                if (corridorPolygon != null && variant.Corridors.Count > 0 && FixedElementConnectsToCorridor(corridorPolygon, fixedElement))
                 {
                     graph.AddEdge(fixedElement.Id, variant.Corridors[0].Id, "connects_to_corridor", "touches corridor boundary");
                 }
@@ -936,7 +969,14 @@ namespace FloorPlanGeneration.Generation
             {
                 graph.AddNode(unit.Id, "unit", unit.Id, "floorplate");
                 graph.AddEdge(unit.Id, "floorplate", "belongs_to", "unit containment");
-                graph.AddEdge(unit.Id, variant.Corridors[0].Id, "has_door", "unit entry");
+                if (variant.Corridors.Count > 0)
+                {
+                    graph.AddEdge(unit.Id, variant.Corridors[0].Id, "has_door", "unit entry");
+                }
+                else
+                {
+                    graph.AddEdge(unit.Id, "outside", "has_door", "dwelling entry door");
+                }
                 if (unit.FacadeLength > _tolerance)
                 {
                     graph.AddEdge(unit.Id, "outside", "has_facade", "daylight facade exposure");

@@ -1147,6 +1147,111 @@ namespace FloorPlanGeneration.Tests
         }
 
         [Fact]
+        public void SingleDwellingMode_GeneratesRoomPlanFromScratchWithoutCorridorOrCore()
+        {
+            EngineInput input = SingleDwellingInput(seed: 4242, variantCount: 4, width: 8.4, depth: 6.4, type: "studio");
+            EngineOutput output = new FloorPlanEngine().Generate(input);
+
+            Assert.Equal("succeeded", output.Status);
+            Assert.Equal(4, output.Variants.Count);
+            Assert.All(output.Variants, v => Assert.True(v.Validation.Passed));
+            foreach (LayoutVariant variant in output.Variants)
+            {
+                Assert.Empty(variant.Corridors);
+                UnitLayout unit = Assert.Single(variant.Units);
+                Assert.Equal(Math.Round(8.4 * 6.4, 4), unit.Area);
+
+                // The 1RK program: one room, a separate kitchen, a bathroom.
+                List<string> types = variant.Rooms.Select(r => r.RoomType).OrderBy(t => t).ToList();
+                Assert.Contains("bathroom", types);
+                Assert.Contains("kitchen", types);
+                Assert.Contains("living_sleeping", types);
+
+                // Watertight: rooms tile the dwelling exactly (per-room area values
+                // are individually rounded, so the sum carries up to n*5e-5 noise).
+                Assert.InRange(Math.Abs(unit.Area - variant.Rooms.Sum(r => r.Area)), 0.0, 0.001);
+                Assert.All(variant.Walls, wall => Assert.True(
+                    Math.Abs(wall.Centerline.Start.X - wall.Centerline.End.X) < 0.011 ||
+                    Math.Abs(wall.Centerline.Start.Y - wall.Centerline.End.Y) < 0.011));
+
+                // Entry door on the dwelling shell plus interior doors reaching every room.
+                DoorOpening entry = variant.DoorsOpenings.FirstOrDefault(d => d.HostWall == "wall-entry-" + unit.Id);
+                Assert.NotNull(entry);
+                Assert.Contains(unit.Id, entry.ConnectsSpaces);
+                HashSet<string> reachable = new HashSet<string>(
+                    variant.DoorsOpenings.SelectMany(d => d.ConnectsSpaces),
+                    System.StringComparer.OrdinalIgnoreCase);
+                Assert.All(variant.Rooms, room => Assert.Contains(room.Id, reachable));
+            }
+
+            EngineOutput repeated = new FloorPlanEngine().Generate(SingleDwellingInput(4242, 4, 8.4, 6.4, "studio"));
+            Assert.Equal(Signatures(output), Signatures(repeated));
+        }
+
+        [Fact]
+        public void SingleDwellingMode_TwoBedProgramAndSeedVariety()
+        {
+            EngineInput input = SingleDwellingInput(seed: 99, variantCount: 4, width: 11.0, depth: 8.5, type: "two_bed");
+            EngineOutput output = new FloorPlanEngine().Generate(input);
+
+            Assert.Equal("succeeded", output.Status);
+            Assert.All(output.Variants, v => Assert.True(v.Validation.Passed));
+            foreach (LayoutVariant variant in output.Variants)
+            {
+                Assert.Equal(2, variant.Rooms.Count(r => r.RoomType == "bedroom"));
+                Assert.Contains(variant.Rooms, r => r.RoomType == "living");
+                Assert.All(
+                    variant.Rooms.Where(r => r.RoomType == "bedroom" || r.RoomType == "living"),
+                    room => Assert.True(room.Daylight, room.Id + " must have daylight."));
+            }
+
+            // Different seeds explore different schemes (entry side / splits /
+            // mirroring). Coarse signatures stay equal (same counts, same score),
+            // so the comparison must be geometric.
+            EngineOutput other = new FloorPlanEngine().Generate(SingleDwellingInput(123456, 4, 11.0, 8.5, "two_bed"));
+            Assert.NotEqual(DwellingGeometrySignature(output), DwellingGeometrySignature(other));
+        }
+
+        private static string DwellingGeometrySignature(EngineOutput output)
+        {
+            return string.Join(";", output.Variants.SelectMany(v => v.Rooms).Select(r =>
+                r.Id + ":" +
+                r.Polygon.Points[0].X.ToString("0.####", CultureInfo.InvariantCulture) + "," +
+                r.Polygon.Points[0].Y.ToString("0.####", CultureInfo.InvariantCulture) + "," +
+                r.Dimensions.Width.ToString("0.####", CultureInfo.InvariantCulture) + "x" +
+                r.Dimensions.Depth.ToString("0.####", CultureInfo.InvariantCulture)));
+        }
+
+        private static EngineInput SingleDwellingInput(int seed, int variantCount, double width, double depth, string type)
+        {
+            EngineInput input = RectangularInput(seed, variantCount);
+            input.Project.Id = "single-dwelling-test";
+            input.Project.Name = "Single Dwelling Test";
+            input.Floorplate.Outer = new PolygonInput
+            {
+                Id = "dwelling-outer",
+                Points = new List<Point2>
+                {
+                    new Point2(0, 0),
+                    new Point2(width, 0),
+                    new Point2(width, depth),
+                    new Point2(0, depth)
+                }
+            };
+            input.FixedElements = new List<FixedElementInput>();
+            input.Access.VerticalCoreAccess = new List<Point2>();
+            input.GenerationSettings.LayoutMode = "single_dwelling";
+            input.Rules.MinRoomWidth = 1.8;
+            input.Rules.MinRoomDepth = 1.8;
+            input.Rules.MinUnitArea = 20.0;
+            input.Program.TargetUnitTypes = new List<UnitTypeTarget>
+            {
+                new UnitTypeTarget { Type = type, MinArea = 24.0, MaxArea = 110.0, TargetCount = 1, Weight = 1.0 }
+            };
+            return input;
+        }
+
+        [Fact]
         public void ExclusiveUnitMixIsHonored_ZeroRatioTypesAreDeliberateExclusions()
         {
             // Large plate: bays comfortably fit the demanded type.

@@ -458,10 +458,12 @@ function syncFormFromInput(input) {
 function syncInputFromForm() {
   const input = ensureInputShape(state.input || {});
   const floorBounds = boundsOfPoints(input.floorplate.outer.points) || { minX: 0, minY: 0, width: 42, height: 22 };
+  const dwellingMode = isDwellingInput(input);
   // Typed values respect the same envelope the steppers and canvas drags
   // enforce — a hand-entered "5" must not slip a 5 m floorplate past the form.
-  const width = clamp(readPositive(els.floorWidth, floorBounds.width), 8, 300);
-  const depth = clamp(readPositive(els.floorDepth, floorBounds.height), 8, 300);
+  // A single dwelling is legitimately small, so its floor allows 4 m.
+  const width = clamp(readPositive(els.floorWidth, floorBounds.width), dwellingMode ? 4 : 8, 300);
+  const depth = clamp(readPositive(els.floorDepth, floorBounds.height), dwellingMode ? 4 : 8, 300);
   const scaleX = floorBounds.width > 0 ? width / floorBounds.width : 1;
   const scaleY = floorBounds.height > 0 ? depth / floorBounds.height : 1;
 
@@ -499,8 +501,20 @@ function syncInputFromForm() {
   input.generationSettings.weightedVariation = input.generationSettings.weightedVariation !== false;
   input.generationSettings.scoringWeights = input.generationSettings.scoringWeights || defaultScoringWeights();
 
-  applyCoreFromForm(input, width, depth);
-  input.program.targetUnitTypes = readUnitMixFromForm(input);
+  if (dwellingMode) {
+    // A dwelling has no building core and ignores the unit-mix rows: the plate
+    // IS the single unit, and its type lives in program.targetUnitTypes already.
+    input.fixedElements = [];
+    input.access.entryPoints = [{ x: round(width / 2), y: 0 }];
+    input.access.verticalCoreAccess = [];
+    input.access.corridorStartPoints = input.access.corridorStartPoints || [];
+    input.access.corridorEndPoints = input.access.corridorEndPoints || [];
+    input.access.corridorCenterlines = input.access.corridorCenterlines || [];
+  } else {
+    applyCoreFromForm(input, width, depth);
+    input.program.targetUnitTypes = readUnitMixFromForm(input);
+  }
+
   if (!Array.isArray(input.program.roomTypes) || input.program.roomTypes.length === 0) {
     input.program.roomTypes = defaultRoomTypes();
   }
@@ -632,6 +646,27 @@ function parsePrompt(text) {
     note(`${mixTypes.map(unitTypeLabel).join(" + ")} units`);
   }
 
+  // A brief about ONE apartment ("a 2 bhk flat", "1 RK", "house plan") asks for
+  // a dwelling generated from scratch, not a corridor building floor. Plural or
+  // building words keep the multi-unit pipeline.
+  const wantsRoomKitchen = /\b(?:\d+|one)\s*rk\b/.test(t) || /\broom\s*(?:\+|and|&)?\s*kitchen\b/.test(t);
+  const dwellingPlural = /\b(?:apartments|flats|homes|houses|units|residences|dwellings|studios)\b/.test(t);
+  const buildingWords = /\b(?:building|block|tower|plate|complex|development|housing|corridor|core|mix|floors?)\b/.test(t);
+  const singularDwelling =
+    /\b(?:an?|one|single|my|this)\s+(?:\d+\s*)?(?:bhk|rk|bed(?:room)?s?)?\s*(?:apartment|flat|home|house|unit|dwelling)\b/.test(t);
+  if (wantsRoomKitchen || (singularDwelling && !dwellingPlural && !buildingWords)) {
+    intent.dwelling = "single";
+    const wordToNumber = { one: 1, single: 1, two: 2, double: 2, three: 3, four: 4 };
+    let bedrooms = wantsRoomKitchen || /\bstudio\b/.test(t) ? 0 : 1;
+    const bedCount = t.match(/\b(\d+|one|two|three|four|single|double)\s*(?:bhk|bed(?:room)?s?|br)\b/);
+    if (bedCount) {
+      const n = wordToNumber[bedCount[1]] !== undefined ? wordToNumber[bedCount[1]] : Number(bedCount[1]);
+      if (Number.isFinite(n)) { bedrooms = clamp(Math.trunc(n), 0, 4); }
+    }
+    intent.bedrooms = bedrooms;
+    note(bedrooms === 0 ? "single dwelling · 1 room + kitchen" : `single dwelling · ${bedrooms} bedroom${bedrooms > 1 ? "s" : ""}`);
+  }
+
   const wh = t.match(/(\d{2,3}(?:\.\d+)?)\s*(?:m|metres?|meters?)?\s*(?:x|by|×)\s*(\d{2,3}(?:\.\d+)?)/);
   if (wh) {
     intent.width = Number(wh[1]);
@@ -723,6 +758,71 @@ function unitTypeLabel(type) {
 }
 
 // ---------------------------------------------------------------------------
+// SINGLE DWELLING — a brief about one apartment builds an engine input from
+// scratch: a small rectangular plate, no core, no corridor, layoutMode
+// "single_dwelling". The engine partitions it into real rooms directly.
+// ---------------------------------------------------------------------------
+const dwellingPresets = {
+  0: { width: 7.2, depth: 5.6, type: "studio", minArea: 24, maxArea: 45 },
+  1: { width: 9.0, depth: 6.8, type: "one_bed", minArea: 40, maxArea: 70 },
+  2: { width: 11.2, depth: 8.4, type: "two_bed", minArea: 65, maxArea: 110 },
+  3: { width: 13.2, depth: 9.6, type: "three_bed", minArea: 90, maxArea: 150 },
+  4: { width: 15.0, depth: 10.5, type: "three_bed", minArea: 110, maxArea: 180 }
+};
+
+function isDwellingInput(input) {
+  return Boolean(input && input.generationSettings && input.generationSettings.layoutMode === "single_dwelling");
+}
+
+function buildSingleDwellingInput(intent) {
+  const bedrooms = clamp(Math.trunc(Number.isFinite(intent.bedrooms) ? intent.bedrooms : 1), 0, 4);
+  const preset = dwellingPresets[bedrooms];
+  const width = clamp(Number.isFinite(intent.width) ? intent.width : preset.width, 4, 40);
+  const depth = clamp(Number.isFinite(intent.depth) ? intent.depth : preset.depth, 4, 30);
+  return ensureInputShape({
+    project: { id: "single-dwelling", name: "Apartment Plan", units: "m", tolerance: 0.01, seed: 1 },
+    floorplate: { outer: { id: "floorplate-01", points: rectPoints(0, 0, width, depth) }, holes: [] },
+    fixedElements: [],
+    access: {
+      entryPoints: [{ x: round(width / 2), y: 0 }],
+      verticalCoreAccess: [],
+      corridorStartPoints: [],
+      corridorEndPoints: [],
+      corridorCenterlines: []
+    },
+    program: {
+      targetUnitTypes: [{
+        type: preset.type,
+        minArea: preset.minArea,
+        maxArea: preset.maxArea,
+        targetCount: 1,
+        targetRatio: 1,
+        weight: 1
+      }],
+      roomTypes: defaultRoomTypes()
+    },
+    rules: {
+      minCorridorWidth: 1.2,
+      minRoomWidth: 2.0,
+      minRoomDepth: 2.0,
+      doorWidth: 0.9,
+      wetRoomAdjacencyPreferred: true,
+      requireDaylightForBedrooms: true,
+      requireDaylightForLiving: true,
+      minUnitArea: 16
+    },
+    generationSettings: {
+      variantCount: 4,
+      timeLimitMilliseconds: 1000,
+      strictness: "balanced",
+      weightedVariation: true,
+      layoutMode: "single_dwelling",
+      scoringWeights: defaultScoringWeights()
+    }
+  });
+}
+
+// ---------------------------------------------------------------------------
 // AI BRIEF ASSIST — when a local Claude Code (or Codex) CLI is installed, the
 // server can ask it to read the brief properly: typology words, scale hints,
 // and mixes the regex parser cannot infer. Strictly an enhancement: every
@@ -784,6 +884,10 @@ async function requestAiIntent(text) {
 // regardless of which parser read it.
 function mergeAiIntent(base, ai) {
   const merged = { ...base };
+  if (ai.dwelling === "single" || ai.dwelling === "building") {
+    merged.dwelling = ai.dwelling === "single" ? "single" : undefined;
+  }
+  if (Number.isFinite(ai.bedrooms)) { merged.bedrooms = clamp(Math.trunc(ai.bedrooms), 0, 4); }
   if (Number.isFinite(ai.width)) { merged.width = ai.width; }
   if (Number.isFinite(ai.depth)) { merged.depth = ai.depth; }
   if (ai.template && ["rectangular-core", "l-shaped-core", "moderately-irregular-core"].includes(ai.template)) {
@@ -813,8 +917,9 @@ function applyPromptToForm(intent) {
   // The floorplate is a site constraint, not a stylistic choice, so it is only
   // touched when the brief actually names dimensions; everything else resets to
   // a feasible engine default when unmentioned, making each prompt reproducible.
-  if (Number.isFinite(intent.width)) { els.floorWidth.value = fieldNumber(clamp(intent.width, 8, 200)); }
-  if (Number.isFinite(intent.depth)) { els.floorDepth.value = fieldNumber(clamp(intent.depth, 8, 120)); }
+  const dwellingFloor = isDwellingInput(state.input) ? 4 : 8;
+  if (Number.isFinite(intent.width)) { els.floorWidth.value = fieldNumber(clamp(intent.width, dwellingFloor, 200)); }
+  if (Number.isFinite(intent.depth)) { els.floorDepth.value = fieldNumber(clamp(intent.depth, dwellingFloor, 120)); }
   if (Number.isFinite(intent.seed)) {
     // "shuffle"-style briefs walk the seed forward on every ask; otherwise the
     // brief's own hash keeps the layout reproducible per text.
@@ -949,15 +1054,28 @@ async function generateFromPrompt() {
     state.undoStack = [];
     state.redoStack = [];
     state.geometryEdits = {};
-    // A brief that names a plate shape starts from that sample's geometry, then
-    // layers the parsed constraints over it.
-    if (intent.template && state.samples.some((sample) => sample.name === intent.template)) {
-      if (els.sampleSelect.value !== intent.template) {
-        els.sampleSelect.value = intent.template;
-      }
+    // A brief about one apartment generates a dwelling from scratch; a brief
+    // that names a plate shape starts from that sample's geometry instead. A
+    // building brief arriving while the current document is a dwelling must
+    // reset to a building baseline — layout mode never sticks across briefs.
+    if (intent.dwelling === "single") {
       const briefText = text;
-      await loadSelectedSample(false);
+      setInput(buildSingleDwellingInput(intent));
       els.projectName.value = briefText;
+      state.brief = briefText;
+    } else {
+      const wantsTemplate = intent.template && state.samples.some((sample) => sample.name === intent.template);
+      if (wantsTemplate || isDwellingInput(state.input)) {
+        if (wantsTemplate && els.sampleSelect.value !== intent.template) {
+          els.sampleSelect.value = intent.template;
+        }
+        if (!els.sampleSelect.value && state.samples.length) {
+          els.sampleSelect.value = state.samples[0].name;
+        }
+        const briefText = text;
+        await loadSelectedSample(false);
+        els.projectName.value = briefText;
+      }
     }
     applyPromptToForm(intent);
     syncInputFromForm();

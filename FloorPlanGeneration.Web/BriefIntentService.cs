@@ -23,6 +23,8 @@ namespace FloorPlanGeneration.Web
     {
         public double? Width { get; set; }
         public double? Depth { get; set; }
+        public string Dwelling { get; set; }
+        public int? Bedrooms { get; set; }
         public string Template { get; set; }
         public Dictionary<string, double> Mix { get; set; }
         public double? Corridor { get; set; }
@@ -398,6 +400,17 @@ namespace FloorPlanGeneration.Web
                 intent.Depth = Clamp(raw.Depth.Value, 8.0, 120.0);
             }
 
+            string dwelling = (raw.Dwelling ?? string.Empty).Trim().ToLowerInvariant();
+            if (dwelling == "single" || dwelling == "building")
+            {
+                intent.Dwelling = dwelling;
+            }
+
+            if (raw.Bedrooms.HasValue)
+            {
+                intent.Bedrooms = (int)Clamp(raw.Bedrooms.Value, 0.0, 4.0);
+            }
+
             intent.Template = NormalizeTemplate(raw.Template);
 
             if (raw.Mix != null)
@@ -513,9 +526,11 @@ namespace FloorPlanGeneration.Web
             prompt.AppendLine("Respond with ONLY one JSON object. No markdown fences, no commentary, no extra text.");
             prompt.AppendLine("All fields are optional; include only the fields the brief actually supports:");
             prompt.AppendLine("{");
-            prompt.AppendLine("  \"width\": number,            // floor plate width in meters, 8-200");
-            prompt.AppendLine("  \"depth\": number,            // floor plate depth in meters, 8-120");
-            prompt.AppendLine("  \"template\": \"rectangular-core\" | \"l-shaped-core\" | \"moderately-irregular-core\",");
+            prompt.AppendLine("  \"dwelling\": \"single\" | \"building\",  // single = ONE apartment/house plan; building = a multi-unit residential floor");
+            prompt.AppendLine("  \"bedrooms\": integer,        // single dwellings only: 0 (studio / 1 RK) to 4");
+            prompt.AppendLine("  \"width\": number,            // floor plate width in meters (4-40 for a single dwelling, 8-200 for a building)");
+            prompt.AppendLine("  \"depth\": number,            // floor plate depth in meters (4-30 for a single dwelling, 8-120 for a building)");
+            prompt.AppendLine("  \"template\": \"rectangular-core\" | \"l-shaped-core\" | \"moderately-irregular-core\",  // building briefs only");
             prompt.AppendLine("  \"mix\": { \"studio\": number, \"one_bed\": number, \"two_bed\": number },  // percentages 0-100");
             prompt.AppendLine("  \"corridor\": number,         // corridor width in meters, 1.2-2.6");
             prompt.AppendLine("  \"minUnit\": number,          // minimum unit area in square meters, 16-50");
@@ -529,6 +544,8 @@ namespace FloorPlanGeneration.Web
             prompt.AppendLine("- Infer sensible values from typology and scale words even without numbers:");
             prompt.AppendLine("  \"boutique\"/\"small infill\" suggests a smaller plate, \"slab block\"/\"tower floor\" a long rectangular one,");
             prompt.AppendLine("  \"family housing\" weights two_bed, \"co-living\"/\"micro\"/\"student\" weights studio with a low minUnit.");
+            prompt.AppendLine("- A brief about ONE apartment, flat or house (\"a 2 BHK apartment\", \"1 room kitchen flat\", \"my house plan\")");
+            prompt.AppendLine("  -> dwelling: \"single\" with bedrooms (1 RK / studio = 0). Plural homes, towers, housing or floor plates -> \"building\".");
             prompt.AppendLine("- 1 RK or studio -> studio; 1 BHK / 1 bedroom -> one_bed; 2 BHK -> two_bed; 3+ BHK -> two_bed (largest type).");
             prompt.AppendLine("- L-shaped, courtyard, or corner plates -> l-shaped-core; stepped or articulated -> moderately-irregular-core.");
             prompt.AppendLine("- Leave out everything the brief does not imply. Never invent precise numbers without textual support.");

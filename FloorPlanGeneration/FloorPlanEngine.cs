@@ -315,6 +315,23 @@ namespace FloorPlanGeneration
                     input.Floorplate.SourceId));
             }
 
+            if (IsSingleDwelling(input.Source))
+            {
+                // A single dwelling has no corridor or unit bands; the plate only
+                // needs to host its room program, which the generator validates.
+                Bounds2 dwellingBounds = input.Floorplate.Bounds();
+                double minRoomSide = Math.Min(input.Source.Rules.MinRoomDepth, input.Source.Rules.MinRoomWidth);
+                if (dwellingBounds.Width + tolerance < minRoomSide * 1.6 || dwellingBounds.Height + tolerance < minRoomSide * 1.6)
+                {
+                    diagnostics.Add(Diagnostic.Error(
+                        "input.floorplate_too_small_for_dwelling",
+                        "Floorplate bounds cannot host a dwelling room program at the configured room minimums.",
+                        input.Floorplate.SourceId));
+                }
+
+                return diagnostics;
+            }
+
             Bounds2 bounds = input.Floorplate.Bounds();
             double corridorWidth = Math.Max(input.Source.Rules.MinCorridorWidth, 1.2);
             double minCorridorLength = Math.Max(corridorWidth * 4.0, 7.0);
@@ -337,6 +354,13 @@ namespace FloorPlanGeneration
             return diagnostics;
         }
 
+        internal static bool IsSingleDwelling(EngineInput input)
+        {
+            return input != null &&
+                input.GenerationSettings != null &&
+                string.Equals(input.GenerationSettings.LayoutMode, "single_dwelling", StringComparison.OrdinalIgnoreCase);
+        }
+
         private static void ValidateVariant(LayoutVariant variant, CleanedInput input, UnitMixPlanner mixPlanner)
         {
             ValidationReport report = new ValidationReport();
@@ -347,7 +371,20 @@ namespace FloorPlanGeneration
             double grossArea = GrossArea(input);
             AddCheck(report, "gross_area_positive", grossArea > tolerance, "error", "Cleaned gross floorplate area must be positive.", "floorplate");
             AddCheck(report, "units_present", variant.Units.Count > 0, "error", "Variant must contain at least one unit.", variant.VariantId);
-            AddCheck(report, "corridors_present", variant.Corridors.Count > 0, "error", "Variant must contain at least one corridor.", variant.VariantId);
+            if (IsSingleDwelling(input.Source))
+            {
+                AddCheck(
+                    report,
+                    "dwelling_has_no_corridor",
+                    variant.Corridors.Count == 0,
+                    "error",
+                    "A single dwelling must not contain corridor circulation.",
+                    variant.VariantId);
+            }
+            else
+            {
+                AddCheck(report, "corridors_present", variant.Corridors.Count > 0, "error", "Variant must contain at least one corridor.", variant.VariantId);
+            }
 
             List<Polygon2> corridorPolygons = new List<Polygon2>();
             foreach (CorridorLayout corridor in variant.Corridors)
@@ -1011,6 +1048,7 @@ namespace FloorPlanGeneration
                     TimeLimitMilliseconds = input.GenerationSettings.TimeLimitMilliseconds,
                     Strictness = string.IsNullOrWhiteSpace(input.GenerationSettings.Strictness) ? "balanced" : input.GenerationSettings.Strictness,
                     WeightedVariation = input.GenerationSettings.WeightedVariation,
+                    LayoutMode = string.IsNullOrWhiteSpace(input.GenerationSettings.LayoutMode) ? "multi_unit" : input.GenerationSettings.LayoutMode,
                     ScoringWeights = input.GenerationSettings.ScoringWeights != null
                         ? new Dictionary<string, double>(input.GenerationSettings.ScoringWeights, StringComparer.OrdinalIgnoreCase)
                         : new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase)

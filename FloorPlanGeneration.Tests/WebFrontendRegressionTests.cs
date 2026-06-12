@@ -1458,6 +1458,54 @@ namespace FloorPlanGeneration.Tests
         }
 
         [Fact]
+        public void SingleDwellingBriefsGenerateApartmentPlansFromScratch()
+        {
+            string app = ReadWebFile("app.js");
+            string service = File.ReadAllText(Path.Combine(RepositoryRoot(), "FloorPlanGeneration.Web", "BriefIntentService.cs"));
+            string inputSchema = File.ReadAllText(Path.Combine(RepositoryRoot(), "schemas", "floor-plan-engine-input.schema.json"));
+            string parsePrompt = SliceFunction(app, "parsePrompt");
+            string generateFromPrompt = SliceFunction(app, "generateFromPrompt");
+            string buildDwelling = SliceFunction(app, "buildSingleDwellingInput");
+            string syncInputFromForm = SliceFunction(app, "syncInputFromForm");
+
+            // "a 1 room kitchen apartment" and friends are ONE dwelling, not a
+            // corridor building floor: the heuristic detects them and the flow
+            // builds a from-scratch input instead of loading a sample template.
+            Assert.Contains("intent.dwelling = \"single\"", parsePrompt, StringComparison.Ordinal);
+            Assert.Contains("room\\s*(?:\\+|and|&)?\\s*kitchen", parsePrompt, StringComparison.Ordinal);
+            Assert.Contains("intent.bedrooms = bedrooms", parsePrompt, StringComparison.Ordinal);
+            Assert.Contains("setInput(buildSingleDwellingInput(intent))", generateFromPrompt, StringComparison.Ordinal);
+
+            // Layout mode never sticks across briefs: a building brief arriving
+            // while the current document is a dwelling resets to a sample plate.
+            Assert.Contains("wantsTemplate || isDwellingInput(state.input)", generateFromPrompt, StringComparison.Ordinal);
+
+            // The dwelling input is genuinely from scratch: no core, no template,
+            // single-unit program, and the engine's single_dwelling layout mode.
+            Assert.Contains("layoutMode: \"single_dwelling\"", buildDwelling, StringComparison.Ordinal);
+            Assert.Contains("fixedElements: []", buildDwelling, StringComparison.Ordinal);
+            Assert.Contains("targetCount: 1", buildDwelling, StringComparison.Ordinal);
+
+            // Form syncing keeps the mode intact: no core injection, no unit-mix
+            // overwrite, and the small-plate floor of 4 m applies.
+            Assert.Contains("const dwellingMode = isDwellingInput(input)", syncInputFromForm, StringComparison.Ordinal);
+            Assert.Contains("dwellingMode ? 4 : 8", syncInputFromForm, StringComparison.Ordinal);
+            AssertBefore(
+                syncInputFromForm,
+                "if (dwellingMode) {",
+                "applyCoreFromForm(input, width, depth);",
+                "Core injection must be gated behind the non-dwelling branch.");
+
+            // The AI bridge understands and sanitizes the dwelling fields.
+            Assert.Contains("single\\\" | \\\"building", service, StringComparison.Ordinal);
+            Assert.Contains("intent.Dwelling = dwelling", service, StringComparison.Ordinal);
+            Assert.Contains("Clamp(raw.Bedrooms.Value, 0.0, 4.0)", service, StringComparison.Ordinal);
+
+            // The published input schema documents the new mode.
+            Assert.Contains("single_dwelling", inputSchema, StringComparison.Ordinal);
+        }
+
+        [Fact]
         public void PlateRescaleCarriesCoreAlongTheSameAffineMap()
         {
             string app = ReadWebFile("app.js");

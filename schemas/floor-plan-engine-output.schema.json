@@ -116,6 +116,13 @@
         "weightedVariation": {
           "type": "boolean"
         },
+        "layoutMode": {
+          "type": "string",
+          "enum": [
+            "multi_unit",
+            "single_dwelling"
+          ]
+        },
         "scoringWeights": {
           "type": "object",
           "additionalProperties": {
