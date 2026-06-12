@@ -279,7 +279,7 @@ h3 {
   color: #fff;
   display: grid;
   place-items: center;
-  font-size: 14px;
+  font-size: 10.5px;
   font-weight: var(--fw-heavy);
   letter-spacing: 0.02em;
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.14);

@@ -1,8 +1,17 @@
-# Floor Plan Generation Engine
+# EBA Floor Plan Generator
 
-Rhino-ready, headless floor plan generation app for multi-family residential floorplates.
+Generate residential floor plans from natural-language briefs or JSON constraints, edit them in a browser studio, and export the results — for building floors (corridor + unit mix) and single apartments alike.
 
 The engine accepts architectural boundaries and fixed constraints as JSON, then returns ranked 2D floor plan variants with validation status, diagnostics, topology, and a portable hypergraph contract compatible with the `BhaveshY/hypergraph` `DataNode` shape. RhinoCommon/Grasshopper integration is intentionally kept as an adapter layer; the core engine is JSON I/O only.
+
+## Using an AI agent?
+
+Point your agent (Claude Code, Codex, Cursor, …) at this repository and tell it to set the app up — **`AGENTS.md`** contains everything it needs: a one-command setup that self-installs a local .NET 8 SDK into `./.dotnet` (no admin rights, nothing global), run/build/test commands, an API smoke test, and the repo's safety rules. In short:
+
+```text
+Clone the repo, then run scripts/run-web.ps1 (Windows) or scripts/run-web.sh (macOS/Linux)
+and open http://localhost:5127.
+```
 
 ## Easiest Start
 

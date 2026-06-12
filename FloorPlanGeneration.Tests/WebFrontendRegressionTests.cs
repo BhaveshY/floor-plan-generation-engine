@@ -197,7 +197,7 @@ namespace FloorPlanGeneration.Tests
             Assert.Contains("background-image: url(\"data:image/svg+xml,", styles, StringComparison.Ordinal);
 
             // Markup wiring kept ids/hooks; added decorative + progressive-enhancement nodes only.
-            Assert.Contains("<h1>Floor Engine</h1>", index, StringComparison.Ordinal);
+            Assert.Contains("<h1>EBA Floor Plan Generator</h1>", index, StringComparison.Ordinal);
             Assert.DoesNotContain("class=\"user-avatar\"", index, StringComparison.Ordinal);
             Assert.Contains("class=\"stepper\"", index, StringComparison.Ordinal);
             Assert.Contains("data-step=\"1\"", index, StringComparison.Ordinal);
