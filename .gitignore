@@ -18,3 +18,4 @@ TestResults/
 .nuget/
 .tools/
 outputs/
+__pycache__/
