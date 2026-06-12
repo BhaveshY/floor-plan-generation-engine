@@ -1603,6 +1603,39 @@ namespace FloorPlanGeneration.Tests
         }
 
         [Fact]
+        public void AxonIsAProjectedSceneAndCirculationIsADoorNetworkDiagram()
+        {
+            string app = ReadWebFile("app.js");
+            string styles = ReadWebFile("styles.css");
+            string axonView = SliceFunction(app, "renderAxonView");
+            string overlay = SliceFunction(app, "renderCirculationOverlay");
+
+            // Regression: "3D axon" used to be the flat plan with a skew transform.
+            // It is now a real plan-oblique projection — rotated, depth-foreshortened,
+            // extruded volumes painter-sorted back to front, with its own view box.
+            Assert.DoesNotContain("skewX", app, StringComparison.Ordinal);
+            Assert.Contains("function axonProjector", app, StringComparison.Ordinal);
+            Assert.Contains("function axonBox", app, StringComparison.Ordinal);
+            Assert.Contains("depthScale", app, StringComparison.Ordinal);
+            Assert.Contains("boxes.sort((a, b) => b.depth - a.depth)", axonView, StringComparison.Ordinal);
+            Assert.Contains("axonSettings.coreHeight", axonView, StringComparison.Ordinal);
+            Assert.Contains("previewViewBox(projBounds", axonView, StringComparison.Ordinal);
+            Assert.Contains(".axon-top.axon-wall", styles, StringComparison.Ordinal);
+            Assert.Contains(".axon-side-y.axon-core", styles, StringComparison.Ordinal);
+
+            // Circulation derives a movement diagram from the model's door network:
+            // corridor spine with arrows, space→door→space flow lines, entry emphasis.
+            Assert.Contains("door.connectsSpaces", overlay, StringComparison.Ordinal);
+            Assert.Contains("circ-spine", overlay, StringComparison.Ordinal);
+            Assert.Contains("circ-entry-dot", overlay, StringComparison.Ordinal);
+            Assert.Contains("function nearestPointOnSegment", app, StringComparison.Ordinal);
+            Assert.Contains("marker-end\": \"url(#circ-arrow)", app, StringComparison.Ordinal);
+            Assert.Contains("id: \"circ-arrow\"", app, StringComparison.Ordinal);
+            Assert.Contains("[data-view-mode=\"circulation\"] .wall", styles, StringComparison.Ordinal);
+            Assert.Contains(".circ-flow", styles, StringComparison.Ordinal);
+        }
+
+        [Fact]
         public void PlateRescaleCarriesCoreAlongTheSameAffineMap()
         {
             string app = ReadWebFile("app.js");

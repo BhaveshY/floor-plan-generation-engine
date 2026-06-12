@@ -1643,6 +1643,15 @@ function renderPreview(output) {
   els.emptyPreview.hidden = Boolean(variant);
   renderEmptyPreviewContent();
   els.planSvg.dataset.viewMode = state.viewMode;
+
+  // The 3D axon is a real projected scene, not a sheared plan: it owns its
+  // geometry, depth sorting and view box, so it branches off here entirely.
+  if (state.viewMode === "axon") {
+    renderAxonView(variant, input, bounds);
+    renderLegend(Boolean(variant));
+    return;
+  }
+
   const viewBox = previewViewBox(bounds, state.zoom);
   els.planSvg.setAttribute("viewBox", viewBox);
   els.planSvg.setAttribute("preserveAspectRatio", "xMidYMid meet");
@@ -1750,6 +1759,9 @@ function renderPreview(output) {
     (variant.doorsOpenings || []).forEach((door) => {
       renderDoorOpening(group, door, wallById.get(door.hostWall), bounds);
     });
+    if (state.viewMode === "circulation") {
+      renderCirculationOverlay(group, variant, bounds);
+    }
     renderSelectedRoomHalo(group, variant);
 
     const unitById = new Map((variant.units || []).map((unit) => [unit.id, unit]));
@@ -1777,6 +1789,131 @@ function renderPreview(output) {
   renderSelectionConstraintHandles(group, output);
   renderDragReadout(bounds);
   renderLegend(Boolean(variant));
+}
+
+// ---------------------------------------------------------------------------
+// CIRCULATION — a movement diagram derived from the model's door network:
+// every door connects two spaces, so the flow lines run space → door → space.
+// Buildings read as a corridor spine with arrowed travel directions and unit
+// spurs; dwellings read as the entry arrow plus the room-to-room door graph.
+// ---------------------------------------------------------------------------
+function nearestPointOnSegment(point, start, end) {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const lengthSq = dx * dx + dy * dy;
+  if (lengthSq < 1e-12) {
+    return { x: start.x, y: start.y };
+  }
+  const t = clamp(((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSq, 0, 1);
+  return { x: start.x + dx * t, y: start.y + dy * t };
+}
+
+function circulationAnchor(spaceId, door, spaces) {
+  const space = spaces.get(String(spaceId || ""));
+  if (!space) {
+    return null;
+  }
+  if (space.kind === "corridor" && space.centerline) {
+    return nearestPointOnSegment(door.location, space.centerline.start, space.centerline.end);
+  }
+  return space.center;
+}
+
+function circulationFlowPath(group, points, className) {
+  const attr = points
+    .filter(Boolean)
+    .map((p) => `${formatNumber(p.x, 3)},${formatNumber(p.y, 3)}`)
+    .join(" ");
+  group.appendChild(svgEl("polyline", {
+    class: className,
+    points: attr,
+    "marker-end": "url(#circ-arrow)"
+  }));
+}
+
+function renderCirculationOverlay(group, variant, bounds) {
+  const overlay = svgEl("g", { class: "circulation-overlay", "aria-hidden": "true" });
+  const spaces = new Map();
+  const register = (items, kind) => (items || []).forEach((item) => {
+    const itemBounds = item.polygon ? boundsOfPoints(item.polygon.points) : null;
+    if (!itemBounds) {
+      return;
+    }
+    spaces.set(String(item.id || ""), {
+      kind,
+      center: { x: itemBounds.minX + itemBounds.width / 2, y: itemBounds.minY + itemBounds.height / 2 },
+      centerline: kind === "corridor" && item.centerline ? item.centerline : null
+    });
+  });
+  register(variant.units, "unit");
+  register(variant.rooms, "room");
+  register(variant.corridors, "corridor");
+
+  // The corridor spine: dashed centerline with travel arrows both ways.
+  (variant.corridors || []).forEach((corridor) => {
+    const line = corridor.centerline;
+    if (!line || !line.start || !line.end) {
+      return;
+    }
+    overlay.appendChild(svgEl("line", {
+      class: "circ-spine",
+      x1: round(line.start.x), y1: round(line.start.y),
+      x2: round(line.end.x), y2: round(line.end.y)
+    }));
+    const inset = 0.18;
+    const stepX = Math.sign(line.end.x - line.start.x) * inset;
+    const stepY = Math.sign(line.end.y - line.start.y) * inset;
+    const mid = { x: (line.start.x + line.end.x) / 2, y: (line.start.y + line.end.y) / 2 };
+    const toEnd = { x: line.end.x - stepX, y: line.end.y - stepY };
+    const toStart = { x: line.start.x + stepX, y: line.start.y + stepY };
+    circulationFlowPath(overlay, [mid, toEnd], "circ-flow circ-spine-arrow");
+    circulationFlowPath(overlay, [mid, toStart], "circ-flow circ-spine-arrow");
+  });
+
+  const plateCenter = bounds
+    ? { x: bounds.minX + bounds.width / 2, y: bounds.minY + bounds.height / 2 }
+    : null;
+  (variant.doorsOpenings || []).forEach((door) => {
+    if (!door || !door.location) {
+      return;
+    }
+    const connects = door.connectsSpaces || [];
+    const isEntry = String(door.hostWall || "").indexOf("wall-entry-") === 0;
+    const dwellingEntry = isEntry && connects.some((id) => spaces.get(String(id)) && spaces.get(String(id)).kind === "unit")
+      && (variant.corridors || []).length === 0;
+
+    if (dwellingEntry && plateCenter) {
+      // The way in: an arrow from outside the facade through the entry door
+      // to the hub room the door opens into.
+      const hubId = connects.map(String).find((id) => spaces.get(id) && spaces.get(id).kind === "room");
+      const hub = hubId ? spaces.get(hubId) : null;
+      const dx = door.location.x - plateCenter.x;
+      const dy = door.location.y - plateCenter.y;
+      const horizontal = Math.abs(dx) >= Math.abs(dy);
+      const outside = {
+        x: door.location.x + (horizontal ? Math.sign(dx || 1) * 1.4 : 0),
+        y: door.location.y + (horizontal ? 0 : Math.sign(dy || 1) * 1.4)
+      };
+      circulationFlowPath(overlay, [outside, door.location, hub ? hub.center : null], "circ-flow circ-entry-flow");
+    } else if (connects.length >= 2) {
+      const from = circulationAnchor(connects[0], door, spaces);
+      const to = circulationAnchor(connects[1], door, spaces);
+      if (from && to) {
+        const corridorFirst = spaces.get(String(connects[0])) && spaces.get(String(connects[0])).kind === "corridor";
+        const points = corridorFirst ? [from, door.location, to] : [to, door.location, from];
+        circulationFlowPath(overlay, points, "circ-flow");
+      }
+    }
+
+    overlay.appendChild(svgEl("circle", {
+      class: isEntry ? "circ-door-dot circ-entry-dot" : "circ-door-dot",
+      cx: round(door.location.x),
+      cy: round(door.location.y),
+      r: isEntry ? 0.24 : 0.15
+    }));
+  });
+
+  group.appendChild(overlay);
 }
 
 // Live dimension badge that follows the cursor during a resize/move drag, so the
@@ -1920,10 +2057,169 @@ function previewFrameAspect() {
 }
 
 function previewTransform() {
-  if (state.viewMode === "axon") {
-    return "scale(1,-1) skewX(-12) rotate(-3)";
-  }
   return "scale(1,-1)";
+}
+
+// ---------------------------------------------------------------------------
+// 3D AXON — a real plan-oblique axonometric built from the model: the plan is
+// rotated 45° with foreshortened depth, verticals rise true, walls and the
+// core are extruded volumes whose faces are painter-sorted back to front.
+// Pure SVG polygons — deterministic, zoomable, and export-safe (no filters).
+// ---------------------------------------------------------------------------
+const axonSettings = {
+  angle: Math.PI / 4,
+  depthScale: 0.62,
+  wallHeight: 2.7,
+  partitionHeight: 2.35,
+  coreHeight: 3.3,
+  slabDepth: 0.35
+};
+
+function axonProjector(bounds) {
+  const cos = Math.cos(axonSettings.angle);
+  const sin = Math.sin(axonSettings.angle);
+  const cx = bounds.minX + bounds.width / 2;
+  const cy = bounds.minY + bounds.height / 2;
+  return {
+    // Returns model-up coordinates so the standard scale(1,-1) group renders
+    // the scene with +z pointing up on screen.
+    point(x, y, z) {
+      const dx = Number(x) - cx;
+      const dy = Number(y) - cy;
+      return {
+        x: cx + (dx * cos - dy * sin),
+        y: cy + (dx * sin + dy * cos) * axonSettings.depthScale + (Number(z) || 0)
+      };
+    },
+    depth(x, y) {
+      const dx = Number(x) - cx;
+      const dy = Number(y) - cy;
+      return dx * sin + dy * cos;
+    }
+  };
+}
+
+function axonPolygonAttr(projected) {
+  return projected.map((p) => `${formatNumber(p.x, 3)},${formatNumber(p.y, 3)}`).join(" ");
+}
+
+function axonFace(proj, points, z, className, extend) {
+  const projected = points.map((p) => proj.point(p.x, p.y, z));
+  extend(projected);
+  const depth = points.reduce((sum, p) => sum + proj.depth(p.x, p.y), 0) / Math.max(1, points.length);
+  return { className, projected, depth };
+}
+
+// One extruded volume for an axis-aligned footprint: side quads drawn back to
+// front, then the top. Side tone follows the face normal so solids read.
+function axonBox(proj, points, zBottom, zTop, tone, extend) {
+  const faces = [];
+  const ring = points.slice();
+  if (ring.length > 1 && Math.abs(ring[0].x - ring[ring.length - 1].x) < 1e-9
+    && Math.abs(ring[0].y - ring[ring.length - 1].y) < 1e-9) {
+    ring.pop();
+  }
+  let depthSum = 0;
+  for (let i = 0; i < ring.length; i += 1) {
+    const a = ring[i];
+    const b = ring[(i + 1) % ring.length];
+    const projected = [
+      proj.point(a.x, a.y, zBottom),
+      proj.point(b.x, b.y, zBottom),
+      proj.point(b.x, b.y, zTop),
+      proj.point(a.x, a.y, zTop)
+    ];
+    extend(projected);
+    const horizontal = Math.abs(a.y - b.y) <= Math.abs(a.x - b.x);
+    const depth = (proj.depth(a.x, a.y) + proj.depth(b.x, b.y)) / 2;
+    depthSum += proj.depth(a.x, a.y);
+    faces.push({
+      className: `axon-side-${horizontal ? "x" : "y"} ${tone}`,
+      projected,
+      depth
+    });
+  }
+  faces.sort((a, b) => b.depth - a.depth);
+  faces.push(axonFace(proj, ring, zTop, `axon-top ${tone}`, extend));
+  return { depth: ring.length ? depthSum / ring.length : 0, faces };
+}
+
+function renderAxonView(variant, input, bounds) {
+  const proj = axonProjector(bounds);
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  const extend = (projected) => {
+    projected.forEach((p) => {
+      if (p.x < minX) { minX = p.x; }
+      if (p.x > maxX) { maxX = p.x; }
+      if (p.y < minY) { minY = p.y; }
+      if (p.y > maxY) { maxY = p.y; }
+    });
+  };
+
+  const floors = [];
+  const boxes = [];
+  const plate = input && input.floorplate && input.floorplate.outer ? input.floorplate.outer.points : null;
+
+  if (plate) {
+    // Ground shadow anchors the model; a flat offset polygon, never a filter.
+    const shadow = axonFace(proj, plate, 0, "axon-shadow", extend);
+    shadow.projected = shadow.projected.map((p) => ({ x: p.x + 0.55, y: p.y - 0.4 }));
+    extend(shadow.projected);
+    floors.push(shadow);
+    boxes.push({ ...axonBox(proj, plate, -axonSettings.slabDepth, 0, "axon-slab", extend), depth: Infinity });
+  }
+
+  if (variant) {
+    (variant.rooms || []).forEach((room) => {
+      floors.push(axonFace(proj, room.polygon.points, 0.012, `axon-floor ${roomCategoryClass(room)}`, extend));
+    });
+    (variant.corridors || []).forEach((corridor) => {
+      floors.push(axonFace(proj, corridor.polygon.points, 0.012, "axon-floor axon-floor-corridor", extend));
+    });
+    (variant.walls || []).forEach((wall) => {
+      // Reuses the plan renderer's footprint: ends extend half a thickness so
+      // wall volumes close their corners instead of leaving notches.
+      const footprint = wallFootprint(wall, Math.max(Number(wall.thickness) || 0.1, 0.06));
+      if (!footprint) {
+        return;
+      }
+      const partition = String(wall.layerType || "") === "room_partition";
+      const height = partition ? axonSettings.partitionHeight : axonSettings.wallHeight;
+      boxes.push(axonBox(proj, footprint, 0, height, partition ? "axon-wall-partition" : "axon-wall", extend));
+    });
+  }
+
+  if (input && Array.isArray(input.fixedElements)) {
+    input.fixedElements.forEach((fixed) => {
+      if (fixed.polygon && fixed.polygon.points) {
+        boxes.push(axonBox(proj, fixed.polygon.points, 0, axonSettings.coreHeight, "axon-core", extend));
+      }
+    });
+  }
+
+  if (!Number.isFinite(minX)) {
+    els.planSvg.removeAttribute("viewBox");
+    return;
+  }
+
+  const projBounds = { minX, minY, maxX, maxY, width: maxX - minX, height: maxY - minY };
+  els.planSvg.setAttribute("viewBox", previewViewBox(projBounds, state.zoom));
+  els.planSvg.setAttribute("preserveAspectRatio", "xMidYMid meet");
+  const group = svgEl("g", { transform: previewTransform() });
+  els.planSvg.appendChild(group);
+
+  // Painter's algorithm: the slab first (depth Infinity), flat floors on it,
+  // then whole volumes from the back of the scene forward — sorting complete
+  // boxes (not loose faces) keeps wall junctions free of interleave artifacts.
+  const emit = (face) => group.appendChild(svgEl("polygon", { class: face.className, points: axonPolygonAttr(face.projected) }));
+  boxes.sort((a, b) => b.depth - a.depth);
+  const slabAndBack = boxes.filter((box) => box.depth === Infinity);
+  slabAndBack.forEach((box) => box.faces.forEach(emit));
+  floors.forEach(emit);
+  boxes.filter((box) => box.depth !== Infinity).forEach((box) => box.faces.forEach(emit));
 }
 
 function renderDimensionGuides(bounds, units = "m") {
@@ -2756,6 +3052,20 @@ function renderSvgDefs() {
   // Heavy tile (denser) for demising/structure, light tile for partitions.
   defs.appendChild(buildHatchPattern("wallPocheHeavy", 0.05, 0.026));
   defs.appendChild(buildHatchPattern("wallPocheLight", 0.058, 0.018));
+  // Arrowhead for circulation flow lines, sized off the stroke so it stays
+  // proportionate at every zoom level.
+  const arrow = svgEl("marker", {
+    id: "circ-arrow",
+    viewBox: "0 0 10 10",
+    refX: "8",
+    refY: "5",
+    markerWidth: "4.2",
+    markerHeight: "4.2",
+    markerUnits: "strokeWidth",
+    orient: "auto-start-reverse"
+  });
+  arrow.appendChild(svgEl("path", { d: "M 0 1 L 8 5 L 0 9 z", class: "circ-arrow-head" }));
+  defs.appendChild(arrow);
   els.planSvg.appendChild(defs);
 }
 

@@ -725,6 +725,55 @@ legend {
   display: none;
 }
 
+/* --------------------------------------------------------------------------
+   3D AXON — extruded white-model faces. Tones are flat fills (no filters):
+   tops lightest, the two side orientations one step apart so volumes read.
+   -------------------------------------------------------------------------- */
+.axon-shadow { fill: rgba(33, 38, 43, 0.10); stroke: none; }
+.axon-top.axon-slab { fill: #eef0ee; stroke: var(--ink-900); stroke-width: 0.03; }
+.axon-side-x.axon-slab, .axon-side-y.axon-slab { fill: #d8dcda; stroke: var(--ink-900); stroke-width: 0.025; }
+.axon-top.axon-wall { fill: #fdfdfc; stroke: var(--ink-900); stroke-width: 0.022; }
+.axon-side-x.axon-wall { fill: #e7e9e7; stroke: var(--ink-900); stroke-width: 0.018; }
+.axon-side-y.axon-wall { fill: #d3d7d5; stroke: var(--ink-900); stroke-width: 0.018; }
+.axon-top.axon-wall-partition { fill: #fbfbfa; stroke: var(--ink-900); stroke-width: 0.016; }
+.axon-side-x.axon-wall-partition { fill: #ecedeb; stroke: var(--ink-900); stroke-width: 0.014; }
+.axon-side-y.axon-wall-partition { fill: #dde0de; stroke: var(--ink-900); stroke-width: 0.014; }
+.axon-top.axon-core { fill: #5d6a70; stroke: var(--ink-900); stroke-width: 0.03; }
+.axon-side-x.axon-core { fill: #4a565c; stroke: var(--ink-900); stroke-width: 0.025; }
+.axon-side-y.axon-core { fill: #3d484d; stroke: var(--ink-900); stroke-width: 0.025; }
+.axon-floor { stroke: none; }
+.axon-floor-corridor { fill: #e9eef0; }
+
+/* --------------------------------------------------------------------------
+   CIRCULATION — door-network movement diagram over a muted plan base.
+   -------------------------------------------------------------------------- */
+#planSvg[data-view-mode="circulation"] .wall { fill: var(--ink-300, #b8bfc4); }
+#planSvg[data-view-mode="circulation"] .fixture,
+#planSvg[data-view-mode="circulation"] .plan-glyph { display: none; }
+#planSvg[data-view-mode="circulation"] .room { fill-opacity: 0.45; }
+.circ-spine {
+  stroke: var(--teal);
+  stroke-width: 0.16;
+  stroke-dasharray: 0.5 0.32;
+  stroke-linecap: round;
+  fill: none;
+  opacity: 0.9;
+}
+.circ-flow {
+  stroke: var(--teal);
+  stroke-width: 0.085;
+  stroke-dasharray: 0.3 0.22;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  fill: none;
+  opacity: 0.95;
+}
+.circ-entry-flow { stroke-width: 0.14; stroke-dasharray: none; }
+.circ-spine-arrow { stroke-dasharray: none; stroke-width: 0.12; }
+.circ-arrow-head { fill: var(--teal); }
+.circ-door-dot { fill: #fff; stroke: var(--teal); stroke-width: 0.06; }
+.circ-entry-dot { fill: var(--teal); stroke: #fff; stroke-width: 0.06; }
+
 .prompt-understood {
   display: flex;
   flex-wrap: wrap;
