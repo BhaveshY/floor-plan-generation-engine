@@ -323,7 +323,7 @@ namespace FloorPlanGeneration.Generation
                 maxX = mirroredMax;
             }
 
-            AddRoom(unit, roomType, minX, minY, maxX, maxY, expectsDaylight);
+            AddRoom(unit, roomType, b, minX, minY, maxX, maxY, expectsDaylight);
         }
 
         private void AddRoomY(
@@ -338,7 +338,36 @@ namespace FloorPlanGeneration.Generation
                 maxY = mirroredMax;
             }
 
+            AddRoom(unit, roomType, b, minX, minY, maxX, maxY, expectsDaylight);
+        }
+
+        // Snaps a room's interior partitions onto the planning grid before placing
+        // it, so wet/day splits and bedroom columns line up across the plan. The
+        // unit's own envelope edges (which abut the corridor or floorplate) are left
+        // exactly where they are, so the unit keeps tiling watertight against its
+        // neighbours; adjacent rooms share each interior coordinate, so both snap
+        // identically and no gap opens. A module of 0 is a no-op (gridless layouts
+        // stay byte-identical).
+        private void AddRoom(UnitLayout unit, string roomType, Bounds2 b, double minX, double minY, double maxX, double maxY, bool expectsDaylight)
+        {
+            double module = _input.Source.Rules.GridModule;
+            double minRoomW = _input.Source.Rules.MinRoomWidth;
+            double minRoomD = _input.Source.Rules.MinRoomDepth;
+            minX = SnapInterior(minX, b.MinX, b.MaxX, minRoomW, module);
+            maxX = SnapInterior(maxX, b.MinX, b.MaxX, minRoomW, module);
+            minY = SnapInterior(minY, b.MinY, b.MaxY, minRoomD, module);
+            maxY = SnapInterior(maxY, b.MinY, b.MaxY, minRoomD, module);
             AddRoom(unit, roomType, minX, minY, maxX, maxY, expectsDaylight);
+        }
+
+        private double SnapInterior(double value, double envLo, double envHi, double minSpan, double module)
+        {
+            if (Math.Abs(value - envLo) <= _tolerance || Math.Abs(value - envHi) <= _tolerance)
+            {
+                return value;
+            }
+
+            return Grid.SnapWithin(value, envLo + minSpan, envHi - minSpan, 0.0, module);
         }
 
         private void AddRoom(UnitLayout unit, string roomType, double minX, double minY, double maxX, double maxY, bool expectsDaylight)

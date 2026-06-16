@@ -961,6 +961,11 @@ namespace FloorPlanGeneration
             if (input.Rules.MinRoomDepth <= 0.0) input.Rules.MinRoomDepth = 2.4;
             if (input.Rules.DoorWidth <= 0.0) input.Rules.DoorWidth = 0.9;
             if (input.Rules.MinUnitArea <= 0.0) input.Rules.MinUnitArea = 25.0;
+            if (input.Rules.GridModule < 0.0 || double.IsNaN(input.Rules.GridModule) ||
+                double.IsInfinity(input.Rules.GridModule))
+            {
+                input.Rules.GridModule = 0.0;
+            }
 
             if (input.GenerationSettings == null) input.GenerationSettings = new GenerationSettings();
             if (input.GenerationSettings.VariantCount <= 0) input.GenerationSettings.VariantCount = 1;

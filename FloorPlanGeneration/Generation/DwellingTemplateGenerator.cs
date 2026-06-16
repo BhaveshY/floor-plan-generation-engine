@@ -28,6 +28,11 @@ namespace FloorPlanGeneration.Generation
             public double X1;
             public double Y1;
             public bool ExpectsDaylight;
+
+            // A living room set back behind a balcony still gets daylight through
+            // the balcony's open facade; this forces its Daylight flag on so the
+            // validator's habitable-daylight rule is satisfied.
+            public bool ForceDaylight;
         }
 
         public DwellingTemplateGenerator(CleanedInput input)
@@ -69,7 +74,7 @@ namespace FloorPlanGeneration.Generation
             foreach (FrameRect room in rooms)
             {
                 Bounds2 world = MapRect(room, bounds, entrySide);
-                AddRoom(unit, room.RoomType, world, room.ExpectsDaylight);
+                AddRoom(unit, room.RoomType, world, room.ExpectsDaylight, room.ForceDaylight);
             }
 
             // The entry door opens into the room that actually sits on the entry
@@ -89,123 +94,486 @@ namespace FloorPlanGeneration.Generation
         }
 
         /// <summary>
-        /// Frame layout (entry along y = 0): a wet band with bath / foyer / kitchen
-        /// at the entry, then a daylight band split into living and bedrooms with
-        /// the living central so every bedroom can open onto it.
+        /// Frame layout (entry along y = 0): a wet band of service rooms (baths,
+        /// kitchen, optional foyer / store / utility / pooja) at the entry, then a
+        /// daylight band with the living room central and bedrooms — plus any
+        /// study and dining — flanking it. An optional balcony is stacked at the
+        /// far facade in front of the living. Counts come from the dwelling
+        /// program; each is clamped to what the plate can actually host. The
+        /// single-bathroom, no-extras program reproduces the historic layout
+        /// byte-for-byte so existing plans stay deterministic.
         /// </summary>
         private List<FrameRect> LayoutRooms(double width, double depth, string type, RoomStyle style, List<Diagnostic> diagnostics)
         {
             double minW = Math.Max(1.2, _input.Source.Rules.MinRoomWidth);
             double minD = Math.Max(1.2, _input.Source.Rules.MinRoomDepth);
-            int bedrooms = BedroomsFor(type);
-            int fittable = Math.Max(0, (int)Math.Floor((width + _tolerance) / minW) - 1);
-            if (bedrooms > fittable)
+
+            DwellingProgram program = _input.Source.Program != null && _input.Source.Program.Dwelling != null
+                ? _input.Source.Program.Dwelling
+                : new DwellingProgram();
+            int bedrooms = program.Bedrooms >= 0 ? program.Bedrooms : BedroomsFor(type);
+            int bathrooms = Math.Max(1, program.Bathrooms);
+            int kitchens = Math.Max(1, program.Kitchens);
+            int livings = Math.Max(1, program.Livings);
+            int study = Math.Max(0, program.Study);
+            int dining = Math.Max(0, program.Dining);
+            int store = Math.Max(0, program.Store);
+            int utility = Math.Max(0, program.Utility);
+            int pooja = Math.Max(0, program.Pooja);
+            int balcony = Math.Max(0, program.Balcony);
+
+            double wetLo = Math.Max(1.8, minD * 0.75);
+            double wetHi = Math.Min(3.2, depth - minD);
+            double wetDepth = Clamp(depth * style.WetFraction, wetLo, wetHi);
+            // The wet/day split is one shared partition line: snapping it moves both
+            // bands together, so watertight tiling holds. SnapWithin keeps the raw
+            // value when the grid would push the split outside its usable range.
+            wetDepth = Grid.SnapWithin(wetDepth, wetLo, wetHi, 0.0, _input.Source.Rules.GridModule);
+            List<FrameRect> rooms = new List<FrameRect>();
+
+            BuildWetBand(rooms, width, wetDepth, minW, bedrooms, ref bathrooms, ref kitchens, ref pooja, ref store, ref utility, style, diagnostics);
+            BuildDayBand(rooms, width, depth, wetDepth, minW, minD, ref bedrooms, livings, ref study, ref dining, ref balcony, style, diagnostics);
+
+            return rooms;
+        }
+
+        /// <summary>
+        /// Lays the entry-facade service band left to right. The kitchen always
+        /// takes the remainder; baths and interior service rooms are dropped (with
+        /// a diagnostic) before they would starve the kitchen below a usable width.
+        /// </summary>
+        private void BuildWetBand(
+            List<FrameRect> rooms,
+            double width,
+            double wetDepth,
+            double minW,
+            int bedrooms,
+            ref int bathrooms,
+            ref int kitchens,
+            ref int pooja,
+            ref int store,
+            ref int utility,
+            RoomStyle style,
+            List<Diagnostic> diagnostics)
+        {
+            double foyerWidth = Clamp(width * 0.24, 1.2, 2.8);
+            double minKitchen = Math.Min(minW, 1.8);
+
+            if (bathrooms == 1 && kitchens == 1 && pooja == 0 && store == 0 && utility == 0)
+            {
+                // Historic single-bathroom, single-kitchen wet band, preserved byte-for-byte
+                // when the grid is off; its bath/foyer/kitchen partitions snap when it is on.
+                double bathSimple = Clamp(width * style.WetSplitFraction, Math.Min(minW, 1.8), Math.Max(Math.Min(minW, 1.8), width * 0.40));
+                bool foyerSimple = width - bathSimple - foyerWidth >= minKitchen && bedrooms > 0;
+                List<string> simpleTypes = new List<string> { "bathroom" };
+                List<double> simpleWidths = new List<double> { bathSimple };
+                double simpleUsed = bathSimple;
+                if (foyerSimple)
+                {
+                    simpleTypes.Add("foyer");
+                    simpleWidths.Add(foyerWidth);
+                    simpleUsed += foyerWidth;
+                }
+
+                simpleTypes.Add("kitchen");
+                simpleWidths.Add(width - simpleUsed);
+                PlaceWetRooms(rooms, simpleTypes, simpleWidths, wetDepth, Math.Min(1.2, minKitchen));
+                return;
+            }
+
+            // Every kitchen must clear a usable width, so the bath/service/foyer
+            // fit checks reserve room for all of them, not just one.
+            double kitchenReserve = kitchens * minKitchen;
+            double bathWidth = Clamp(width * style.WetSplitFraction, Math.Max(1.4, Math.Min(minW, 1.8)), 2.6);
+            double serviceWidth = Clamp(width * 0.16, 1.2, 2.2);
+            double used = 0.0;
+            int placedBaths = 0;
+            for (int i = 0; i < bathrooms; i++)
+            {
+                if (width - used - bathWidth < kitchenReserve)
+                {
+                    break;
+                }
+
+                used += bathWidth;
+                placedBaths++;
+            }
+
+            if (placedBaths < bathrooms)
+            {
+                diagnostics.Add(Diagnostic.Warning(
+                    "dwelling.bathrooms_reduced",
+                    "Plate width cannot host every bathroom beside the kitchen; reduced the bathroom count to fit.",
+                    "floorplate"));
+            }
+
+            bathrooms = Math.Max(1, placedBaths);
+
+            int placedPooja = FitService(ref used, width, serviceWidth, kitchenReserve, pooja);
+            int placedStore = FitService(ref used, width, serviceWidth, kitchenReserve, store);
+            int placedUtility = FitService(ref used, width, serviceWidth, kitchenReserve, utility);
+            ReportDropped(diagnostics, "pooja room", pooja - placedPooja);
+            ReportDropped(diagnostics, "store", store - placedStore);
+            ReportDropped(diagnostics, "utility room", utility - placedUtility);
+            pooja = placedPooja;
+            store = placedStore;
+            utility = placedUtility;
+
+            bool hasFoyer = bedrooms > 0 && width - used - foyerWidth >= kitchenReserve;
+            if (hasFoyer)
+            {
+                used += foyerWidth;
+            }
+
+            // Collect the wet rooms left-to-right, then snap their shared partitions to
+            // the grid in one pass (SnapBoundaries freezes the [0, width] band edges and
+            // lets the last kitchen absorb the drift, so the band still tiles exactly).
+            List<string> wetTypes = new List<string>();
+            List<double> wetWidths = new List<double>();
+            for (int i = 0; i < bathrooms; i++) { wetTypes.Add("bathroom"); wetWidths.Add(bathWidth); }
+            for (int i = 0; i < pooja; i++) { wetTypes.Add("pooja"); wetWidths.Add(serviceWidth); }
+            for (int i = 0; i < store; i++) { wetTypes.Add("store"); wetWidths.Add(serviceWidth); }
+            for (int i = 0; i < utility; i++) { wetTypes.Add("utility"); wetWidths.Add(serviceWidth); }
+            if (hasFoyer)
+            {
+                wetTypes.Add("foyer");
+                wetWidths.Add(foyerWidth);
+            }
+
+            // Split the remaining width into the requested kitchens; the last one
+            // absorbs rounding drift so the wet band still tiles exactly.
+            int fittableKitchens = Math.Max(1, (int)Math.Floor((width - used + _tolerance) / minKitchen));
+            if (fittableKitchens < kitchens)
+            {
+                ReportDropped(diagnostics, "kitchen", kitchens - fittableKitchens);
+                kitchens = fittableKitchens;
+            }
+
+            double kitchenTotal = width - used;
+            double kitchenCursor = used;
+            for (int i = 0; i < kitchens; i++)
+            {
+                double kitchenWidth = i == kitchens - 1 ? width - kitchenCursor : kitchenTotal / kitchens;
+                wetTypes.Add("kitchen");
+                wetWidths.Add(kitchenWidth);
+                kitchenCursor += kitchenWidth;
+            }
+
+            PlaceWetRooms(rooms, wetTypes, wetWidths, wetDepth, Math.Min(1.2, minKitchen));
+        }
+
+        /// <summary>
+        /// Lays the daylight band: the living room stays central while bedrooms,
+        /// study and dining flank it (bedrooms keep priority when the plate is
+        /// short). An optional balcony is carved from the far facade in front of
+        /// the living, which then draws daylight through it.
+        /// </summary>
+        private void BuildDayBand(
+            List<FrameRect> rooms,
+            double width,
+            double depth,
+            double wetDepth,
+            double minW,
+            double minD,
+            ref int bedrooms,
+            int livings,
+            ref int study,
+            ref int dining,
+            ref int balcony,
+            RoomStyle style,
+            List<Diagnostic> diagnostics)
+        {
+            int maxColumns = Math.Max(1, (int)Math.Floor((width + _tolerance) / minW));
+
+            // Bedrooms keep first claim on the band but always leave at least one
+            // column for a living; the requested livings then fill what is left,
+            // and study/dining share whatever columns remain after that.
+            if (bedrooms > maxColumns - 1)
             {
                 diagnostics.Add(Diagnostic.Warning(
                     "dwelling.bedrooms_reduced",
                     "Plate width cannot host every bedroom beside the living room; reduced the bedroom count to fit.",
                     "floorplate"));
-                bedrooms = fittable;
+                bedrooms = Math.Max(0, maxColumns - 1);
             }
 
-            double wetDepth = Clamp(depth * style.WetFraction, Math.Max(1.8, minD * 0.75), Math.Min(3.2, depth - minD));
-            List<FrameRect> rooms = new List<FrameRect>();
-
-            // Wet band: [bath][foyer][kitchen], the foyer dropped on tight plates.
-            double bathWidth = Clamp(width * style.WetSplitFraction, Math.Min(minW, 1.8), Math.Max(Math.Min(minW, 1.8), width * 0.40));
-            double foyerWidth = Clamp(width * 0.24, 1.2, 2.8);
-            bool hasFoyer = width - bathWidth - foyerWidth >= Math.Min(minW, 1.8) && BedroomsFor(type) > 0;
-            if (!hasFoyer)
+            int requestedLivings = livings;
+            livings = Math.Max(1, Math.Min(livings, maxColumns - bedrooms));
+            if (livings < requestedLivings)
             {
-                foyerWidth = 0.0;
+                ReportDropped(diagnostics, "living room", requestedLivings - livings);
             }
 
-            double cursor = 0.0;
-            rooms.Add(WetRoom("bathroom", ref cursor, bathWidth, wetDepth));
-            if (hasFoyer)
-            {
-                rooms.Add(WetRoom("foyer", ref cursor, foyerWidth, wetDepth));
-            }
+            int fittable = Math.Max(0, maxColumns - bedrooms - livings);
 
-            rooms.Add(WetRoom("kitchen", ref cursor, width - cursor, wetDepth));
-
-            // Daylight band: living central, bedrooms flanking it.
             string livingType = bedrooms == 0 ? "living_sleeping" : "living";
-            if (bedrooms == 0)
+            if (study == 0 && dining == 0 && balcony == 0 && livings == 1)
             {
-                rooms.Add(DayRoom(livingType, 0.0, width, wetDepth, depth));
+                BuildSimpleDayBand(rooms, width, depth, wetDepth, minW, bedrooms, livingType, style);
+                return;
+            }
+
+            List<string> flank = new List<string>();
+            for (int i = 0; i < bedrooms; i++) { flank.Add("bedroom"); }
+            List<string> extras = new List<string>();
+            for (int i = 0; i < study; i++) { extras.Add("study"); }
+            for (int i = 0; i < dining; i++) { extras.Add("dining"); }
+            if (extras.Count > fittable)
+            {
+                int dropped = extras.Count - fittable;
+                extras = extras.Take(Math.Max(0, fittable)).ToList();
+                ReportDropped(diagnostics, "study/dining room", dropped);
+            }
+
+            study = extras.Count(t => t == "study");
+            dining = extras.Count(t => t == "dining");
+            flank.AddRange(extras);
+
+            int flankCount = flank.Count;
+            double[] widths = new double[flankCount + 1];
+            double flankShare = flankCount > 0 ? Clamp((1.0 - style.OneBedFraction) / flankCount, 0.0, 1.0) : 0.0;
+            for (int i = 0; i < flankCount; i++)
+            {
+                widths[i] = Math.Max(minW, width * flankShare);
+            }
+
+            double living = width - widths.Take(flankCount).Sum();
+            double minLiving = livings * minW;
+            if (living < minLiving && flankCount > 0)
+            {
+                double deficit = minLiving - living;
+                for (int i = 0; i < flankCount; i++)
+                {
+                    widths[i] = Math.Max(minW, widths[i] - (deficit / flankCount));
+                }
+
+                living = Math.Max(minLiving, width - widths.Take(flankCount).Sum());
+            }
+
+            widths[flankCount] = flankCount > 0 ? living : width;
+
+            // Split the living total into the requested living columns and seat
+            // them centrally; for a single living this matches the historic order.
+            double livingEach = widths[flankCount] / livings;
+            List<string> order = new List<string>();
+            List<double> orderedWidths = new List<double>();
+            if (flankCount == 0)
+            {
+                for (int i = 0; i < livings; i++)
+                {
+                    order.Add(livingType);
+                    orderedWidths.Add(livingEach);
+                }
             }
             else
             {
-                double bedShare = Clamp((1.0 - style.OneBedFraction) / bedrooms, 0.0, 1.0);
-                double[] widths = new double[bedrooms + 1];
-                for (int i = 0; i < bedrooms; i++)
-                {
-                    widths[i] = Math.Max(minW, width * bedShare);
-                }
-
-                double living = width - widths.Take(bedrooms).Sum();
-                if (living < minW)
-                {
-                    double deficit = minW - living;
-                    for (int i = 0; i < bedrooms; i++)
-                    {
-                        widths[i] = Math.Max(minW, widths[i] - (deficit / bedrooms));
-                    }
-
-                    living = Math.Max(minW, width - widths.Take(bedrooms).Sum());
-                }
-
-                widths[bedrooms] = living;
-
-                // Order with living central: bed1 | living | bed2 | bed3...
-                List<string> order = new List<string>();
-                List<double> orderedWidths = new List<double>();
-                order.Add("bedroom");
+                order.Add(flank[0]);
                 orderedWidths.Add(widths[0]);
-                order.Add(livingType);
-                orderedWidths.Add(widths[bedrooms]);
-                for (int i = 1; i < bedrooms; i++)
+                for (int i = 0; i < livings; i++)
                 {
-                    order.Add("bedroom");
+                    order.Add(livingType);
+                    orderedWidths.Add(livingEach);
+                }
+
+                for (int i = 1; i < flankCount; i++)
+                {
+                    order.Add(flank[i]);
                     orderedWidths.Add(widths[i]);
-                }
-
-                if (style.MirrorEvenUnits)
-                {
-                    order.Reverse();
-                    orderedWidths.Reverse();
-                }
-
-                // Absorb rounding drift into the widest room so the band tiles exactly.
-                double drift = width - orderedWidths.Sum();
-                int widest = orderedWidths.IndexOf(orderedWidths.Max());
-                orderedWidths[widest] += drift;
-
-                double x = 0.0;
-                for (int i = 0; i < order.Count; i++)
-                {
-                    rooms.Add(DayRoom(order[i], x, x + orderedWidths[i], wetDepth, depth));
-                    x += orderedWidths[i];
                 }
             }
 
-            return rooms;
+            if (style.MirrorEvenUnits)
+            {
+                order.Reverse();
+                orderedWidths.Reverse();
+            }
+
+            double drift = width - orderedWidths.Sum();
+            int widest = orderedWidths.IndexOf(orderedWidths.Max());
+            orderedWidths[widest] += drift;
+
+            // Hand balconies to living columns first, then bedrooms, until the
+            // requested count is met or the daylight columns run out.
+            bool[] hasBalcony = new bool[order.Count];
+            int balconyBudget = balcony;
+            for (int pass = 0; pass < 2 && balconyBudget > 0; pass++)
+            {
+                string target = pass == 0 ? livingType : "bedroom";
+                for (int i = 0; i < order.Count && balconyBudget > 0; i++)
+                {
+                    if (!hasBalcony[i] && order[i] == target)
+                    {
+                        hasBalcony[i] = true;
+                        balconyBudget--;
+                    }
+                }
+            }
+
+            ReportDropped(diagnostics, "balcony", balconyBudget);
+            balcony -= balconyBudget;
+
+            double dayDepth = depth - wetDepth;
+            double balconyDepth = balcony > 0 ? Clamp(dayDepth * 0.22, 1.2, 1.8) : 0.0;
+            if (balcony > 0 && dayDepth - balconyDepth < minD)
+            {
+                ReportDropped(diagnostics, "balcony", balcony);
+                balcony = 0;
+                balconyDepth = 0.0;
+                for (int i = 0; i < hasBalcony.Length; i++) { hasBalcony[i] = false; }
+            }
+
+            // Snap the interior partitions to the planning grid (no-op when the grid
+            // is off); neighbouring rooms share each boundary, so tiling stays exact.
+            double[] bx = Grid.SnapBoundaries(0.0, orderedWidths, minW, _input.Source.Rules.GridModule);
+            for (int i = 0; i < order.Count; i++)
+            {
+                double x0 = bx[i];
+                double x1 = bx[i + 1];
+                if (hasBalcony[i])
+                {
+                    // The room opens onto its balcony, which carries the daylight
+                    // exposure on the far facade, so it is force-lit.
+                    rooms.Add(new FrameRect
+                    {
+                        RoomType = order[i],
+                        X0 = x0,
+                        Y0 = wetDepth,
+                        X1 = x1,
+                        Y1 = depth - balconyDepth,
+                        ExpectsDaylight = true,
+                        ForceDaylight = true
+                    });
+                    rooms.Add(new FrameRect
+                    {
+                        RoomType = "balcony",
+                        X0 = x0,
+                        Y0 = depth - balconyDepth,
+                        X1 = x1,
+                        Y1 = depth,
+                        ExpectsDaylight = false
+                    });
+                }
+                else
+                {
+                    rooms.Add(DayRoom(order[i], x0, x1, wetDepth, depth));
+                }
+            }
         }
 
-        private static FrameRect WetRoom(string type, ref double cursor, double width, double wetDepth)
+        /// <summary>
+        /// The historic daylight band: living central, bedrooms flanking it,
+        /// reproduced verbatim so the default program stays byte-identical.
+        /// </summary>
+        private void BuildSimpleDayBand(
+            List<FrameRect> rooms, double width, double depth, double wetDepth, double minW, int bedrooms, string livingType, RoomStyle style)
         {
-            FrameRect room = new FrameRect
+            if (bedrooms == 0)
             {
-                RoomType = type,
-                X0 = cursor,
-                Y0 = 0.0,
-                X1 = cursor + width,
-                Y1 = wetDepth,
-                ExpectsDaylight = false
-            };
-            cursor += width;
-            return room;
+                rooms.Add(DayRoom(livingType, 0.0, width, wetDepth, depth));
+                return;
+            }
+
+            double bedShare = Clamp((1.0 - style.OneBedFraction) / bedrooms, 0.0, 1.0);
+            double[] widths = new double[bedrooms + 1];
+            for (int i = 0; i < bedrooms; i++)
+            {
+                widths[i] = Math.Max(minW, width * bedShare);
+            }
+
+            double living = width - widths.Take(bedrooms).Sum();
+            if (living < minW)
+            {
+                double deficit = minW - living;
+                for (int i = 0; i < bedrooms; i++)
+                {
+                    widths[i] = Math.Max(minW, widths[i] - (deficit / bedrooms));
+                }
+
+                living = Math.Max(minW, width - widths.Take(bedrooms).Sum());
+            }
+
+            widths[bedrooms] = living;
+
+            // Order with living central: bed1 | living | bed2 | bed3...
+            List<string> order = new List<string>();
+            List<double> orderedWidths = new List<double>();
+            order.Add("bedroom");
+            orderedWidths.Add(widths[0]);
+            order.Add(livingType);
+            orderedWidths.Add(widths[bedrooms]);
+            for (int i = 1; i < bedrooms; i++)
+            {
+                order.Add("bedroom");
+                orderedWidths.Add(widths[i]);
+            }
+
+            if (style.MirrorEvenUnits)
+            {
+                order.Reverse();
+                orderedWidths.Reverse();
+            }
+
+            // Absorb rounding drift into the widest room so the band tiles exactly.
+            double drift = width - orderedWidths.Sum();
+            int widest = orderedWidths.IndexOf(orderedWidths.Max());
+            orderedWidths[widest] += drift;
+
+            // Snap interior partitions to the planning grid (no-op when the grid is
+            // off, so the historic default program stays byte-identical).
+            double[] bx = Grid.SnapBoundaries(0.0, orderedWidths, minW, _input.Source.Rules.GridModule);
+            for (int i = 0; i < order.Count; i++)
+            {
+                rooms.Add(DayRoom(order[i], bx[i], bx[i + 1], wetDepth, depth));
+            }
+        }
+
+        private static int FitService(ref double used, double width, double serviceWidth, double minKitchen, int requested)
+        {
+            int placed = 0;
+            for (int i = 0; i < requested; i++)
+            {
+                if (width - used - serviceWidth < minKitchen)
+                {
+                    break;
+                }
+
+                used += serviceWidth;
+                placed++;
+            }
+
+            return placed;
+        }
+
+        // Snaps the wet band's left-to-right partitions onto the planning grid before
+        // emitting the rooms (no-op when the grid is off, so the historic cursor-placed
+        // band stays byte-identical). The band tiles [0, width]; SnapBoundaries freezes
+        // those edges and the last room absorbs the drift, so tiling stays exact.
+        private void PlaceWetRooms(List<FrameRect> rooms, List<string> types, List<double> widths, double wetDepth, double minSegment)
+        {
+            double[] bx = Grid.SnapBoundaries(0.0, widths, minSegment, _input.Source.Rules.GridModule);
+            for (int i = 0; i < types.Count; i++)
+            {
+                rooms.Add(new FrameRect
+                {
+                    RoomType = types[i],
+                    X0 = bx[i],
+                    Y0 = 0.0,
+                    X1 = bx[i + 1],
+                    Y1 = wetDepth,
+                    ExpectsDaylight = false
+                });
+            }
+        }
+
+        private static void ReportDropped(List<Diagnostic> diagnostics, string label, int dropped)
+        {
+            if (dropped > 0)
+            {
+                diagnostics.Add(Diagnostic.Warning(
+                    "dwelling.room_dropped",
+                    "Plate is too small to host the requested " + label + "; it was left out to keep the plan buildable.",
+                    "floorplate"));
+            }
         }
 
         private static FrameRect DayRoom(string type, double x0, double x1, double wetDepth, double depth)
@@ -255,7 +623,7 @@ namespace FloorPlanGeneration.Generation
             return value;
         }
 
-        private void AddRoom(UnitLayout unit, string roomType, Bounds2 world, bool expectsDaylight)
+        private void AddRoom(UnitLayout unit, string roomType, Bounds2 world, bool expectsDaylight, bool forceDaylight = false)
         {
             Polygon2 polygon = Polygon2.Rectangle(
                 unit.Id + "-" + roomType + "-" + (unit.Rooms.Count + 1).ToString(CultureInfo.InvariantCulture),
@@ -263,8 +631,8 @@ namespace FloorPlanGeneration.Generation
                 world.MinY,
                 world.MaxX,
                 world.MaxY);
-            bool daylight = expectsDaylight &&
-                FacadeAnalyzer.HasDaylightExposure(polygon, _input.Floorplate, _input.Source.Facade, _tolerance);
+            bool daylight = forceDaylight || (expectsDaylight &&
+                FacadeAnalyzer.HasDaylightExposure(polygon, _input.Floorplate, _input.Source.Facade, _tolerance));
             unit.Rooms.Add(new RoomLayout
             {
                 Id = polygon.SourceId,

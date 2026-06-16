@@ -155,10 +155,55 @@ namespace FloorPlanGeneration.Schema
         {
             TargetUnitTypes = new List<UnitTypeTarget>();
             RoomTypes = new List<RoomTypeRule>();
+            Dwelling = new DwellingProgram();
         }
 
         public List<UnitTypeTarget> TargetUnitTypes { get; set; }
         public List<RoomTypeRule> RoomTypes { get; set; }
+
+        /// <summary>
+        /// Explicit room counts for "single_dwelling" layouts. Lets a brief ask
+        /// for an exact program ("2 bedrooms, 2 bathrooms, a study and a balcony")
+        /// instead of the coarse unit-type string. Ignored by "multi_unit".
+        /// </summary>
+        public DwellingProgram Dwelling { get; set; }
+    }
+
+    /// <summary>
+    /// The room program for a single apartment. Sentinel defaults preserve the
+    /// historic behavior when a field is omitted: Bedrooms = -1 derives the count
+    /// from the unit type, Bathrooms = 0 means "one", and every optional room
+    /// defaults to none. The generator clamps each count to what the plate fits.
+    /// </summary>
+    public sealed class DwellingProgram
+    {
+        public DwellingProgram()
+        {
+            Bedrooms = -1;
+            Bathrooms = 0;
+            Kitchens = 0;
+            Livings = 0;
+            Study = 0;
+            Dining = 0;
+            Store = 0;
+            Utility = 0;
+            Pooja = 0;
+            Balcony = 0;
+        }
+
+        public int Bedrooms { get; set; }
+        public int Bathrooms { get; set; }
+
+        // Kitchens = 0 and Livings = 0 mean "one" (the historic default); both can
+        // be raised so a brief like "2 BHK with 2 kitchens" produces two kitchens.
+        public int Kitchens { get; set; }
+        public int Livings { get; set; }
+        public int Study { get; set; }
+        public int Dining { get; set; }
+        public int Store { get; set; }
+        public int Utility { get; set; }
+        public int Pooja { get; set; }
+        public int Balcony { get; set; }
     }
 
     public sealed class UnitTypeTarget
@@ -215,6 +260,7 @@ namespace FloorPlanGeneration.Schema
             RequireDaylightForBedrooms = true;
             RequireDaylightForLiving = true;
             MinUnitArea = 25.0;
+            GridModule = 0.0;
         }
 
         public double MinCorridorWidth { get; set; }
@@ -225,6 +271,11 @@ namespace FloorPlanGeneration.Schema
         public bool RequireDaylightForBedrooms { get; set; }
         public bool RequireDaylightForLiving { get; set; }
         public double MinUnitArea { get; set; }
+
+        // Planning/structural grid module in metres. 0 means "no grid" — the
+        // historic free-proportion behaviour, kept byte-identical. A positive
+        // value snaps interior partitions to that module so plans read on-grid.
+        public double GridModule { get; set; }
     }
 
     public sealed class GenerationSettings

@@ -532,6 +532,9 @@ function syncInputFromForm() {
   input.rules.wetRoomAdjacencyPreferred = input.rules.wetRoomAdjacencyPreferred !== false;
   input.rules.requireDaylightForBedrooms = els.daylightBedrooms.checked;
   input.rules.requireDaylightForLiving = els.daylightLiving.checked;
+  // Snap unit bays and room partitions to a 0.6 m planning grid so apartments
+  // read as a regular bay rhythm instead of arbitrary widths (0 disables it).
+  input.rules.gridModule = input.rules.gridModule || 0.6;
 
   input.generationSettings.variantCount = clamp(Math.trunc(readNumber(els.variantInput, input.generationSettings.variantCount || 4)), 1, 20);
   input.generationSettings.strictness = els.strictnessInput.value || "balanced";
@@ -647,6 +650,9 @@ function normalizePromptText(text) {
     .replace(/([a-z])(\d)/g, "$1 $2")
     // De-glue the usual suspects: "bhkapartment", "bedflat", "floorplan".
     .replace(/\b(bhk|bedroom|bed|br|rk)(apartments?|flats?|homes?|houses?|residences?|units?|plans?)\b/g, "$1 $2")
+    // "bk" is the dropped-h typo for "bhk" ("2 bk apartment"); only fix it when a
+    // count precedes it, so it can never collide with unrelated words.
+    .replace(/\b(\d+|one|two|three|four|five|single|double)\s+bk\b/g, "$1 bhk")
     .replace(/\bfloorplans?\b/g, "floor plan")
     .replace(/\s+/g, " ");
 }
@@ -692,7 +698,16 @@ function parsePrompt(text) {
   const buildingWords = /\b(?:building|block|tower|plate|complex|development|housing|corridor|core|mix|floors?)\b/.test(t);
   const singularDwelling =
     /\b(?:an?|one|single|my|this)\s+(?:\d+\s*)?(?:bhk|rk|bed(?:room)?s?)?\s*(?:apartment|flat|home|house|unit|dwelling)\b/.test(t);
-  if (wantsRoomKitchen || (singularDwelling && !dwellingPlural && !buildingWords)) {
+  // Interior-room features ("2 bathrooms", "a pooja room", "a balcony") next to a
+  // bedroom count describe one home's program, not a building floor — so "2 BHK
+  // with 2 bathrooms" is a single dwelling even without the word "apartment", as
+  // long as nothing plural or building-scale appears.
+  const hasBedCount = /\b(?:\d+|one|two|three|four|single|double)\s*(?:bhk|bed(?:room)?s?|br)\b/.test(t);
+  const wantsInteriorRooms =
+    /\b(?:bath(?:room)?s?|toilets?|washrooms?|wcs?|kitchens?|kitchenettes?|pooja|puja|prayer\s*room|mandir)\b/.test(t)
+    || /\b(?:stud(?:y|ies)|living|lounges?|drawing|dinings?|stores?|utility|laundry|balcon(?:y|ies)|terraces?)\b/.test(t);
+  const dwellingProgram = hasBedCount && wantsInteriorRooms;
+  if (wantsRoomKitchen || ((singularDwelling || dwellingProgram) && !dwellingPlural && !buildingWords)) {
     intent.dwelling = "single";
     const wordToNumber = { one: 1, single: 1, two: 2, double: 2, three: 3, four: 4 };
     let bedrooms = wantsRoomKitchen || /\bstudio\b/.test(t) ? 0 : 1;
@@ -703,6 +718,40 @@ function parsePrompt(text) {
     }
     intent.bedrooms = bedrooms;
     note(bedrooms === 0 ? "single dwelling · 1 room + kitchen" : `single dwelling · ${bedrooms} bedroom${bedrooms > 1 ? "s" : ""}`);
+
+    // Room program extras: an explicit count ("2 bathrooms") or, when a room is
+    // simply named ("with a study and a pooja room"), one of it. These only
+    // shape a single dwelling — the engine partitions the plate around them.
+    const wordToCount = { a: 1, an: 1, one: 1, single: 1, two: 2, double: 2, three: 3, four: 4 };
+    const countOf = (words) => {
+      const counted = t.match(new RegExp(`\\b(\\d+|a|an|one|single|two|double|three|four)\\s+(?:${words})\\b`));
+      if (counted) {
+        const n = wordToCount[counted[1]] !== undefined ? wordToCount[counted[1]] : Number(counted[1]);
+        if (Number.isFinite(n)) { return clamp(Math.trunc(n), 1, 4); }
+      }
+      return new RegExp(`\\b(?:${words})\\b`).test(t) ? 1 : 0;
+    };
+    const bathrooms = countOf("bath(?:room)?s?|toilets?|washrooms?|wcs?");
+    if (bathrooms > 0) { intent.bathrooms = bathrooms; note(`${bathrooms} bathroom${bathrooms > 1 ? "s" : ""}`); }
+    const kitchens = countOf("kitchens?|kitchenettes?");
+    if (kitchens > 0) { intent.kitchens = kitchens; note(`${kitchens} kitchen${kitchens > 1 ? "s" : ""}`); }
+    const study = countOf("stud(?:y|ies)|home\\s*offices?");
+    if (study > 0) { intent.study = study; note(study > 1 ? `${study} studies` : "study"); }
+    // A combined "living-dining" is one shared space, never a separate living or
+    // dining room, so it suppresses both counts (the engine still seats one living).
+    const livingDining = /\bliving[\s/-]*dining\b/.test(t);
+    const livings = livingDining ? 0 : countOf("living\\s*(?:rooms?|areas?)|lounges?|drawing\\s*rooms?");
+    if (livings > 0) { intent.livings = livings; note(livings > 1 ? `${livings} living rooms` : "living room"); }
+    const dining = livingDining ? 0 : countOf("dining\\s*(?:rooms?|halls?|areas?)|separate\\s+dinings?");
+    if (dining > 0) { intent.dining = dining; note(dining > 1 ? `${dining} dining rooms` : "separate dining"); }
+    const store = countOf("store\\s*rooms?|storerooms?|storage|stores?");
+    if (store > 0) { intent.store = store; note(store > 1 ? `${store} store rooms` : "store room"); }
+    const utility = countOf("utility(?:\\s*rooms?)?|laundr(?:y|ies)");
+    if (utility > 0) { intent.utility = utility; note(utility > 1 ? `${utility} utility rooms` : "utility"); }
+    const pooja = countOf("pooja(?:\\s*rooms?)?|puja(?:\\s*rooms?)?|prayer\\s*rooms?|mandirs?");
+    if (pooja > 0) { intent.pooja = pooja; note(pooja > 1 ? `${pooja} pooja rooms` : "pooja room"); }
+    const balcony = countOf("balcon(?:y|ies)|terraces?|verandahs?|verandas?");
+    if (balcony > 0) { intent.balcony = balcony; note(balcony > 1 ? `${balcony} balconies` : "balcony"); }
   }
 
   // Single-digit dimensions are real for dwellings ("a studio 7 x 5"); values
@@ -816,9 +865,27 @@ function isDwellingInput(input) {
 
 function buildSingleDwellingInput(intent) {
   const bedrooms = clamp(Math.trunc(Number.isFinite(intent.bedrooms) ? intent.bedrooms : 1), 0, 4);
+  const bathrooms = clamp(Math.trunc(Number.isFinite(intent.bathrooms) ? intent.bathrooms : 1), 1, 4);
+  const kitchens = clamp(Math.trunc(Number.isFinite(intent.kitchens) ? intent.kitchens : 1), 1, 4);
+  const livings = clamp(Math.trunc(Number.isFinite(intent.livings) ? intent.livings : 1), 1, 3);
+  const study = clamp(Math.trunc(Number.isFinite(intent.study) ? intent.study : 0), 0, 2);
+  const dining = clamp(Math.trunc(Number.isFinite(intent.dining) ? intent.dining : 0), 0, 2);
+  const store = clamp(Math.trunc(Number.isFinite(intent.store) ? intent.store : 0), 0, 2);
+  const utility = clamp(Math.trunc(Number.isFinite(intent.utility) ? intent.utility : 0), 0, 2);
+  const pooja = clamp(Math.trunc(Number.isFinite(intent.pooja) ? intent.pooja : 0), 0, 2);
+  const balcony = clamp(Math.trunc(Number.isFinite(intent.balcony) ? intent.balcony : 0), 0, 4);
   const preset = dwellingPresets[bedrooms];
-  const width = clamp(Number.isFinite(intent.width) ? intent.width : preset.width, 4, 40);
-  const depth = clamp(Number.isFinite(intent.depth) ? intent.depth : preset.depth, 4, 30);
+
+  // Size the plate so every requested room fits without the engine having to
+  // drop any: the wet band (baths + services + kitchens) and the daylight band
+  // (bedrooms + study + dining + the living columns) each span the full width.
+  const wetNeed = bathrooms * 2.6 + (pooja + store + utility) * 2.2 + (bedrooms > 0 ? 2.8 : 0) + kitchens * 3.2;
+  const dayNeed = (bedrooms + study + dining) * 2.6 + livings * 5.2;
+  const neededWidth = Math.max(preset.width, wetNeed, dayNeed);
+  const neededDepth = preset.depth + (balcony ? 1.9 : 0);
+  const width = clamp(Number.isFinite(intent.width) ? intent.width : neededWidth, 4, 40);
+  const depth = clamp(Number.isFinite(intent.depth) ? intent.depth : neededDepth, 4, 30);
+  const area = round(width * depth);
   return ensureInputShape({
     project: { id: "single-dwelling", name: "Apartment Plan", units: "m", tolerance: 0.01, seed: 1 },
     floorplate: { outer: { id: "floorplate-01", points: rectPoints(0, 0, width, depth) }, holes: [] },
@@ -833,13 +900,14 @@ function buildSingleDwellingInput(intent) {
     program: {
       targetUnitTypes: [{
         type: preset.type,
-        minArea: preset.minArea,
-        maxArea: preset.maxArea,
+        minArea: Math.min(preset.minArea, area),
+        maxArea: Math.max(preset.maxArea, area),
         targetCount: 1,
         targetRatio: 1,
         weight: 1
       }],
-      roomTypes: defaultRoomTypes()
+      roomTypes: defaultRoomTypes(),
+      dwelling: { bedrooms, bathrooms, kitchens, livings, study, dining, store, utility, pooja, balcony }
     },
     rules: {
       minCorridorWidth: 1.2,
@@ -849,7 +917,8 @@ function buildSingleDwellingInput(intent) {
       wetRoomAdjacencyPreferred: true,
       requireDaylightForBedrooms: true,
       requireDaylightForLiving: true,
-      minUnitArea: 16
+      minUnitArea: 16,
+      gridModule: 0.6
     },
     generationSettings: {
       variantCount: 4,
@@ -957,6 +1026,15 @@ function mergeAiIntent(base, ai) {
     merged.dwelling = ai.dwelling === "single" ? "single" : undefined;
   }
   if (Number.isFinite(ai.bedrooms)) { merged.bedrooms = clamp(Math.trunc(ai.bedrooms), 0, 4); }
+  if (Number.isFinite(ai.bathrooms)) { merged.bathrooms = clamp(Math.trunc(ai.bathrooms), 1, 4); }
+  if (Number.isFinite(ai.kitchens)) { merged.kitchens = clamp(Math.trunc(ai.kitchens), 1, 4); }
+  if (Number.isFinite(ai.livings)) { merged.livings = clamp(Math.trunc(ai.livings), 1, 3); }
+  if (Number.isFinite(ai.study)) { merged.study = clamp(Math.trunc(ai.study), 0, 2); }
+  if (Number.isFinite(ai.dining)) { merged.dining = clamp(Math.trunc(ai.dining), 0, 2); }
+  if (Number.isFinite(ai.store)) { merged.store = clamp(Math.trunc(ai.store), 0, 2); }
+  if (Number.isFinite(ai.utility)) { merged.utility = clamp(Math.trunc(ai.utility), 0, 2); }
+  if (Number.isFinite(ai.pooja)) { merged.pooja = clamp(Math.trunc(ai.pooja), 0, 2); }
+  if (Number.isFinite(ai.balcony)) { merged.balcony = clamp(Math.trunc(ai.balcony), 0, 4); }
   if (Number.isFinite(ai.width)) { merged.width = ai.width; }
   if (Number.isFinite(ai.depth)) { merged.depth = ai.depth; }
   if (ai.template && ["rectangular-core", "l-shaped-core", "moderately-irregular-core"].includes(ai.template)) {
@@ -3866,7 +3944,9 @@ function roomCategoryClass(room) {
   if (type.includes("balcony") || type.includes("terrace")) {
     return "room-balcony";
   }
-  if (type.includes("utility") || type.includes("storage") || type.includes("laundry")) {
+  if (type.includes("utility") || type.includes("storage") || type.includes("store") ||
+    type.includes("laundry") || type.includes("pooja") || type.includes("puja") ||
+    type.includes("prayer") || type.includes("foyer")) {
     return "room-service";
   }
   return "room-general";

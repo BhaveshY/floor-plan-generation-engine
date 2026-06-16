@@ -244,7 +244,27 @@
           "items": {
             "$ref": "#/$defs/roomTypeRule"
           }
+        },
+        "dwelling": {
+          "$ref": "#/$defs/dwellingProgram"
         }
+      }
+    },
+    "dwellingProgram": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Explicit room counts for a single_dwelling layout. Bedrooms = -1 derives the count from the unit type; Bathrooms/Kitchens/Livings = 0 mean one; the rest default to none. Every count is clamped to what the plate can host.",
+      "properties": {
+        "bedrooms": { "type": "integer", "minimum": -1, "maximum": 4 },
+        "bathrooms": { "type": "integer", "minimum": 0, "maximum": 4 },
+        "kitchens": { "type": "integer", "minimum": 0, "maximum": 4 },
+        "livings": { "type": "integer", "minimum": 0, "maximum": 3 },
+        "study": { "type": "integer", "minimum": 0, "maximum": 2 },
+        "dining": { "type": "integer", "minimum": 0, "maximum": 2 },
+        "store": { "type": "integer", "minimum": 0, "maximum": 2 },
+        "utility": { "type": "integer", "minimum": 0, "maximum": 2 },
+        "pooja": { "type": "integer", "minimum": 0, "maximum": 2 },
+        "balcony": { "type": "integer", "minimum": 0, "maximum": 4 }
       }
     },
     "unitTypeTarget": {

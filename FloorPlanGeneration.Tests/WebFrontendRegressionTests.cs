@@ -1321,6 +1321,10 @@ namespace FloorPlanGeneration.Tests
             Assert.Contains("replace(/(\\d)([a-z])/g, \"$1 $2\")", app, StringComparison.Ordinal);
             Assert.Contains("normalizePromptText(text)", parsePrompt, StringComparison.Ordinal);
 
+            // "2 bk apartment" is the dropped-h typo for "bhk": normalising it lets
+            // such briefs route to a single dwelling instead of a corridor building.
+            Assert.Contains("bk\\b/g, \"$1 bhk\")", app, StringComparison.Ordinal);
+
             // Every distinct brief explores a distinct layout: the seed derives from
             // the brief text (reproducible per text), variety words walk it forward,
             // and the form pipeline actually carries it into the engine request.
@@ -1500,6 +1504,10 @@ namespace FloorPlanGeneration.Tests
             Assert.Contains("fixedElements: []", buildDwelling, StringComparison.Ordinal);
             Assert.Contains("targetCount: 1", buildDwelling, StringComparison.Ordinal);
 
+            // The dwelling opts into the 0.6 m planning grid so interior partitions
+            // land on module lines instead of arbitrary free-proportion fractions.
+            Assert.Contains("gridModule: 0.6", buildDwelling, StringComparison.Ordinal);
+
             // Form syncing keeps the mode intact: no core injection, no unit-mix
             // overwrite, and the small-plate floor of 4 m applies.
             Assert.Contains("const dwellingMode = isDwellingInput(input)", syncInputFromForm, StringComparison.Ordinal);
@@ -1517,6 +1525,46 @@ namespace FloorPlanGeneration.Tests
 
             // The published input schema documents the new mode.
             Assert.Contains("single_dwelling", inputSchema, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void SingleDwellingBriefsSupportBathroomsAndExtraRooms()
+        {
+            string app = ReadWebFile("app.js");
+            string service = File.ReadAllText(Path.Combine(RepositoryRoot(), "FloorPlanGeneration.Web", "BriefIntentService.cs"));
+            string parsePrompt = SliceFunction(app, "parsePrompt");
+            string buildDwelling = SliceFunction(app, "buildSingleDwellingInput");
+            string mergeAiIntent = SliceFunction(app, "mergeAiIntent");
+
+            // The heuristic reads a bathroom count and the common optional rooms
+            // out of the brief ("2 BHK with 2 bathrooms, a study and a balcony") as
+            // true counts, so "2 balconies" or "2 store rooms" are not flattened.
+            Assert.Contains("intent.bathrooms = bathrooms", parsePrompt, StringComparison.Ordinal);
+            Assert.Contains("intent.study = study", parsePrompt, StringComparison.Ordinal);
+            Assert.Contains("intent.dining = dining", parsePrompt, StringComparison.Ordinal);
+            Assert.Contains("intent.pooja = pooja", parsePrompt, StringComparison.Ordinal);
+            Assert.Contains("intent.balcony = balcony", parsePrompt, StringComparison.Ordinal);
+
+            // Kitchens and living rooms are counted too, so "2 BHK with 2 kitchens"
+            // is honored instead of collapsing to the historic single kitchen.
+            Assert.Contains("intent.kitchens = kitchens", parsePrompt, StringComparison.Ordinal);
+            Assert.Contains("intent.livings = livings", parsePrompt, StringComparison.Ordinal);
+
+            // The dwelling input carries an explicit room program to the engine.
+            Assert.Contains(
+                "dwelling: { bedrooms, bathrooms, kitchens, livings, study, dining, store, utility, pooja, balcony }",
+                buildDwelling,
+                StringComparison.Ordinal);
+
+            // The AI bridge offers, sanitizes and merges the same fields, kitchens
+            // and livings included.
+            Assert.Contains("\\\"bathrooms\\\": integer", service, StringComparison.Ordinal);
+            Assert.Contains("\\\"kitchens\\\": integer", service, StringComparison.Ordinal);
+            Assert.Contains("Clamp(raw.Bathrooms.Value, 1.0, 4.0)", service, StringComparison.Ordinal);
+            Assert.Contains("Clamp(raw.Kitchens.Value, 1.0, 4.0)", service, StringComparison.Ordinal);
+            Assert.Contains("Clamp(raw.Livings.Value, 1.0, 3.0)", service, StringComparison.Ordinal);
+            Assert.Contains("merged.bathrooms = clamp(Math.trunc(ai.bathrooms), 1, 4)", mergeAiIntent, StringComparison.Ordinal);
+            Assert.Contains("merged.kitchens = clamp(Math.trunc(ai.kitchens), 1, 4)", mergeAiIntent, StringComparison.Ordinal);
         }
 
         [Fact]
@@ -1783,6 +1831,24 @@ namespace FloorPlanGeneration.Tests
                 "Core fields must be rescaled before they are read back into the input.");
             Assert.Contains("(coreBounds.minX - floorBounds.minX) * scaleX", rescaleCoreFields, StringComparison.Ordinal);
             Assert.Contains("coreBounds.width * scaleX", rescaleCoreFields, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void FormBuiltInputsOptIntoThePlanningGrid()
+        {
+            string app = ReadWebFile("app.js");
+            string syncInputFromForm = SliceFunction(app, "syncInputFromForm");
+            string engineSchema = File.ReadAllText(
+                Path.Combine(RepositoryRoot(), "FloorPlanGeneration", "Schema", "EngineSchema.cs"));
+
+            // Every form-built input (single dwelling or multi-unit building) snaps
+            // its bays and partitions to a 0.6 m planning grid, so apartments read as
+            // a regular bay rhythm instead of arbitrary widths.
+            Assert.Contains("input.rules.gridModule = input.rules.gridModule || 0.6", syncInputFromForm, StringComparison.Ordinal);
+
+            // The engine keeps the grid opt-in: GridModule defaults to 0 (the historic
+            // free-proportion behaviour) so untouched inputs stay byte-identical.
+            Assert.Contains("GridModule", engineSchema, StringComparison.Ordinal);
         }
 
         private static string ReadWebFile(string fileName)

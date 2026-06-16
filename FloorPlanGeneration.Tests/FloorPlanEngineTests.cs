@@ -1212,6 +1212,299 @@ namespace FloorPlanGeneration.Tests
             Assert.NotEqual(DwellingGeometrySignature(output), DwellingGeometrySignature(other));
         }
 
+        [Fact]
+        public void SingleDwellingMode_HonorsExplicitBathroomCount()
+        {
+            EngineInput input = SingleDwellingInput(seed: 7, variantCount: 4, width: 12.0, depth: 9.0, type: "two_bed");
+            input.Program.Dwelling.Bathrooms = 2;
+            EngineOutput output = new FloorPlanEngine().Generate(input);
+
+            Assert.Equal("succeeded", output.Status);
+            Assert.All(output.Variants, v => Assert.True(v.Validation.Passed));
+            foreach (LayoutVariant variant in output.Variants)
+            {
+                // The brief asked for a 2-bed, 2-bath: both wet rooms are present.
+                Assert.Equal(2, variant.Rooms.Count(r => r.RoomType == "bathroom"));
+                Assert.Equal(2, variant.Rooms.Count(r => r.RoomType == "bedroom"));
+
+                // The extra wet room keeps the plan watertight and fully circulable.
+                UnitLayout unit = Assert.Single(variant.Units);
+                Assert.InRange(Math.Abs(unit.Area - variant.Rooms.Sum(r => r.Area)), 0.0, 0.001);
+                HashSet<string> reachable = new HashSet<string>(
+                    variant.DoorsOpenings.SelectMany(d => d.ConnectsSpaces),
+                    System.StringComparer.OrdinalIgnoreCase);
+                Assert.All(variant.Rooms, room => Assert.Contains(room.Id, reachable));
+            }
+        }
+
+        [Fact]
+        public void SingleDwellingMode_HonorsExtraRoomsFromProgram()
+        {
+            EngineInput input = SingleDwellingInput(seed: 31, variantCount: 4, width: 14.0, depth: 11.0, type: "two_bed");
+            input.Program.Dwelling.Bathrooms = 2;
+            input.Program.Dwelling.Study = 1;
+            input.Program.Dwelling.Dining = 1;
+            input.Program.Dwelling.Store = 1;
+            input.Program.Dwelling.Pooja = 1;
+            input.Program.Dwelling.Balcony = 1;
+            EngineOutput output = new FloorPlanEngine().Generate(input);
+
+            Assert.Equal("succeeded", output.Status);
+            Assert.All(output.Variants, v => Assert.True(v.Validation.Passed));
+            foreach (LayoutVariant variant in output.Variants)
+            {
+                List<string> types = variant.Rooms.Select(r => r.RoomType).ToList();
+                Assert.Equal(2, types.Count(t => t == "bathroom"));
+                Assert.Equal(2, types.Count(t => t == "bedroom"));
+                Assert.Contains("study", types);
+                Assert.Contains("dining", types);
+                Assert.Contains("store", types);
+                Assert.Contains("pooja", types);
+                Assert.Contains("balcony", types);
+                Assert.Contains(variant.Rooms, r => r.RoomType == "living");
+
+                // Daylight rooms (bedrooms, living) keep their facade exposure even
+                // with a balcony, and the plan stays watertight and circulable.
+                Assert.All(
+                    variant.Rooms.Where(r => r.RoomType == "bedroom" || r.RoomType == "living"),
+                    room => Assert.True(room.Daylight, room.Id + " must have daylight."));
+                UnitLayout unit = Assert.Single(variant.Units);
+                Assert.InRange(Math.Abs(unit.Area - variant.Rooms.Sum(r => r.Area)), 0.0, 0.001);
+                HashSet<string> reachable = new HashSet<string>(
+                    variant.DoorsOpenings.SelectMany(d => d.ConnectsSpaces),
+                    System.StringComparer.OrdinalIgnoreCase);
+                Assert.All(variant.Rooms, room => Assert.Contains(room.Id, reachable));
+            }
+        }
+
+        [Fact]
+        public void SingleDwellingMode_HonorsExplicitKitchenAndLivingCounts()
+        {
+            EngineInput input = SingleDwellingInput(seed: 12, variantCount: 4, width: 13.0, depth: 9.5, type: "two_bed");
+            input.Program.Dwelling.Kitchens = 2;
+            input.Program.Dwelling.Livings = 2;
+            EngineOutput output = new FloorPlanEngine().Generate(input);
+
+            Assert.Equal("succeeded", output.Status);
+            Assert.All(output.Variants, v => Assert.True(v.Validation.Passed));
+            foreach (LayoutVariant variant in output.Variants)
+            {
+                // Two kitchens (a separate prep kitchen) and two living rooms.
+                Assert.Equal(2, variant.Rooms.Count(r => r.RoomType == "kitchen"));
+                Assert.Equal(2, variant.Rooms.Count(r => r.RoomType == "living"));
+                Assert.Equal(2, variant.Rooms.Count(r => r.RoomType == "bedroom"));
+
+                // Every living room keeps daylight; the plan tiles exactly and is
+                // fully circulable.
+                Assert.All(
+                    variant.Rooms.Where(r => r.RoomType == "living"),
+                    room => Assert.True(room.Daylight, room.Id + " must have daylight."));
+                UnitLayout unit = Assert.Single(variant.Units);
+                Assert.InRange(Math.Abs(unit.Area - variant.Rooms.Sum(r => r.Area)), 0.0, 0.002);
+                HashSet<string> reachable = new HashSet<string>(
+                    variant.DoorsOpenings.SelectMany(d => d.ConnectsSpaces),
+                    System.StringComparer.OrdinalIgnoreCase);
+                Assert.All(variant.Rooms, room => Assert.Contains(room.Id, reachable));
+            }
+        }
+
+        [Fact]
+        public void SingleDwellingMode_SnapsDaylightRoomsToGridModule()
+        {
+            // Plate dimensions are exact 0.6 m multiples (13.2 = 22x, 9.6 = 16x) so a
+            // correctly snapped plan keeps every daylight-room edge on the module
+            // regardless of which facade the entry maps onto.
+            EngineInput input = SingleDwellingInput(seed: 21, variantCount: 4, width: 13.2, depth: 9.6, type: "two_bed");
+            input.Rules.GridModule = 0.6;
+            EngineOutput output = new FloorPlanEngine().Generate(input);
+
+            Assert.Equal("succeeded", output.Status);
+            Assert.All(output.Variants, v => Assert.True(v.Validation.Passed));
+
+            string[] dayTypes = { "bedroom", "living", "living_sleeping", "study", "dining" };
+            foreach (LayoutVariant variant in output.Variants)
+            {
+                foreach (RoomLayout room in variant.Rooms.Where(r => dayTypes.Contains(r.RoomType)))
+                {
+                    AssertOnGrid(room.Bounds.MinX, 0.6, room.Id + " minX");
+                    AssertOnGrid(room.Bounds.MaxX, 0.6, room.Id + " maxX");
+                }
+
+                // Snapping moves only interior partitions, never the facade-facing band
+                // edge, so every daylight room must keep its daylight after the snap.
+                string[] needsDaylight = { "bedroom", "living", "living_sleeping" };
+                Assert.All(
+                    variant.Rooms.Where(r => needsDaylight.Contains(r.RoomType)),
+                    room => Assert.True(room.Daylight, room.Id + " lost daylight after snapping."));
+
+                // Snapping must not break watertight tiling or door reachability.
+                UnitLayout unit = Assert.Single(variant.Units);
+                Assert.InRange(Math.Abs(unit.Area - variant.Rooms.Sum(r => r.Area)), 0.0, 0.002);
+                HashSet<string> reachable = new HashSet<string>(
+                    variant.DoorsOpenings.SelectMany(d => d.ConnectsSpaces), System.StringComparer.OrdinalIgnoreCase);
+                Assert.All(variant.Rooms, room => Assert.Contains(room.Id, reachable));
+            }
+
+            // Snapping stays deterministic for a given seed.
+            EngineInput repeat = SingleDwellingInput(seed: 21, variantCount: 4, width: 13.2, depth: 9.6, type: "two_bed");
+            repeat.Rules.GridModule = 0.6;
+            Assert.Equal(DwellingGeometrySignature(output), DwellingGeometrySignature(new FloorPlanEngine().Generate(repeat)));
+        }
+
+        [Fact]
+        public void MultiUnitMode_SnapsUnitBaysToGridModule()
+        {
+            // The plate spans exact 0.6 m multiples on both axes (36 = 60x, 18 = 30x),
+            // so the unit band runs from one grid line to another. Every interior bay
+            // division then lands on the module, leaving the whole bay axis gridded.
+            EngineInput input = RectangularInput(seed: 1234, variantCount: 4);
+            input.Rules.GridModule = 0.6;
+            EngineOutput output = new FloorPlanEngine().Generate(input);
+
+            Assert.Equal("succeeded", output.Status);
+            Assert.All(output.Variants, v => Assert.True(v.Validation.Passed));
+
+            foreach (LayoutVariant variant in output.Variants)
+            {
+                Assert.NotEmpty(variant.Units);
+                foreach (UnitLayout unit in variant.Units)
+                {
+                    // Units tile along one axis (the bay axis); that axis runs the full
+                    // grid-aligned plate span, so both of its bounds snap to the module.
+                    // The cross axis is bounded by the off-grid corridor, so accepting
+                    // either axis being fully gridded keeps the test orientation-agnostic.
+                    bool xGridded = IsOnGrid(unit.Bounds.MinX, 0.6) && IsOnGrid(unit.Bounds.MaxX, 0.6);
+                    bool yGridded = IsOnGrid(unit.Bounds.MinY, 0.6) && IsOnGrid(unit.Bounds.MaxY, 0.6);
+                    Assert.True(
+                        xGridded || yGridded,
+                        unit.Id + " bay bounds x[" +
+                        unit.Bounds.MinX.ToString("0.####", CultureInfo.InvariantCulture) + "," +
+                        unit.Bounds.MaxX.ToString("0.####", CultureInfo.InvariantCulture) + "] y[" +
+                        unit.Bounds.MinY.ToString("0.####", CultureInfo.InvariantCulture) + "," +
+                        unit.Bounds.MaxY.ToString("0.####", CultureInfo.InvariantCulture) + "] are off the 0.6 m grid on both axes.");
+                }
+            }
+
+            // Snapping the bays stays deterministic for a given seed.
+            EngineInput repeat = RectangularInput(seed: 1234, variantCount: 4);
+            repeat.Rules.GridModule = 0.6;
+            Assert.Equal(Signatures(output), Signatures(new FloorPlanEngine().Generate(repeat)));
+        }
+
+        [Fact]
+        public void MultiUnitMode_SnapsRoomPartitionsToGridModule()
+        {
+            // Best-effort snapping: a room partition only moves onto the module when
+            // doing so keeps both sides above the minimum room size, so snapping is
+            // intentionally skipped inside narrow units (e.g. a 5 m remainder bay).
+            // The honest invariant is therefore "turning the grid on aligns strictly
+            // more room boundaries than the identical gridless plan", proven alongside
+            // watertight tiling, passing validation, and determinism.
+            EngineInput input = RectangularInput(seed: 1234, variantCount: 4);
+            input.Rules.GridModule = 0.6;
+            EngineOutput output = new FloorPlanEngine().Generate(input);
+
+            Assert.Equal("succeeded", output.Status);
+            Assert.All(output.Variants, v => Assert.True(v.Validation.Passed));
+
+            foreach (LayoutVariant variant in output.Variants)
+            {
+                Assert.NotEmpty(variant.Rooms);
+
+                // Watertight: rooms still tile each unit exactly after the snap.
+                foreach (UnitLayout unit in variant.Units)
+                {
+                    double roomSum = variant.Rooms.Where(r => r.UnitId == unit.Id).Sum(r => r.Area);
+                    Assert.InRange(Math.Abs(unit.Area - roomSum), 0.0, 0.002);
+                }
+            }
+
+            int griddedAligned = CountGridAlignedRoomAxes(output, 0.6);
+            int gridlessAligned = CountGridAlignedRoomAxes(
+                new FloorPlanEngine().Generate(RectangularInput(seed: 1234, variantCount: 4)), 0.6);
+            Assert.True(
+                griddedAligned > gridlessAligned,
+                "Grid snapping aligned " + griddedAligned + " room axes vs " + gridlessAligned + " gridless: no improvement.");
+
+            // Room snapping stays deterministic for a given seed.
+            EngineInput repeat = RectangularInput(seed: 1234, variantCount: 4);
+            repeat.Rules.GridModule = 0.6;
+            Assert.Equal(Signatures(output), Signatures(new FloorPlanEngine().Generate(repeat)));
+        }
+
+        // Counts rooms whose bay-axis bound pair (the axis spanning the grid-aligned
+        // plate width) lands on the module. The cross axis is bounded by the off-grid
+        // corridor, so a single aligned axis is the signal that snapping took effect.
+        private static int CountGridAlignedRoomAxes(EngineOutput output, double module)
+        {
+            int aligned = 0;
+            foreach (RoomLayout room in output.Variants.SelectMany(v => v.Rooms))
+            {
+                bool xGridded = IsOnGrid(room.Bounds.MinX, module) && IsOnGrid(room.Bounds.MaxX, module);
+                bool yGridded = IsOnGrid(room.Bounds.MinY, module) && IsOnGrid(room.Bounds.MaxY, module);
+                if (xGridded || yGridded)
+                {
+                    aligned++;
+                }
+            }
+
+            return aligned;
+        }
+
+        [Fact]
+        public void SingleDwellingMode_SnapsWetBandPartitionsToGridModule()
+        {
+            // A multi-service wet band (2 baths, pooja, kitchen) exercises the general
+            // wet path, which lays vertical partitions left-to-right. The band runs the
+            // full grid-aligned plate width (18 = 30x0.6) and the plate is wide enough
+            // that every wet room clears its minimum after snapping, so — like the day
+            // band — every wet-room bay edge must land on the module.
+            EngineInput input = WetProgramDwellingInput(gridModule: 0.6);
+            EngineOutput output = new FloorPlanEngine().Generate(input);
+
+            Assert.Equal("succeeded", output.Status);
+            Assert.All(output.Variants, v => Assert.True(v.Validation.Passed));
+
+            string[] wet = { "bathroom", "kitchen", "foyer", "pooja", "store", "utility" };
+            foreach (LayoutVariant variant in output.Variants)
+            {
+                foreach (RoomLayout room in variant.Rooms.Where(r => wet.Contains(r.RoomType)))
+                {
+                    AssertOnGrid(room.Bounds.MinX, 0.6, room.Id + " minX");
+                    AssertOnGrid(room.Bounds.MaxX, 0.6, room.Id + " maxX");
+                }
+
+                UnitLayout unit = Assert.Single(variant.Units);
+                Assert.InRange(Math.Abs(unit.Area - variant.Rooms.Sum(r => r.Area)), 0.0, 0.002);
+            }
+
+            // Deterministic for a given seed.
+            Assert.Equal(
+                DwellingGeometrySignature(output),
+                DwellingGeometrySignature(new FloorPlanEngine().Generate(WetProgramDwellingInput(gridModule: 0.6))));
+        }
+
+        private static EngineInput WetProgramDwellingInput(double gridModule)
+        {
+            EngineInput input = SingleDwellingInput(seed: 7, variantCount: 4, width: 18.0, depth: 9.6, type: "two_bed");
+            input.Rules.GridModule = gridModule;
+            input.Program.Dwelling = new DwellingProgram { Bathrooms = 2, Kitchens = 1, Pooja = 1 };
+            return input;
+        }
+
+        private static bool IsOnGrid(double value, double module)
+        {
+            return Math.Abs(value - (Math.Round(value / module) * module)) <= 0.002;
+        }
+
+        private static void AssertOnGrid(double value, double module, string label)
+        {
+            double remainder = Math.Abs(value - (Math.Round(value / module) * module));
+            Assert.True(
+                remainder <= 0.002,
+                label + " = " + value.ToString("0.####", CultureInfo.InvariantCulture) + " is off the " + module + " m grid.");
+        }
+
         private static string DwellingGeometrySignature(EngineOutput output)
         {
             return string.Join(";", output.Variants.SelectMany(v => v.Rooms).Select(r =>

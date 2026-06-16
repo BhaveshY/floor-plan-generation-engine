@@ -256,6 +256,7 @@ namespace FloorPlanGeneration.Generation
                 UnitTypeTarget target = _mixPlanner.FindTarget(type);
                 double desiredWidth = ((target.MinArea + target.MaxArea) * 0.5) / Math.Max(depth, 1.0);
                 desiredWidth = Clamp((desiredWidth * rhythm) + random.Range(-0.6, 0.6), MinUnitWidth(type), Math.Min(12.0, remaining));
+                desiredWidth = SnapBayWidth(cursor, desiredWidth, reverse, remaining, MinUnitWidth(type));
                 if (remaining - desiredWidth < MinAnyUnitWidth() + _tolerance)
                 {
                     desiredWidth = remaining;
@@ -316,6 +317,7 @@ namespace FloorPlanGeneration.Generation
                 UnitTypeTarget target = _mixPlanner.FindTarget(type);
                 double desiredHeight = ((target.MinArea + target.MaxArea) * 0.5) / Math.Max(depth, 1.0);
                 desiredHeight = Clamp((desiredHeight * rhythm) + random.Range(-0.6, 0.6), MinUnitWidth(type), Math.Min(12.0, remaining));
+                desiredHeight = SnapBayWidth(cursor, desiredHeight, reverse, remaining, MinUnitWidth(type));
                 if (remaining - desiredHeight < MinAnyUnitWidth() + _tolerance)
                 {
                     desiredHeight = remaining;
@@ -1782,6 +1784,31 @@ namespace FloorPlanGeneration.Generation
         private double MinAnyUnitWidth()
         {
             return Math.Max(4.0, _input.Source.Rules.MinRoomWidth + 1.2);
+        }
+
+        // Snaps a bay's far boundary onto the planning grid so adjacent apartments
+        // share grid-aligned party walls (a regular bay rhythm instead of arbitrary
+        // widths). The cursor side is fixed; only the moving boundary snaps, and the
+        // snap is discarded when it would shrink this bay below its minimum or leave
+        // the remainder too small to host another unit. A module of 0 is a no-op, so
+        // existing gridless layouts stay byte-identical.
+        private double SnapBayWidth(double cursor, double width, bool reverse, double remaining, double minUnit)
+        {
+            double module = _input.Source.Rules.GridModule;
+            double boundary = reverse ? cursor - width : cursor + width;
+            double snapped = Grid.Snap(boundary, module);
+            if (snapped == boundary)
+            {
+                return width;
+            }
+
+            double newWidth = reverse ? cursor - snapped : snapped - cursor;
+            if (newWidth >= minUnit && remaining - newWidth >= MinAnyUnitWidth() + _tolerance)
+            {
+                return newWidth;
+            }
+
+            return width;
         }
 
         private double MinUnitWidth(string type)

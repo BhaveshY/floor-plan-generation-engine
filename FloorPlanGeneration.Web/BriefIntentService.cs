@@ -26,6 +26,15 @@ namespace FloorPlanGeneration.Web
         public double? Depth { get; set; }
         public string Dwelling { get; set; }
         public int? Bedrooms { get; set; }
+        public int? Bathrooms { get; set; }
+        public int? Kitchens { get; set; }
+        public int? Livings { get; set; }
+        public int? Study { get; set; }
+        public int? Dining { get; set; }
+        public int? Store { get; set; }
+        public int? Utility { get; set; }
+        public int? Pooja { get; set; }
+        public int? Balcony { get; set; }
         public string Template { get; set; }
         public Dictionary<string, double> Mix { get; set; }
         public double? Corridor { get; set; }
@@ -457,6 +466,35 @@ namespace FloorPlanGeneration.Web
                 intent.Bedrooms = (int)Clamp(raw.Bedrooms.Value, 0.0, 4.0);
             }
 
+            // Room-program counts are clamped to the same buildable ranges the
+            // engine honors: every standard room can repeat, so a brief asking for
+            // two kitchens or three balconies is carried through, not flattened.
+            if (raw.Bathrooms.HasValue)
+            {
+                intent.Bathrooms = (int)Clamp(raw.Bathrooms.Value, 1.0, 4.0);
+            }
+
+            if (raw.Kitchens.HasValue)
+            {
+                intent.Kitchens = (int)Clamp(raw.Kitchens.Value, 1.0, 4.0);
+            }
+
+            if (raw.Livings.HasValue)
+            {
+                intent.Livings = (int)Clamp(raw.Livings.Value, 1.0, 3.0);
+            }
+
+            if (raw.Study.HasValue)
+            {
+                intent.Study = (int)Clamp(raw.Study.Value, 0.0, 2.0);
+            }
+
+            intent.Dining = ClampCount(raw.Dining, 2);
+            intent.Store = ClampCount(raw.Store, 2);
+            intent.Utility = ClampCount(raw.Utility, 2);
+            intent.Pooja = ClampCount(raw.Pooja, 2);
+            intent.Balcony = ClampCount(raw.Balcony, 4);
+
             intent.Template = NormalizeTemplate(raw.Template);
 
             if (raw.Mix != null)
@@ -574,6 +612,15 @@ namespace FloorPlanGeneration.Web
             prompt.AppendLine("{");
             prompt.AppendLine("  \"dwelling\": \"single\" | \"building\",  // single = ONE apartment/house plan; building = a multi-unit residential floor");
             prompt.AppendLine("  \"bedrooms\": integer,        // single dwellings only: 0 (studio / 1 RK) to 4");
+            prompt.AppendLine("  \"bathrooms\": integer,       // single dwellings only: how many bathrooms/toilets, 1 to 4");
+            prompt.AppendLine("  \"kitchens\": integer,        // single dwellings: how many kitchens, 1 to 4 (default 1)");
+            prompt.AppendLine("  \"livings\": integer,         // single dwellings: how many living rooms / halls / lounges, 1 to 3 (default 1)");
+            prompt.AppendLine("  \"study\": integer,           // single dwellings: studies / home offices, 0 to 2");
+            prompt.AppendLine("  \"dining\": integer,          // single dwellings: SEPARATE dining rooms, 0 to 2");
+            prompt.AppendLine("  \"store\": integer,           // single dwellings: store / storage rooms, 0 to 2");
+            prompt.AppendLine("  \"utility\": integer,         // single dwellings: utility / laundry rooms, 0 to 2");
+            prompt.AppendLine("  \"pooja\": integer,           // single dwellings: pooja / prayer rooms, 0 to 2");
+            prompt.AppendLine("  \"balcony\": integer,         // single dwellings: balconies / terraces, 0 to 4");
             prompt.AppendLine("  \"width\": number,            // floor plate width in meters (4-40 for a single dwelling, 8-200 for a building)");
             prompt.AppendLine("  \"depth\": number,            // floor plate depth in meters (4-30 for a single dwelling, 8-120 for a building)");
             prompt.AppendLine("  \"template\": \"rectangular-core\" | \"l-shaped-core\" | \"moderately-irregular-core\",  // building briefs only");
@@ -593,6 +640,10 @@ namespace FloorPlanGeneration.Web
             prompt.AppendLine("- A brief about ONE apartment, flat or house (\"a 2 BHK apartment\", \"1 room kitchen flat\", \"my house plan\")");
             prompt.AppendLine("  -> dwelling: \"single\" with bedrooms (1 RK / studio = 0). Plural homes, towers, housing or floor plates -> \"building\".");
             prompt.AppendLine("- 1 RK or studio -> studio; 1 BHK / 1 bedroom -> one_bed; 2 BHK -> two_bed; 3+ BHK -> two_bed (largest type).");
+            prompt.AppendLine("- For a single dwelling, set the room counts from the brief: e.g. \"2 BHK with 2 bathrooms,");
+            prompt.AppendLine("  2 kitchens, a study and a balcony\" -> bedrooms 2, bathrooms 2, kitchens 2, study 1, balcony 1.");
+            prompt.AppendLine("  Each room may repeat; use the count the brief states. Omit kitchens/livings unless the brief asks");
+            prompt.AppendLine("  for more than one. Omit any extra not mentioned; a combined \"living-dining\" is NOT a separate dining room.");
             prompt.AppendLine("- L-shaped, courtyard, or corner plates -> l-shaped-core; stepped or articulated -> moderately-irregular-core.");
             prompt.AppendLine("- Leave out everything the brief does not imply. Never invent precise numbers without textual support.");
             prompt.AppendLine("- The understood labels must reflect only what you actually used.");
@@ -612,6 +663,16 @@ namespace FloorPlanGeneration.Web
                 PropertyNameCaseInsensitive = true,
                 NumberHandling = System.Text.Json.Serialization.JsonNumberHandling.AllowReadingFromString
             };
+        }
+
+        private static int? ClampCount(int? value, int max)
+        {
+            if (!value.HasValue)
+            {
+                return null;
+            }
+
+            return (int)Clamp(value.Value, 0.0, max);
         }
 
         private static bool IsFinite(double value)
