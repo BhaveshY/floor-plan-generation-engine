@@ -596,19 +596,31 @@ namespace FloorPlanGeneration
             double unitQuality = variant.Units.Count == 0 ? 0.0 : variant.Units.Average(u => u.Score);
             double daylightQuality = DaylightQuality(variant, input.Source.Rules);
 
+            // Phase 3 owned-data priors: reward variants whose realized room adjacencies
+            // match the prior. The weight is forced to zero when the flag is off, so the
+            // term contributes nothing and the off-path score stays byte-identical (and
+            // the prior is not even computed). No new output field is added, so the
+            // serialized shape — and the frozen byte-identity hash — is unchanged.
+            double adjacencyWeight = input.Source.Rules.UsePortfolioPriors ? GetWeight(input, "adjacencyMatch", 0.10) : 0.0;
+            double adjacencyMatch = adjacencyWeight > 0.0
+                ? AdjacencyScorer.Score(variant.Units, PortfolioPriors.Default(), input.Tolerance)
+                : 0.0;
+
             double score =
                 GetWeight(input, "efficiency", 0.30) * Clamp01(efficiency) +
                 GetWeight(input, "netGrossRatio", 0.20) * Clamp01(netGross) +
                 GetWeight(input, "unitMixMatch", 0.25) * Clamp01(mixMatch) +
                 GetWeight(input, "unitQuality", 0.15) * Clamp01(unitQuality) +
-                GetWeight(input, "daylight", 0.10) * Clamp01(daylightQuality);
+                GetWeight(input, "daylight", 0.10) * Clamp01(daylightQuality) +
+                (adjacencyWeight * Clamp01(adjacencyMatch));
 
             double weightTotal =
                 GetWeight(input, "efficiency", 0.30) +
                 GetWeight(input, "netGrossRatio", 0.20) +
                 GetWeight(input, "unitMixMatch", 0.25) +
                 GetWeight(input, "unitQuality", 0.15) +
-                GetWeight(input, "daylight", 0.10);
+                GetWeight(input, "daylight", 0.10) +
+                adjacencyWeight;
 
             score = weightTotal <= 0.0 ? 0.0 : score / weightTotal;
             if (!variant.Validation.Passed)

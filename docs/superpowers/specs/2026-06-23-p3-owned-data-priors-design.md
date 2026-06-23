@@ -58,23 +58,29 @@ flag is off, every code path below is the existing path verbatim.
 
 ## The priors asset
 
-`FloorPlanGeneration/Data/portfolio-priors.json`, embedded as a resource and
-committed to the repo. Versioned with `priorsVersion: 1`. Shape:
+Shipped as a **typed C# static table** (`PortfolioPriors` with a `Default()`
+factory), mirroring the established `FurnitureDefaults` pattern — the codebase's
+existing way of carrying "owned domain data" (German residential norms) as
+typed defaults rather than parsed files. This keeps the engine I/O-free and fully
+deterministic (no embedded-resource plumbing, no parse-failure mode), and the
+regeneration story is unchanged: a future ingestion pass over EBA projects
+rewrites the `Default()` values. Versioned via `PortfolioPriors.CurrentVersion`.
 
-- `unitAreas`: map `unitType` → `{ meanArea, minTypical, maxTypical }` in m².
-- `facadeBand`: map `unitType` → `{ wetBandDepthFraction, shares: [ { roomType,
-  share } … ] }` where `shares` are the typical widths of the facade-band rooms
-  as fractions that sum to ~1 for that unit type.
-- `roomAspects`: map `roomType` → `typicalAspect` (long:short).
-- `adjacency`: list of `{ a, b, weight }` with `weight` in `[0,1]`, the typical
-  neighbour affinity for the unordered room-type pair `{a,b}`. Missing pairs are
-  treated as a neutral default (configurable `defaultWeight`, e.g. 0.5).
+Contents (trimmed to what the two levers consume — YAGNI):
 
-A `PortfolioPriors` class loads and validates the asset and exposes typed
-lookups (`UnitAreaMean(type)`, `FacadeShares(unitType)`, `AdjacencyWeight(a,b)`,
-…). Validation is strict and fails with a clear engine error **only when the flag
-is on** (the asset is never read when off). Loading is cached/static so repeated
-generations don't re-parse.
+- `unitAreaMeans`: map `unitType` → typical area (m²).
+- `facadeShares`: map `unitType` → ordered list of `{ roomType, share }`, the
+  typical widths of that unit type's facade-band rooms as fractions summing to ~1
+  (e.g. one_bed `[bedroom 0.42, living 0.58]`; two_bed `[bedroom, bedroom,
+  living]`). Types whose facade band is a single room (studio) have no entry.
+- `adjacency`: unordered room-type pair → neighbour affinity weight in `[0,1]`,
+  with a neutral `defaultWeight` (0.5) for unlisted pairs.
+
+`PortfolioPriors` exposes typed lookups: `UnitAreaMean(type, fallback)`,
+`FacadeShares(unitType)` (empty when unknown), `AdjacencyWeight(a, b)` (default
+when unlisted; case-insensitive, order-independent). The seed values are
+distilled from the published norms above and **labelled in the doc-comment as a
+placeholder for EBA-portfolio statistics**, not as measured data.
 
 ### Regeneration contract (deferred, documented only)
 
@@ -100,18 +106,22 @@ segment leaves `[min, max]` (a non-positive bound means unconstrained on that
 side). Deterministic, no RNG, returns a new array, input unchanged — same
 discipline as `GrowToMinimums` / `ShrinkToMaximums`.
 
-Applied **only when `UsePortfolioPriors` is on**:
+Applied **only when `UsePortfolioPriors` is on**, in the **facade-band split**
+(`RoomTemplateGenerator.GrowFacadeBand`): after the existing Phase-1 min/max pass,
+pull the facade-band room widths toward `facadeShares` for the unit type.
+Minimums still win (the pull is clamped to `[min,max]`), band edges never move,
+and the rooms still tile the band exactly, so unit areas are unchanged while the
+bedroom:living proportion shifts toward the prior. The two-bedroom boundary guard
+that protects byte-identity (`bed2End = … ? bed1End + fb[1] : livingStart`) is
+extended to fire on `UsePortfolioPriors` as well as `ApplyFurnitureMinimums`.
 
-1. **Facade-band split** (`RoomTemplateGenerator`): after the existing Phase-1
-   min/max pass (`GrowFacadeBand`), pull the facade-band room widths toward
-   `facadeBand.shares` for the unit type. Minimums still win (the pull is
-   clamped), band edges never move, areas still sum to the unit.
-2. **Unit bay target area** (`UnitMixPlanner` / `CandidateGenerator`): bias the
-   chosen bay's desired area toward `unitAreas.meanArea` for the type instead of
-   the `(minArea + maxArea) / 2` midpoint.
+Biasing unit *bay area* toward `unitAreaMeans` is **deferred** — it changes unit
+sizing rather than proportions and overlaps the mix-planning / recommender work
+in P4, so it is out of scope for P3 to keep this phase bounded. `unitAreaMeans`
+ship in the table now for that future use.
 
-Because this shifts the on-path geometry (and the on-path RNG stream is its own
-tested baseline, exactly like P2 drift), the off-path is unaffected.
+Because the pull shifts on-path geometry (its own tested baseline, exactly like
+P2 drift), the off-path is unaffected.
 
 ## Lever B — adjacency match (scoring; ranking changes when on, geometry unchanged)
 
@@ -147,13 +157,13 @@ churn beyond passing the priors object.
 
 ## Files touched
 
-- `FloorPlanGeneration/Data/portfolio-priors.json` — new embedded asset.
-- `FloorPlanGeneration/Generation/PortfolioPriors.cs` — loader + typed lookups.
+- `FloorPlanGeneration/Generation/PortfolioPriors.cs` — typed prior table +
+  `Default()` factory + lookups.
 - `FloorPlanGeneration/Geometry/RoomProportions.cs` — new `PullToTargets`.
 - `FloorPlanGeneration/Schema/EngineSchema.cs` — `UsePortfolioPriors` + default.
 - `schemas/floor-plan-engine-input.schema.json` — `usePortfolioPriors`.
-- `FloorPlanGeneration/Generation/RoomTemplateGenerator.cs`,
-  `UnitMixPlanner.cs`, `CandidateGenerator.cs` — gated proportion pull.
+- `FloorPlanGeneration/Generation/RoomTemplateGenerator.cs` — gated facade-band
+  proportion pull.
 - `FloorPlanGeneration/FloorPlanEngine.cs` — gated adjacency scoring term.
 - `FloorPlanGeneration.Tests/PortfolioPriorsTests.cs` — new on-path tests.
 
@@ -166,8 +176,9 @@ churn beyond passing the priors object.
   `[min,max]`; output moves toward targets; no-op when already on target or when
   `strength = 0`; degenerate inputs (single segment, all-equal, zero total)
   handled.
-- **Asset**: loads and validates; a malformed/missing asset throws a clear error
-  **only when the flag is on**.
+- **Priors table**: `Default()` exposes the expected unit-area means, ordered
+  facade shares (summing to ~1), and symmetric/case-insensitive adjacency weights
+  with the neutral default for unlisted pairs; unknown types fall back cleanly.
 - **On-path determinism**: same seed + flag on → byte-identical across two runs.
 - **Proportion property**: with the flag on, facade-band room width ratios move
   measurably toward the priors versus off, while room areas still sum to the unit

@@ -176,5 +176,102 @@ namespace FloorPlanGeneration.Tests
 
             Assert.Equal(12.0, result[0] + result[1] + result[2], 6);
         }
+
+        // Phase 3 (architectural-finetuning): PullToTargets nudges each segment toward
+        // a target share of the band total, sum-preserving and clamped to [min,max], so
+        // owned-data proportion priors can bias the split without breaking watertight
+        // tiling or the Phase-1 minimums. strength in [0,1] scales the nudge.
+
+        [Fact]
+        public void PullToTargets_StrengthZeroIsANoOp()
+        {
+            double[] result = RoomProportions.PullToTargets(
+                new[] { 4.0, 6.0 }, new[] { 0.5, 0.5 }, new[] { 0.0, 0.0 }, new[] { 0.0, 0.0 }, 0.0);
+
+            Assert.Equal(4.0, result[0], 6);
+            Assert.Equal(6.0, result[1], 6);
+        }
+
+        [Fact]
+        public void PullToTargets_FullStrengthHitsTargetSharesWhenUnconstrained()
+        {
+            double[] result = RoomProportions.PullToTargets(
+                new[] { 4.0, 6.0 }, new[] { 0.5, 0.5 }, new[] { 0.0, 0.0 }, new[] { 0.0, 0.0 }, 1.0);
+
+            Assert.Equal(5.0, result[0], 6);
+            Assert.Equal(5.0, result[1], 6);
+        }
+
+        [Fact]
+        public void PullToTargets_PartialStrengthMovesProportionOfTheWayToTarget()
+        {
+            // Target is {5,5}; at strength 0.5 each segment moves half the distance.
+            double[] result = RoomProportions.PullToTargets(
+                new[] { 4.0, 6.0 }, new[] { 0.5, 0.5 }, new[] { 0.0, 0.0 }, new[] { 0.0, 0.0 }, 0.5);
+
+            Assert.Equal(4.5, result[0], 6);
+            Assert.Equal(5.5, result[1], 6);
+        }
+
+        [Fact]
+        public void PullToTargets_NormalisesSharesThatDoNotSumToOne()
+        {
+            // Shares {1,3} over a band of 12 normalise to {0.25,0.75} -> targets {3,9}.
+            double[] result = RoomProportions.PullToTargets(
+                new[] { 6.0, 6.0 }, new[] { 1.0, 3.0 }, new[] { 0.0, 0.0 }, new[] { 0.0, 0.0 }, 1.0);
+
+            Assert.Equal(3.0, result[0], 6);
+            Assert.Equal(9.0, result[1], 6);
+        }
+
+        [Fact]
+        public void PullToTargets_PreservesTotalWidth()
+        {
+            double[] widths = { 3.0, 5.0, 8.0, 4.0 };
+            double[] result = RoomProportions.PullToTargets(
+                widths, new[] { 0.4, 0.2, 0.1, 0.3 }, new[] { 2.0, 2.0, 2.0, 2.0 }, new[] { 0.0, 0.0, 0.0, 0.0 }, 0.7);
+
+            Assert.Equal(20.0, result[0] + result[1] + result[2] + result[3], 6);
+        }
+
+        [Fact]
+        public void PullToTargets_RespectsMinimumsAndStillPreservesSum()
+        {
+            // Target {5,5}; segment 1 may not drop below its 6.0 m minimum, so it holds
+            // at 6.0 and segment 0 absorbs the difference. Sum stays 10.
+            double[] result = RoomProportions.PullToTargets(
+                new[] { 3.0, 7.0 }, new[] { 0.5, 0.5 }, new[] { 2.0, 6.0 }, new[] { 0.0, 0.0 }, 1.0);
+
+            Assert.Equal(4.0, result[0], 6);
+            Assert.Equal(6.0, result[1], 6);
+            Assert.Equal(10.0, result[0] + result[1], 6);
+        }
+
+        [Fact]
+        public void PullToTargets_RespectsMaximumsAndStillPreservesSum()
+        {
+            // Target {5,5}; segment 0 is capped at 4.0, so it holds and segment 1 takes
+            // the slack up to its 8.0 cap. Sum stays 10.
+            double[] result = RoomProportions.PullToTargets(
+                new[] { 9.0, 1.0 }, new[] { 0.5, 0.5 }, new[] { 0.0, 0.0 }, new[] { 4.0, 8.0 }, 1.0);
+
+            Assert.Equal(4.0, result[0], 6);
+            Assert.Equal(6.0, result[1], 6);
+            Assert.Equal(10.0, result[0] + result[1], 6);
+        }
+
+        [Fact]
+        public void PullToTargets_ReturnsCopyWhenNoPositiveSharesOrZeroTotal()
+        {
+            double[] noShares = RoomProportions.PullToTargets(
+                new[] { 4.0, 6.0 }, new[] { 0.0, 0.0 }, new[] { 0.0, 0.0 }, new[] { 0.0, 0.0 }, 1.0);
+            Assert.Equal(4.0, noShares[0], 6);
+            Assert.Equal(6.0, noShares[1], 6);
+
+            double[] zeroTotal = RoomProportions.PullToTargets(
+                new[] { 0.0, 0.0 }, new[] { 0.5, 0.5 }, new[] { 0.0, 0.0 }, new[] { 0.0, 0.0 }, 1.0);
+            Assert.Equal(0.0, zeroTotal[0], 6);
+            Assert.Equal(0.0, zeroTotal[1], 6);
+        }
     }
 }

@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 
 namespace FloorPlanGeneration.Geometry
@@ -159,6 +160,126 @@ namespace FloorPlanGeneration.Geometry
         {
             double[] grown = GrowToMinimums(widths, minWidths);
             return ShrinkToMaximums(grown, maxWidths);
+        }
+
+        /// <summary>
+        /// Nudges each segment toward its target share of the band total (the sum of
+        /// <paramref name="widths"/>) by <paramref name="strength"/> in [0,1], then
+        /// projects the result back so the sum is preserved exactly and no segment
+        /// leaves [min,max] (a non-positive bound is unconstrained on that side). The
+        /// raw nudge is sum-neutral by construction — only clamping to bounds creates a
+        /// residual, which is redistributed onto the segments that still have room in
+        /// the needed direction. Deterministic and best-effort: when the bounds cannot
+        /// absorb the residual the band stays as close as the bounds allow.
+        /// (architectural-finetuning Phase 3 — owned-data proportion priors.)
+        ///
+        /// Shares are normalised, so they need not sum to one; a non-positive share is
+        /// treated as zero. With no positive share, a zero band total, or zero strength
+        /// the input is returned unchanged. Returns a new array; the input is unchanged.
+        /// </summary>
+        public static double[] PullToTargets(
+            IReadOnlyList<double> widths,
+            IReadOnlyList<double> targetShares,
+            IReadOnlyList<double> minWidths,
+            IReadOnlyList<double> maxWidths,
+            double strength)
+        {
+            int n = widths.Count;
+            double[] result = new double[n];
+            double total = 0.0;
+            for (int i = 0; i < n; i++)
+            {
+                result[i] = widths[i];
+                total += widths[i];
+            }
+
+            double shareSum = 0.0;
+            for (int i = 0; i < n; i++)
+            {
+                double share = i < targetShares.Count ? targetShares[i] : 0.0;
+                if (share > 0.0)
+                {
+                    shareSum += share;
+                }
+            }
+
+            if (total <= 1e-9 || shareSum <= 1e-9 || strength <= 0.0)
+            {
+                return result;
+            }
+
+            // Sum-neutral nudge: sum(targets) == total and sum(widths) == total, so the
+            // deltas sum to zero before any clamping touches them.
+            for (int i = 0; i < n; i++)
+            {
+                double share = i < targetShares.Count && targetShares[i] > 0.0 ? targetShares[i] : 0.0;
+                double target = total * share / shareSum;
+                result[i] = widths[i] + (strength * (target - widths[i]));
+            }
+
+            // Restore the sum while honouring [min,max]: clamp, measure the residual the
+            // clamp introduced, and hand it to the segments that can still move that way.
+            for (int pass = 0; pass < 64; pass++)
+            {
+                double sum = 0.0;
+                for (int i = 0; i < n; i++)
+                {
+                    double lo = LowerBound(minWidths, i);
+                    double hi = UpperBound(maxWidths, i);
+                    if (result[i] < lo)
+                    {
+                        result[i] = lo;
+                    }
+                    else if (result[i] > hi)
+                    {
+                        result[i] = hi;
+                    }
+
+                    sum += result[i];
+                }
+
+                double residual = total - sum;
+                if (Math.Abs(residual) <= 1e-12)
+                {
+                    break;
+                }
+
+                double[] capacity = new double[n];
+                double capacityTotal = 0.0;
+                for (int i = 0; i < n; i++)
+                {
+                    double lo = LowerBound(minWidths, i);
+                    double hi = UpperBound(maxWidths, i);
+                    double room = residual > 0.0
+                        ? (double.IsPositiveInfinity(hi) ? result[i] : hi - result[i])
+                        : (double.IsNegativeInfinity(lo) ? result[i] : result[i] - lo);
+                    room = Math.Max(0.0, room);
+                    capacity[i] = room;
+                    capacityTotal += room;
+                }
+
+                if (capacityTotal <= 1e-12)
+                {
+                    break;
+                }
+
+                for (int i = 0; i < n; i++)
+                {
+                    result[i] += residual * (capacity[i] / capacityTotal);
+                }
+            }
+
+            return result;
+        }
+
+        private static double LowerBound(IReadOnlyList<double> minWidths, int i)
+        {
+            return minWidths != null && i < minWidths.Count && minWidths[i] > 0.0 ? minWidths[i] : double.NegativeInfinity;
+        }
+
+        private static double UpperBound(IReadOnlyList<double> maxWidths, int i)
+        {
+            return maxWidths != null && i < maxWidths.Count && maxWidths[i] > 0.0 ? maxWidths[i] : double.PositiveInfinity;
         }
     }
 }

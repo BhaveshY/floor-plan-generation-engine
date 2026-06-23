@@ -377,6 +377,9 @@
         },
         "driftToMargin": {
           "type": "boolean"
+        },
+        "usePortfolioPriors": {
+          "type": "boolean"
         }
       }
     },

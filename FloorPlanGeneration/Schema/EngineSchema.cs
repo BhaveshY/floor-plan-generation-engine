@@ -270,6 +270,7 @@ namespace FloorPlanGeneration.Schema
             ApplyFurnitureMinimums = false;
             CorridorSpine = false;
             DriftToMargin = false;
+            UsePortfolioPriors = false;
         }
 
         public double MinCorridorWidth { get; set; }
@@ -303,6 +304,12 @@ namespace FloorPlanGeneration.Schema
         // the building-perimeter bay instead of a sliver jammed against the core
         // mid-plan. false keeps the historic seeded fill direction, byte-identical.
         public bool DriftToMargin { get; set; }
+
+        // Opt-in (architectural-finetuning Phase 3): when true, room/unit proportions
+        // are pulled toward owned-data priors (typical EBA-portfolio proportions) and
+        // variant scoring rewards prior-preferred room adjacencies. false applies no
+        // prior, byte-identical to the historic engine. See PortfolioPriors.
+        public bool UsePortfolioPriors { get; set; }
     }
 
     public sealed class GenerationSettings
