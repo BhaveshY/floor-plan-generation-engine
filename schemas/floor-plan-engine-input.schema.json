@@ -371,6 +371,12 @@
         },
         "applyFurnitureMinimums": {
           "type": "boolean"
+        },
+        "corridorSpine": {
+          "type": "boolean"
+        },
+        "driftToMargin": {
+          "type": "boolean"
         }
       }
     },

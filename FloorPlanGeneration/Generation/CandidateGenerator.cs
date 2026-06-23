@@ -245,6 +245,7 @@ namespace FloorPlanGeneration.Generation
             // seeds read as different unit cadences, not just centimeter noise.
             double rhythm = random.Range(0.84, 1.22);
             bool reverse = random.NextDouble() < 0.5;
+            reverse = ReverseForMarginDrift(minX, maxX, _input.Floorplate.Bounds().MinX, _input.Floorplate.Bounds().MaxX, reverse);
             double cursor = reverse ? maxX : minX;
             int safety = 0;
             while ((reverse ? cursor - minX : maxX - cursor) > MinAnyUnitWidth() + _tolerance && safety++ < 50)
@@ -306,6 +307,7 @@ namespace FloorPlanGeneration.Generation
             double depth = maxX - minX;
             double rhythm = random.Range(0.84, 1.22);
             bool reverse = random.NextDouble() < 0.5;
+            reverse = ReverseForMarginDrift(minY, maxY, _input.Floorplate.Bounds().MinY, _input.Floorplate.Bounds().MaxY, reverse);
             double cursor = reverse ? maxY : minY;
             int safety = 0;
             while ((reverse ? cursor - minY : maxY - cursor) > MinAnyUnitWidth() + _tolerance && safety++ < 50)
@@ -459,7 +461,9 @@ namespace FloorPlanGeneration.Generation
             fallbacks.Clear();
             foreach (double offset in offsets)
             {
-                double jitter = _input.Source.GenerationSettings.WeightedVariation ? random.Range(-0.025, 0.025) : 0.0;
+                double jitter = (_input.Source.GenerationSettings.WeightedVariation && !_input.Source.Rules.CorridorSpine)
+                    ? random.Range(-0.025, 0.025)
+                    : 0.0;
                 double fraction = Clamp(0.5 + offset + jitter, 0.20, 0.80);
                 AddCorridorCandidate(candidates, fallbacks, TryCorridorAtFraction(primary, fraction, width, diagnostics));
                 if (candidates.Count >= 4)
@@ -516,9 +520,98 @@ namespace FloorPlanGeneration.Generation
                 return candidates[0];
             }
 
+            if (_input.Source.Rules.CorridorSpine)
+            {
+                // Deliberate spine (Phase 2): rank candidates by a pure-geometry score and
+                // have variant i take the i-th best. No SeededRandom here, so the spine for
+                // a given variant index is identical for every seed.
+                List<CorridorStrategy> ranked = candidates
+                    .OrderByDescending(c => SpineScore(c))
+                    .ThenBy(c => SpineTieBreak(c))
+                    .ToList();
+                return ranked[variantIndex % ranked.Count];
+            }
+
             // Offsetting the seeded pick by the variant index spreads sibling variants
             // across distinct corridor placements instead of letting them collapse onto one.
             return candidates[(variantIndex + random.Next(0, candidates.Count)) % candidates.Count];
+        }
+
+        // Pure-geometry desirability of a corridor placement (higher is better). Used only
+        // when Rules.CorridorSpine is on, so it never perturbs the historic seeded pick.
+        private double SpineScore(CorridorStrategy corridor)
+        {
+            double bandThreshold;
+            double near;
+            double far;
+            CorridorBandDepths(corridor, out bandThreshold, out near, out far);
+            double maxDepth = MaxUsefulBandDepth();
+            bool nearHosts = near >= bandThreshold;
+            bool farHosts = far >= bandThreshold;
+
+            double score = 0.0;
+
+            // A double-loaded spine (units on both sides) dominates a single-loaded one.
+            if (nearHosts && farHosts)
+            {
+                score += 2.0;
+            }
+            else if (nearHosts || farHosts)
+            {
+                score += 0.6;
+            }
+
+            // Reward a spine sitting between two comparable bands.
+            double total = near + far;
+            if (total > _tolerance)
+            {
+                score += 1.0 - (Math.Abs(near - far) / total);
+            }
+
+            // Penalise bands deeper than the largest unit can absorb (they yield oversized units).
+            score -= OverflowPenalty(near, maxDepth) + OverflowPenalty(far, maxDepth);
+
+            // Tie circulation to the fixed core when the spine touches it.
+            if (CorridorTouchesCore(corridor))
+            {
+                score += 0.25;
+            }
+
+            return score;
+        }
+
+        private static double OverflowPenalty(double depth, double maxDepth)
+        {
+            if (depth <= maxDepth)
+            {
+                return 0.0;
+            }
+
+            return (depth - maxDepth) / Math.Max(maxDepth, 1.0);
+        }
+
+        // Deterministic ordering for equally-scored spines: the band-facing coordinate of
+        // the placement, so ties resolve the same way on every run.
+        private static double SpineTieBreak(CorridorStrategy corridor)
+        {
+            return corridor.Orientation == CorridorOrientation.Horizontal ? corridor.MinY : corridor.MinX;
+        }
+
+        private bool CorridorTouchesCore(CorridorStrategy corridor)
+        {
+            CleanedFixedElement core = _input.FixedElements.FirstOrDefault(f => f.Type.IndexOf("core", StringComparison.OrdinalIgnoreCase) >= 0);
+            if (core == null)
+            {
+                return false;
+            }
+
+            Bounds2 coreBounds = core.Polygon.Bounds();
+            if (corridor.Orientation == CorridorOrientation.Horizontal)
+            {
+                return Math.Abs(corridor.MinY - coreBounds.MaxY) <= _tolerance || Math.Abs(corridor.MaxY - coreBounds.MinY) <= _tolerance;
+            }
+
+            return Math.Abs(corridor.MinX - coreBounds.MaxX) <= _tolerance || Math.Abs(corridor.MaxX - coreBounds.MinX) <= _tolerance;
         }
 
         private void CollectCoreAdjacentCandidates(
@@ -1784,6 +1877,32 @@ namespace FloorPlanGeneration.Generation
         private double MinAnyUnitWidth()
         {
             return Math.Max(4.0, _input.Source.Rules.MinRoomWidth + 1.2);
+        }
+
+        // Phase 2 drift-to-margin: for a band interval with exactly one perimeter (margin)
+        // end, anchor the bay walk at the interior (core / fixed-element) end so the terminal
+        // bay — the one that absorbs the leftover slack — lands at the building margin instead
+        // of a sliver mid-plan. When the flag is off, or when the interval is all-margin or
+        // all-interior (no mid-plan concern), the seeded direction stands, so the random draw
+        // is still consumed and only the slack direction of core-split intervals changes.
+        private bool ReverseForMarginDrift(double low, double high, double axisMin, double axisMax, bool seededReverse)
+        {
+            if (!_input.Source.Rules.DriftToMargin)
+            {
+                return seededReverse;
+            }
+
+            bool lowMargin = Math.Abs(low - axisMin) <= _tolerance;
+            bool highMargin = Math.Abs(high - axisMax) <= _tolerance;
+            if (lowMargin == highMargin)
+            {
+                return seededReverse;
+            }
+
+            // reverse == true starts the cursor at the high end. Start at the interior end so
+            // the walk terminates at the margin: low margin -> start high (true); high margin ->
+            // start low (false). Either way the answer equals lowMargin.
+            return lowMargin;
         }
 
         // Snaps a bay's far boundary onto the planning grid so adjacent apartments

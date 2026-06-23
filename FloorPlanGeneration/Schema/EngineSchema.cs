@@ -268,6 +268,8 @@ namespace FloorPlanGeneration.Schema
             MinUnitArea = 25.0;
             GridModule = 0.0;
             ApplyFurnitureMinimums = false;
+            CorridorSpine = false;
+            DriftToMargin = false;
         }
 
         public double MinCorridorWidth { get; set; }
@@ -289,6 +291,18 @@ namespace FloorPlanGeneration.Schema
         // minimum dimensions (German Neufert / DIN 18040-2). false is a hard
         // no-op, so opted-out plans stay byte-identical to the historic engine.
         public bool ApplyFurnitureMinimums { get; set; }
+
+        // Opt-in (architectural-finetuning Phase 2): when true, the corridor is a
+        // deliberate spine — candidate placements are scored by pure geometry and
+        // ranked, and variant i takes the i-th best (no seeded pick). false keeps
+        // the historic seeded pick, byte-identical to the legacy engine.
+        public bool CorridorSpine { get; set; }
+
+        // Opt-in (architectural-finetuning Phase 2): when true, unit bays are filled
+        // from the interior end of each band interval so leftover slack accrues to
+        // the building-perimeter bay instead of a sliver jammed against the core
+        // mid-plan. false keeps the historic seeded fill direction, byte-identical.
+        public bool DriftToMargin { get; set; }
     }
 
     public sealed class GenerationSettings
