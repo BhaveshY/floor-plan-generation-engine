@@ -43,9 +43,91 @@
     },
     "recommendation": {
       "$ref": "#/$defs/recommendation"
+    },
+    "critique": {
+      "$ref": "#/$defs/qualityCritique"
     }
   },
   "$defs": {
+    "qualityCritique": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "flaggedVariantIds",
+        "variants"
+      ],
+      "properties": {
+        "flaggedVariantIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "variants": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/variantCritique"
+          }
+        }
+      }
+    },
+    "variantCritique": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "variantId",
+        "passed",
+        "findings"
+      ],
+      "properties": {
+        "variantId": {
+          "type": "string"
+        },
+        "passed": {
+          "type": "boolean"
+        },
+        "findings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/critiqueFinding"
+          }
+        }
+      }
+    },
+    "critiqueFinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "dimension",
+        "severity",
+        "message",
+        "score"
+      ],
+      "properties": {
+        "dimension": {
+          "type": "string",
+          "enum": [
+            "daylight",
+            "egress",
+            "proportion",
+            "adjacency"
+          ]
+        },
+        "severity": {
+          "type": "string",
+          "enum": [
+            "warning",
+            "info"
+          ]
+        },
+        "message": {
+          "type": "string"
+        },
+        "score": {
+          "type": "number"
+        }
+      }
+    },
     "recommendation": {
       "type": "object",
       "additionalProperties": false,

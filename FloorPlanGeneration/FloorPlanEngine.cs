@@ -162,6 +162,17 @@ namespace FloorPlanGeneration
                 output.Recommendation = VariantRecommender.Recommend(output.Variants);
             }
 
+            // Phase 5: attach a soft quality critique when opted in. Advisory and gated, so the
+            // off-path output stays byte-identical; never changes pass/fail, ordering, or geometry.
+            if (input.GenerationSettings != null && input.GenerationSettings.CritiqueVariants && output.Variants.Count > 0)
+            {
+                output.Critique = VariantCritic.Critique(
+                    output.Variants,
+                    PortfolioPriors.Default(),
+                    input.Project.Tolerance,
+                    CritiqueThresholds.Default());
+            }
+
             return output;
         }
 

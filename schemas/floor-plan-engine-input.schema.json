@@ -423,6 +423,9 @@
         },
         "recommendVariant": {
           "type": "boolean"
+        },
+        "critiqueVariants": {
+          "type": "boolean"
         }
       }
     }

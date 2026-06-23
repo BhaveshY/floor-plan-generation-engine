@@ -324,6 +324,7 @@ namespace FloorPlanGeneration.Schema
             LayoutMode = "multi_unit";
             ScoringWeights = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
             RecommendVariant = false;
+            CritiqueVariants = false;
         }
 
         public int VariantCount { get; set; }
@@ -339,6 +340,15 @@ namespace FloorPlanGeneration.Schema
         /// Output annotation only — never re-orders or mutates the variants themselves.
         /// </summary>
         public bool RecommendVariant { get; set; }
+
+        /// <summary>
+        /// Opt-in (architectural-finetuning Phase 5): when true, the engine attaches a soft
+        /// <see cref="QualityCritique"/> flagging weak variants (daylight/egress/proportion/
+        /// adjacency) to <see cref="EngineOutput.Critique"/>. false leaves the output
+        /// byte-identical to the historic engine (the property stays null and is omitted).
+        /// Advisory only — never changes pass/fail, ordering, or geometry.
+        /// </summary>
+        public bool CritiqueVariants { get; set; }
 
         /// <summary>
         /// "multi_unit" (default): corridor + unit bands across a building floor.
@@ -374,6 +384,14 @@ namespace FloorPlanGeneration.Schema
         /// </summary>
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public VariantRecommendation Recommendation { get; set; }
+
+        /// <summary>
+        /// Phase-5 soft quality critique over <see cref="Variants"/>. Null (and omitted from
+        /// the serialized output) unless <see cref="GenerationSettings.CritiqueVariants"/> is
+        /// set, which keeps the off-path output byte-identical to the historic engine.
+        /// </summary>
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public QualityCritique Critique { get; set; }
     }
 
     /// <summary>
@@ -415,6 +433,63 @@ namespace FloorPlanGeneration.Schema
         public double Score { get; set; }
         public bool Passed { get; set; }
         public List<string> Highlights { get; set; }
+    }
+
+    /// <summary>
+    /// Phase-5 (architectural-finetuning) soft quality gate over a generated variant set:
+    /// per-variant findings across daylight/egress/proportion/adjacency plus the ids of the
+    /// flagged (weak) variants. Advisory only — never changes pass/fail, ordering, or
+    /// geometry. Produced by <see cref="Generation.VariantCritic"/>.
+    /// </summary>
+    public sealed class QualityCritique
+    {
+        public QualityCritique()
+        {
+            FlaggedVariantIds = new List<string>();
+            Variants = new List<VariantCritique>();
+        }
+
+        public List<string> FlaggedVariantIds { get; set; }
+        public List<VariantCritique> Variants { get; set; }
+    }
+
+    /// <summary>
+    /// One variant's quality assessment: its id, whether it passed hard validation, and the
+    /// (possibly empty) list of soft findings the critic raised against it.
+    /// </summary>
+    public sealed class VariantCritique
+    {
+        public VariantCritique()
+        {
+            VariantId = string.Empty;
+            Passed = false;
+            Findings = new List<CritiqueFinding>();
+        }
+
+        public string VariantId { get; set; }
+        public bool Passed { get; set; }
+        public List<CritiqueFinding> Findings { get; set; }
+    }
+
+    /// <summary>
+    /// A single soft-quality concern: the dimension it relates to
+    /// (daylight | egress | proportion | adjacency), its severity (warning | info), a short
+    /// human message, and the dimension's [0,1] quality measure (or the offending ratio).
+    /// </summary>
+    public sealed class CritiqueFinding
+    {
+        public CritiqueFinding()
+        {
+            Dimension = string.Empty;
+            Severity = string.Empty;
+            Message = string.Empty;
+            Score = 0.0;
+        }
+
+        public string Dimension { get; set; }
+        public string Severity { get; set; }
+        public string Message { get; set; }
+        public double Score { get; set; }
     }
 
     public sealed class EngineMetadata
