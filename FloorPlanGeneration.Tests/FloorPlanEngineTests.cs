@@ -428,6 +428,36 @@ namespace FloorPlanGeneration.Tests
         }
 
         [Fact]
+        public void MultiUnit_UnrecognizedUnitType_EmitsWarningInsteadOfSilentlyFallingBack()
+        {
+            // Hardening for the two_bed bug class: NormalizeUnitType silently renders any
+            // unrecognised unit type as a one-bedroom layout. The graceful fallback stays,
+            // but an unrecognised type must now surface a warning rather than fail silently.
+            EngineInput input = RectangularInput(seed: 1234, variantCount: 3);
+            input.Program.TargetUnitTypes = new List<UnitTypeTarget>
+            {
+                new UnitTypeTarget { Type = "penthouse", MinArea = 50.0, MaxArea = 110.0, TargetRatio = 1.0, Weight = 1.0 }
+            };
+
+            EngineOutput output = new FloorPlanEngine().Generate(input);
+
+            Assert.Equal("succeeded", output.Status);
+            Assert.Contains(
+                output.Variants.SelectMany(v => v.Diagnostics),
+                d => d.Code == "generation.unit_type_unrecognized" && d.Severity == "warning");
+        }
+
+        [Fact]
+        public void MultiUnit_RecognizedUnitTypes_EmitNoUnrecognizedWarning()
+        {
+            EngineOutput output = new FloorPlanEngine().Generate(RectangularInput(seed: 1234, variantCount: 3));
+
+            Assert.DoesNotContain(
+                output.Variants.SelectMany(v => v.Diagnostics),
+                d => d.Code == "generation.unit_type_unrecognized");
+        }
+
+        [Fact]
         public void SameSeed_ProducesSameVariantIdsScoresAndLayoutCounts()
         {
             EngineOutput left = new FloorPlanEngine().Generate(RectangularInput(seed: 8128, variantCount: 5));

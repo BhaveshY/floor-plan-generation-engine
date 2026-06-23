@@ -150,7 +150,7 @@ namespace FloorPlanGeneration.Generation
             foreach (UnitLayout unit in variant.Units)
             {
                 UnitTypeTarget target = _mixPlanner.FindTarget(unit.Type);
-                _roomGenerator.PopulateUnit(unit, corridor, target, style, doorIndex);
+                _roomGenerator.PopulateUnit(unit, corridor, target, style, doorIndex, variant.Diagnostics);
                 variant.Rooms.AddRange(unit.Rooms);
                 variant.DoorsOpenings.Add(_roomGenerator.CreateUnitDoor(unit, corridor, doorIndex++));
                 variant.Walls.AddRange(_roomGenerator.CreateUnitWalls(unit, corridor));

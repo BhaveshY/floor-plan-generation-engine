@@ -26,11 +26,21 @@ namespace FloorPlanGeneration.Generation
             _tolerance = input.Tolerance;
         }
 
-        public void PopulateUnit(UnitLayout unit, CorridorStrategy corridor, UnitTypeTarget target, RoomStyle style, int unitIndex)
+        public void PopulateUnit(
+            UnitLayout unit, CorridorStrategy corridor, UnitTypeTarget target,
+            RoomStyle style, int unitIndex, List<Diagnostic> diagnostics)
         {
             if (style == null)
             {
                 style = RoomStyle.Default();
+            }
+
+            if (diagnostics != null && !string.IsNullOrWhiteSpace(unit.Type) && !TryNormalizeUnitType(unit.Type, out _))
+            {
+                diagnostics.Add(Diagnostic.Warning(
+                    "generation.unit_type_unrecognized",
+                    "Unit type '" + unit.Type + "' is not a recognized layout type; rendering it as a one-bedroom unit.",
+                    unit.Id));
             }
 
             Polygon2 unitPolygon = ToPolygon(unit.Polygon);
@@ -547,12 +557,24 @@ namespace FloorPlanGeneration.Generation
 
         private static string NormalizeUnitType(string type)
         {
+            TryNormalizeUnitType(type, out string normalized);
+            return normalized;
+        }
+
+        // Maps the unit-type aliases the planner/brief may use onto the canonical strings
+        // the layout branches switch on. Returns false (with the one_bed fallback) for any
+        // unrecognised type so the caller can surface a warning instead of silently
+        // mis-rendering it -- this silent fallthrough was the root cause of the historic
+        // two_bed -> one_bed bug.
+        private static bool TryNormalizeUnitType(string type, out string normalized)
+        {
             if (string.Equals(type, "two_bed", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(type, "2-bed", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(type, "2_bed", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(type, "two-bedroom", StringComparison.OrdinalIgnoreCase))
             {
-                return "two_bed";
+                normalized = "two_bed";
+                return true;
             }
 
             if (string.Equals(type, "one_bed", StringComparison.OrdinalIgnoreCase) ||
@@ -560,15 +582,18 @@ namespace FloorPlanGeneration.Generation
                 string.Equals(type, "1_bed", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(type, "one-bedroom", StringComparison.OrdinalIgnoreCase))
             {
-                return "one_bed";
+                normalized = "one_bed";
+                return true;
             }
 
             if (string.Equals(type, "studio", StringComparison.OrdinalIgnoreCase))
             {
-                return "studio";
+                normalized = "studio";
+                return true;
             }
 
-            return "one_bed";
+            normalized = "one_bed";
+            return false;
         }
 
         private static double Clamp(double value, double min, double max)
