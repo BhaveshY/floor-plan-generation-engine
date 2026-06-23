@@ -19,6 +19,8 @@ namespace FloorPlanGeneration.Generation
     {
         private readonly CleanedInput _input;
         private readonly double _tolerance;
+        private Dictionary<string, double> _furnitureMinWidth;
+        private Dictionary<string, double> _furnitureMaxAspect;
 
         private sealed class FrameRect
         {
@@ -422,8 +424,19 @@ namespace FloorPlanGeneration.Generation
                 for (int i = 0; i < hasBalcony.Length; i++) { hasBalcony[i] = false; }
             }
 
-            // Snap the interior partitions to the planning grid (no-op when the grid
-            // is off); neighbouring rooms share each boundary, so tiling stays exact.
+            // Grow rooms toward their furniture-derived minimum width (best-effort,
+            // no-op when opted out), then snap the interior partitions to the planning
+            // grid; neighbouring rooms share each boundary, so tiling stays exact.
+            // A balconied room is emitted shallower (depth - balconyDepth), so its
+            // aspect cap must use that reduced perpendicular span, not the full band
+            // depth — otherwise the cap is too loose for exactly those rooms.
+            double[] dayCross = new double[order.Count];
+            for (int i = 0; i < order.Count; i++)
+            {
+                dayCross[i] = hasBalcony[i] ? dayDepth - balconyDepth : dayDepth;
+            }
+
+            GrowToFurnitureMinWidths(orderedWidths, order, minW, dayCross);
             double[] bx = Grid.SnapBoundaries(0.0, orderedWidths, minW, _input.Source.Rules.GridModule);
             for (int i = 0; i < order.Count; i++)
             {
@@ -518,8 +531,10 @@ namespace FloorPlanGeneration.Generation
             int widest = orderedWidths.IndexOf(orderedWidths.Max());
             orderedWidths[widest] += drift;
 
-            // Snap interior partitions to the planning grid (no-op when the grid is
-            // off, so the historic default program stays byte-identical).
+            // Grow rooms toward their furniture-derived minimum width, then snap to the
+            // planning grid (both no-ops when opted out, so the historic default program
+            // stays byte-identical).
+            GrowToFurnitureMinWidths(orderedWidths, order, minW, depth - wetDepth);
             double[] bx = Grid.SnapBoundaries(0.0, orderedWidths, minW, _input.Source.Rules.GridModule);
             for (int i = 0; i < order.Count; i++)
             {
@@ -550,6 +565,7 @@ namespace FloorPlanGeneration.Generation
         // those edges and the last room absorbs the drift, so tiling stays exact.
         private void PlaceWetRooms(List<FrameRect> rooms, List<string> types, List<double> widths, double wetDepth, double minSegment)
         {
+            GrowToFurnitureMinWidths(widths, types, minSegment, wetDepth);
             double[] bx = Grid.SnapBoundaries(0.0, widths, minSegment, _input.Source.Rules.GridModule);
             for (int i = 0; i < types.Count; i++)
             {
@@ -562,6 +578,69 @@ namespace FloorPlanGeneration.Generation
                     Y1 = wetDepth,
                     ExpectsDaylight = false
                 });
+            }
+        }
+
+        // Proportions each band segment best-effort toward its furniture-derived span
+        // (German Neufert / DIN 18040-2): grows every segment up to its minimum width,
+        // then caps any segment wider than maxAspect x the band's perpendicular depth
+        // (crossSpan) so no room degenerates into an over-long slot. Slack only moves
+        // between neighbours that stay within their own bounds, so the band still tiles
+        // its span exactly. A no-op unless RuleSet.ApplyFurnitureMinimums is set, so
+        // opted-out plans stay byte-identical. The structural floor keeps every donor —
+        // and any type without a furniture rule — at or above the band's own minimum
+        // segment, and the aspect cap is never allowed below that floor. Runs BEFORE
+        // Grid.SnapBoundaries so the snap composes on the adjusted widths.
+        // Uniform-depth bands (the wet band and the simple day band) share one
+        // perpendicular span across every segment.
+        private void GrowToFurnitureMinWidths(List<double> widths, IReadOnlyList<string> types, double structuralMin, double crossSpan)
+        {
+            double[] crossSpans = new double[widths.Count];
+            for (int i = 0; i < crossSpans.Length; i++)
+            {
+                crossSpans[i] = crossSpan;
+            }
+
+            GrowToFurnitureMinWidths(widths, types, structuralMin, crossSpans);
+        }
+
+        // Per-room perpendicular spans: a band may mix depths (e.g. a day band where
+        // some rooms front a balcony and so are shallower), so each room's aspect cap
+        // is evaluated against the depth it actually receives.
+        private void GrowToFurnitureMinWidths(List<double> widths, IReadOnlyList<string> types, double structuralMin, IReadOnlyList<double> crossSpans)
+        {
+            if (!_input.Source.Rules.ApplyFurnitureMinimums)
+            {
+                return;
+            }
+
+            EnsureFurnitureMinWidths();
+            double[] mins = new double[widths.Count];
+            double[] maxs = new double[widths.Count];
+            for (int i = 0; i < widths.Count; i++)
+            {
+                double furniture = _furnitureMinWidth.TryGetValue(types[i], out double m) ? m : 0.0;
+                mins[i] = Math.Max(structuralMin, furniture);
+                double aspect = _furnitureMaxAspect.TryGetValue(types[i], out double a) ? a : 0.0;
+                double cross = i < crossSpans.Count ? crossSpans[i] : 0.0;
+                // Cap never drops below the floor: the firmer minimum wins over the
+                // softer aspect preference, keeping the [min, max] box non-empty.
+                maxs[i] = aspect > 0.0 && cross > 0.0 ? Math.Max(mins[i], aspect * cross) : 0.0;
+            }
+
+            double[] proportioned = RoomProportions.ConstrainToBounds(widths, mins, maxs);
+            for (int i = 0; i < widths.Count; i++)
+            {
+                widths[i] = proportioned[i];
+            }
+        }
+
+        private void EnsureFurnitureMinWidths()
+        {
+            if (_furnitureMinWidth == null)
+            {
+                _furnitureMinWidth = FurnitureDefaults.MinWidthByType(_input.Source.Program);
+                _furnitureMaxAspect = FurnitureDefaults.MaxAspectByType(_input.Source.Program);
             }
         }
 

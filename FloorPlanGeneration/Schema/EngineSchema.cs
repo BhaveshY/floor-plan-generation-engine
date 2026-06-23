@@ -235,6 +235,7 @@ namespace FloorPlanGeneration.Schema
             MaxArea = 0.0;
             MinWidth = 0.0;
             MinDepth = 0.0;
+            MaxAspect = 0.0;
             RequiresDaylight = false;
             IsWet = false;
         }
@@ -244,6 +245,11 @@ namespace FloorPlanGeneration.Schema
         public double MaxArea { get; set; }
         public double MinWidth { get; set; }
         public double MinDepth { get; set; }
+
+        // Largest acceptable long:short proportion before the room reads as a
+        // leftover slot. 0 means unconstrained (the no-op default), matching how
+        // the Min* fields default to 0 = "no rule".
+        public double MaxAspect { get; set; }
         public bool RequiresDaylight { get; set; }
         public bool IsWet { get; set; }
     }
@@ -261,6 +267,7 @@ namespace FloorPlanGeneration.Schema
             RequireDaylightForLiving = true;
             MinUnitArea = 25.0;
             GridModule = 0.0;
+            ApplyFurnitureMinimums = false;
         }
 
         public double MinCorridorWidth { get; set; }
@@ -276,6 +283,12 @@ namespace FloorPlanGeneration.Schema
         // historic free-proportion behaviour, kept byte-identical. A positive
         // value snaps interior partitions to that module so plans read on-grid.
         public double GridModule { get; set; }
+
+        // Opt-in (architectural-finetuning Phase 1): when true, interior room
+        // partitions are grown best-effort toward furniture-derived per-type
+        // minimum dimensions (German Neufert / DIN 18040-2). false is a hard
+        // no-op, so opted-out plans stay byte-identical to the historic engine.
+        public bool ApplyFurnitureMinimums { get; set; }
     }
 
     public sealed class GenerationSettings

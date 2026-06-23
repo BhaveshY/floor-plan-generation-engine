@@ -320,6 +320,10 @@
           "type": "number",
           "minimum": 0
         },
+        "maxAspect": {
+          "type": "number",
+          "minimum": 0
+        },
         "requiresDaylight": {
           "type": "boolean"
         },
@@ -360,6 +364,13 @@
         "minUnitArea": {
           "type": "number",
           "minimum": 0.000001
+        },
+        "gridModule": {
+          "type": "number",
+          "minimum": 0
+        },
+        "applyFurnitureMinimums": {
+          "type": "boolean"
         }
       }
     },

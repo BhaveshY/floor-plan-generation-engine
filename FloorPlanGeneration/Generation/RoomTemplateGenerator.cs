@@ -11,6 +11,8 @@ namespace FloorPlanGeneration.Generation
     {
         private readonly CleanedInput _input;
         private readonly double _tolerance;
+        private Dictionary<string, double> _furnitureMinWidth;
+        private Dictionary<string, double> _furnitureMaxAspect;
 
         public RoomTemplateGenerator(CleanedInput input)
         {
@@ -240,12 +242,22 @@ namespace FloorPlanGeneration.Generation
                     livingStart = b.MinX + (bedWidth * 2.0);
                 }
 
+                double[] fb = GrowFacadeBand(
+                    new[] { "bedroom", "bedroom", "living" },
+                    new[] { bedWidth, bedWidth, b.MaxX - livingStart },
+                    _input.Source.Rules.MinRoomWidth, facadeMaxY - facadeMinY);
+                double bed1End = b.MinX + fb[0];
+                // Off-path reuses the historic single-expression boundary so opted-out
+                // plans stay bit-for-bit identical (fb[0]+fb[1] reassociates the same
+                // doubles and drifts ~1 ULP, which the byte-identity contract forbids).
+                double bed2End = _input.Source.Rules.ApplyFurnitureMinimums ? bed1End + fb[1] : livingStart;
+
                 double wetSplit = Math.Min(3.2, width * style.WetSplitFraction);
                 AddRoomX(unit, "bathroom", b, mirror, b.MinX, wetMinY, b.MinX + wetSplit, wetMaxY, false);
                 AddRoomX(unit, "kitchen", b, mirror, b.MinX + wetSplit, wetMinY, b.MaxX, wetMaxY, false);
-                AddRoomX(unit, "bedroom", b, mirror, b.MinX, facadeMinY, b.MinX + bedWidth, facadeMaxY, true);
-                AddRoomX(unit, "bedroom", b, mirror, b.MinX + bedWidth, facadeMinY, livingStart, facadeMaxY, true);
-                AddRoomX(unit, "living", b, mirror, livingStart, facadeMinY, b.MaxX, facadeMaxY, true);
+                AddRoomX(unit, "bedroom", b, mirror, b.MinX, facadeMinY, bed1End, facadeMaxY, true);
+                AddRoomX(unit, "bedroom", b, mirror, bed1End, facadeMinY, bed2End, facadeMaxY, true);
+                AddRoomX(unit, "living", b, mirror, bed2End, facadeMinY, b.MaxX, facadeMaxY, true);
                 return;
             }
 
@@ -253,11 +265,17 @@ namespace FloorPlanGeneration.Generation
                 width * style.OneBedFraction,
                 _input.Source.Rules.MinRoomWidth + 0.4,
                 Math.Max(_input.Source.Rules.MinRoomWidth, width - _input.Source.Rules.MinRoomWidth));
+            double[] oneBedFb = GrowFacadeBand(
+                new[] { "bedroom", "living" },
+                new[] { bedroomWidth, b.MaxX - (b.MinX + bedroomWidth) },
+                _input.Source.Rules.MinRoomWidth, facadeMaxY - facadeMinY);
+            double oneBedEnd = b.MinX + oneBedFb[0];
+
             double oneBedWetSplit = Math.Min(3.2, width * (style.WetSplitFraction + 0.06));
             AddRoomX(unit, "bathroom", b, mirror, b.MinX, wetMinY, b.MinX + oneBedWetSplit, wetMaxY, false);
             AddRoomX(unit, "kitchen", b, mirror, b.MinX + oneBedWetSplit, wetMinY, b.MaxX, wetMaxY, false);
-            AddRoomX(unit, "bedroom", b, mirror, b.MinX, facadeMinY, b.MinX + bedroomWidth, facadeMaxY, true);
-            AddRoomX(unit, "living", b, mirror, b.MinX + bedroomWidth, facadeMinY, b.MaxX, facadeMaxY, true);
+            AddRoomX(unit, "bedroom", b, mirror, b.MinX, facadeMinY, oneBedEnd, facadeMaxY, true);
+            AddRoomX(unit, "living", b, mirror, oneBedEnd, facadeMinY, b.MaxX, facadeMaxY, true);
         }
 
         private void PopulateVerticalUnit(UnitLayout unit, CorridorStrategy corridor, UnitTypeTarget target, Bounds2 b, RoomStyle style, bool mirror)
@@ -291,12 +309,21 @@ namespace FloorPlanGeneration.Generation
                     livingStart = b.MinY + (bedDepth * 2.0);
                 }
 
+                double[] fb = GrowFacadeBand(
+                    new[] { "bedroom", "bedroom", "living" },
+                    new[] { bedDepth, bedDepth, b.MaxY - livingStart },
+                    _input.Source.Rules.MinRoomDepth, facadeMaxX - facadeMinX);
+                double bed1End = b.MinY + fb[0];
+                // Off-path reuses the historic single-expression boundary so opted-out
+                // plans stay bit-for-bit identical (see PopulateHorizontalUnit).
+                double bed2End = _input.Source.Rules.ApplyFurnitureMinimums ? bed1End + fb[1] : livingStart;
+
                 double wetSplit = Math.Min(3.2, depth * style.WetSplitFraction);
                 AddRoomY(unit, "bathroom", b, mirror, wetMinX, b.MinY, wetMaxX, b.MinY + wetSplit, false);
                 AddRoomY(unit, "kitchen", b, mirror, wetMinX, b.MinY + wetSplit, wetMaxX, b.MaxY, false);
-                AddRoomY(unit, "bedroom", b, mirror, facadeMinX, b.MinY, facadeMaxX, b.MinY + bedDepth, true);
-                AddRoomY(unit, "bedroom", b, mirror, facadeMinX, b.MinY + bedDepth, facadeMaxX, livingStart, true);
-                AddRoomY(unit, "living", b, mirror, facadeMinX, livingStart, facadeMaxX, b.MaxY, true);
+                AddRoomY(unit, "bedroom", b, mirror, facadeMinX, b.MinY, facadeMaxX, bed1End, true);
+                AddRoomY(unit, "bedroom", b, mirror, facadeMinX, bed1End, facadeMaxX, bed2End, true);
+                AddRoomY(unit, "living", b, mirror, facadeMinX, bed2End, facadeMaxX, b.MaxY, true);
                 return;
             }
 
@@ -304,11 +331,17 @@ namespace FloorPlanGeneration.Generation
                 depth * style.OneBedFraction,
                 _input.Source.Rules.MinRoomDepth + 0.4,
                 Math.Max(_input.Source.Rules.MinRoomDepth, depth - _input.Source.Rules.MinRoomDepth));
+            double[] oneBedFb = GrowFacadeBand(
+                new[] { "bedroom", "living" },
+                new[] { bedroomDepth, b.MaxY - (b.MinY + bedroomDepth) },
+                _input.Source.Rules.MinRoomDepth, facadeMaxX - facadeMinX);
+            double oneBedEnd = b.MinY + oneBedFb[0];
+
             double oneBedWetSplit = Math.Min(3.2, depth * (style.WetSplitFraction + 0.06));
             AddRoomY(unit, "bathroom", b, mirror, wetMinX, b.MinY, wetMaxX, b.MinY + oneBedWetSplit, false);
             AddRoomY(unit, "kitchen", b, mirror, wetMinX, b.MinY + oneBedWetSplit, wetMaxX, b.MaxY, false);
-            AddRoomY(unit, "bedroom", b, mirror, facadeMinX, b.MinY, facadeMaxX, b.MinY + bedroomDepth, true);
-            AddRoomY(unit, "living", b, mirror, facadeMinX, b.MinY + bedroomDepth, facadeMaxX, b.MaxY, true);
+            AddRoomY(unit, "bedroom", b, mirror, facadeMinX, b.MinY, facadeMaxX, oneBedEnd, true);
+            AddRoomY(unit, "living", b, mirror, facadeMinX, oneBedEnd, facadeMaxX, b.MaxY, true);
         }
 
         private void AddRoomX(
@@ -358,6 +391,46 @@ namespace FloorPlanGeneration.Generation
             minY = SnapInterior(minY, b.MinY, b.MaxY, minRoomD, module);
             maxY = SnapInterior(maxY, b.MinY, b.MaxY, minRoomD, module);
             AddRoom(unit, roomType, minX, minY, maxX, maxY, expectsDaylight);
+        }
+
+        // Best-effort proportions a facade band's partitions toward each room's
+        // furniture span (German Neufert / DIN 18040-2): grows every room up to its
+        // minimum width, then caps any room whose width would exceed maxAspect x the
+        // band depth (crossSpan) so it does not degenerate into an over-long slot.
+        // Slack only moves between neighbours that stay within their own bounds so the
+        // band still spans its facade exactly. A no-op unless ApplyFurnitureMinimums is
+        // set (so opted-out plans stay byte-identical). structuralMin keeps every donor
+        // — and any type without a furniture rule — at or above the unit's own minimum
+        // room dimension; the aspect cap is never allowed below that floor. Only the
+        // facade band (bedrooms + living) is ever passed here; the wet rooms
+        // (bathroom/kitchen) are placed separately and are never members of this array,
+        // so they are left exactly as constructed. Runs before SnapInterior.
+        private double[] GrowFacadeBand(IReadOnlyList<string> types, double[] widths, double structuralMin, double crossSpan)
+        {
+            if (!_input.Source.Rules.ApplyFurnitureMinimums)
+            {
+                return widths;
+            }
+
+            if (_furnitureMinWidth == null)
+            {
+                _furnitureMinWidth = FurnitureDefaults.MinWidthByType(_input.Source.Program);
+                _furnitureMaxAspect = FurnitureDefaults.MaxAspectByType(_input.Source.Program);
+            }
+
+            double[] mins = new double[widths.Length];
+            double[] maxs = new double[widths.Length];
+            for (int i = 0; i < widths.Length; i++)
+            {
+                double furniture = _furnitureMinWidth.TryGetValue(types[i], out double m) ? m : 0.0;
+                mins[i] = Math.Max(structuralMin, furniture);
+                double aspect = _furnitureMaxAspect.TryGetValue(types[i], out double a) ? a : 0.0;
+                // Cap never drops below the floor: the firmer minimum wins over the
+                // softer aspect preference, keeping the [min, max] box non-empty.
+                maxs[i] = aspect > 0.0 && crossSpan > 0.0 ? Math.Max(mins[i], aspect * crossSpan) : 0.0;
+            }
+
+            return RoomProportions.ConstrainToBounds(widths, mins, maxs);
         }
 
         private double SnapInterior(double value, double envLo, double envHi, double minSpan, double module)

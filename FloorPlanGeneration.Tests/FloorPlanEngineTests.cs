@@ -1352,6 +1352,257 @@ namespace FloorPlanGeneration.Tests
         }
 
         [Fact]
+        public void SingleDwellingMode_FurnitureMinimums_GrowMoreRoomsToTheirShortSideMinimum()
+        {
+            // Furniture minimums are opt-in and best-effort: turning them on must align
+            // strictly MORE rooms to their German short-side minimum than the identical
+            // run with the flag off (mirrors Phase 0's honest "strictly more" oracle —
+            // a drift-absorbing or starved room may still miss its target, so asserting
+            // every room meets its minimum would be a false-fail).
+            EngineInput off = FurnitureDwellingInput(seed: 31, width: 9.6, depth: 9.0, type: "two_bed", furniture: false);
+            EngineInput on = FurnitureDwellingInput(seed: 31, width: 9.6, depth: 9.0, type: "two_bed", furniture: true);
+
+            EngineOutput offOut = new FloorPlanEngine().Generate(off);
+            EngineOutput onOut = new FloorPlanEngine().Generate(on);
+
+            Assert.Equal("succeeded", onOut.Status);
+            Assert.All(onOut.Variants, v => Assert.True(v.Validation.Passed));
+
+            Assert.True(
+                CountRoomsMeetingFurnitureMin(onOut) > CountRoomsMeetingFurnitureMin(offOut),
+                "Furniture on met " + CountRoomsMeetingFurnitureMin(onOut) + " short-side minima vs " +
+                CountRoomsMeetingFurnitureMin(offOut) + " off: no improvement.");
+
+            // Best-effort must not break watertight tiling, daylight, or reachability.
+            foreach (LayoutVariant variant in onOut.Variants)
+            {
+                UnitLayout unit = Assert.Single(variant.Units);
+                Assert.InRange(Math.Abs(unit.Area - variant.Rooms.Sum(r => r.Area)), 0.0, 0.002);
+                string[] needsDaylight = { "bedroom", "living", "living_sleeping" };
+                Assert.All(
+                    variant.Rooms.Where(r => needsDaylight.Contains(r.RoomType)),
+                    room => Assert.True(room.Daylight, room.Id + " lost daylight."));
+                HashSet<string> reachable = new HashSet<string>(
+                    variant.DoorsOpenings.SelectMany(d => d.ConnectsSpaces), System.StringComparer.OrdinalIgnoreCase);
+                Assert.All(variant.Rooms, room => Assert.Contains(room.Id, reachable));
+            }
+        }
+
+        [Fact]
+        public void SingleDwellingMode_FurnitureMinimums_ChangeGeometryWhenEnabledAndStayDeterministic()
+        {
+            // The flag must actually move geometry (proves it is wired in) and stay
+            // byte-identical across repeated runs of the same seed (Phase 0 parity).
+            EngineInput off = FurnitureDwellingInput(seed: 31, width: 9.6, depth: 9.0, type: "two_bed", furniture: false);
+            EngineInput on = FurnitureDwellingInput(seed: 31, width: 9.6, depth: 9.0, type: "two_bed", furniture: true);
+
+            string offSig = DwellingGeometrySignature(new FloorPlanEngine().Generate(off));
+            string onSig = DwellingGeometrySignature(new FloorPlanEngine().Generate(on));
+            Assert.NotEqual(offSig, onSig);
+
+            EngineInput onRepeat = FurnitureDwellingInput(seed: 31, width: 9.6, depth: 9.0, type: "two_bed", furniture: true);
+            Assert.Equal(onSig, DwellingGeometrySignature(new FloorPlanEngine().Generate(onRepeat)));
+        }
+
+        [Fact]
+        public void MultiUnitMode_FurnitureMinimums_GrowMoreRoomsToTheirShortSideMinimum()
+        {
+            EngineInput off = RectangularInput(seed: 1234, variantCount: 4);
+            off.Rules.ApplyFurnitureMinimums = false;
+            EngineInput on = RectangularInput(seed: 1234, variantCount: 4);
+            on.Rules.ApplyFurnitureMinimums = true;
+
+            EngineOutput offOut = new FloorPlanEngine().Generate(off);
+            EngineOutput onOut = new FloorPlanEngine().Generate(on);
+
+            Assert.Equal("succeeded", onOut.Status);
+            Assert.All(onOut.Variants, v => Assert.True(v.Validation.Passed));
+
+            Assert.True(
+                CountRoomsMeetingFurnitureMin(onOut) > CountRoomsMeetingFurnitureMin(offOut),
+                "Furniture on met " + CountRoomsMeetingFurnitureMin(onOut) + " short-side minima vs " +
+                CountRoomsMeetingFurnitureMin(offOut) + " off: no improvement.");
+
+            foreach (LayoutVariant variant in onOut.Variants)
+            {
+                foreach (UnitLayout unit in variant.Units)
+                {
+                    double roomSum = variant.Rooms.Where(r => r.UnitId == unit.Id).Sum(r => r.Area);
+                    Assert.InRange(Math.Abs(unit.Area - roomSum), 0.0, 0.002);
+                }
+
+                string[] needsDaylight = { "bedroom", "living", "living_sleeping" };
+                Assert.All(
+                    variant.Rooms.Where(r => needsDaylight.Contains(r.RoomType)),
+                    room => Assert.True(room.Daylight, room.Id + " lost daylight."));
+            }
+
+            EngineInput onRepeat = RectangularInput(seed: 1234, variantCount: 4);
+            onRepeat.Rules.ApplyFurnitureMinimums = true;
+            Assert.Equal(Signatures(onOut), Signatures(new FloorPlanEngine().Generate(onRepeat)));
+        }
+
+        [Fact]
+        public void MultiUnitMode_FurnitureMinimumsOff_GeometryIsByteIdenticalToFrozenBaseline()
+        {
+            // Byte-identity contract: with ApplyFurnitureMinimums off, the multi-unit
+            // path must emit the exact same full-precision geometry as the pre-Phase-1
+            // engine. This pins a hash of every room polygon vertex at round-trip ("R")
+            // precision (not the 4-dp signatures), so even a sub-micron boundary drift
+            // on the opted-out path fails loudly — a tighter guard than the golden
+            // fixtures, covering the whole reachable multi-unit render.
+            EngineInput off = RectangularInput(seed: 1234, variantCount: 4);
+            off.Rules.ApplyFurnitureMinimums = false;
+
+            EngineOutput output = new FloorPlanEngine().Generate(off);
+
+            Assert.Equal("succeeded", output.Status);
+            Assert.Equal(
+                "DFD7B64848C18D650AAA5F1BBDE61095CE8436FAFC6116FF066838B2AB64EE53",
+                FullPrecisionGeometryHash(output));
+        }
+
+        // SHA-256 over every room polygon vertex at round-trip ("R") precision, so the
+        // hash flips on any sub-micron coordinate change. Used to pin the opted-out
+        // multi-unit path to byte-identical historic geometry.
+        private static string FullPrecisionGeometryHash(EngineOutput output)
+        {
+            System.Text.StringBuilder sb = new System.Text.StringBuilder();
+            foreach (LayoutVariant variant in output.Variants)
+            {
+                sb.Append(variant.VariantId).Append('#');
+                foreach (RoomLayout room in variant.Rooms)
+                {
+                    sb.Append(room.Id).Append(':').Append(room.RoomType).Append('[');
+                    foreach (Point2 p in room.Polygon.Points)
+                    {
+                        sb.Append(p.X.ToString("R", CultureInfo.InvariantCulture)).Append(',')
+                          .Append(p.Y.ToString("R", CultureInfo.InvariantCulture)).Append(';');
+                    }
+
+                    sb.Append(']');
+                }
+            }
+
+            using (System.Security.Cryptography.SHA256 sha = System.Security.Cryptography.SHA256.Create())
+            {
+                byte[] hash = sha.ComputeHash(System.Text.Encoding.UTF8.GetBytes(sb.ToString()));
+                return Convert.ToHexString(hash);
+            }
+        }
+
+        [Fact]
+        public void SingleDwellingMode_FurnitureMinimums_CapPullsOverLongRoomsTowardTheirAspectLimit()
+        {
+            // A wide (16 m) but shallow (4.6 m) plate: every day room is already well
+            // above its min width, so the min-growth pass is a no-op and the aspect cap
+            // is the ONLY thing the flag changes here. The shallow depth makes the long
+            // rooms exceed their long:short cap, so turning the flag on must reduce the
+            // total aspect overshoot (best-effort: strictly less, not necessarily zero).
+            EngineInput off = FurnitureDwellingInput(seed: 7, width: 16.0, depth: 4.6, type: "two_bed", furniture: false);
+            EngineInput on = FurnitureDwellingInput(seed: 7, width: 16.0, depth: 4.6, type: "two_bed", furniture: true);
+
+            EngineOutput offOut = new FloorPlanEngine().Generate(off);
+            EngineOutput onOut = new FloorPlanEngine().Generate(on);
+
+            Assert.Equal("succeeded", onOut.Status);
+            Assert.All(onOut.Variants, v => Assert.True(v.Validation.Passed));
+
+            double offOver = TotalAspectOvershoot(offOut);
+            double onOver = TotalAspectOvershoot(onOut);
+            Assert.True(onOver < offOver - 1e-6,
+                "aspect cap did not bind: on overshoot " + onOver + " vs off " + offOver);
+        }
+
+        [Fact]
+        public void SingleDwellingMode_FurnitureMinimums_BalconyDayBandStaysValidWithPerRoomAspectCap()
+        {
+            // Forces the balcony day-band path (balcony > 0), where rooms fronting a
+            // balcony are emitted shallower than the rest of the band. The per-room
+            // aspect cap must use each room's true depth there yet keep the band
+            // watertight, daylit, reachable and deterministic.
+            EngineInput input = SingleDwellingInput(seed: 11, variantCount: 4, width: 14.0, depth: 6.4, type: "two_bed");
+            input.Program.Dwelling = new DwellingProgram { Bedrooms = 2, Livings = 1, Balcony = 1 };
+            input.Rules.ApplyFurnitureMinimums = true;
+
+            EngineOutput output = new FloorPlanEngine().Generate(input);
+
+            Assert.Equal("succeeded", output.Status);
+            Assert.All(output.Variants, v => Assert.True(v.Validation.Passed));
+            Assert.Contains(output.Variants.SelectMany(v => v.Rooms), r => r.RoomType == "balcony");
+
+            foreach (LayoutVariant variant in output.Variants)
+            {
+                foreach (UnitLayout unit in variant.Units)
+                {
+                    double roomSum = variant.Rooms.Where(r => r.UnitId == unit.Id).Sum(r => r.Area);
+                    Assert.InRange(Math.Abs(unit.Area - roomSum), 0.0, 0.01);
+                }
+            }
+
+            EngineInput repeat = SingleDwellingInput(seed: 11, variantCount: 4, width: 14.0, depth: 6.4, type: "two_bed");
+            repeat.Program.Dwelling = new DwellingProgram { Bedrooms = 2, Livings = 1, Balcony = 1 };
+            repeat.Rules.ApplyFurnitureMinimums = true;
+            Assert.Equal(
+                string.Join("|", Signatures(output)),
+                string.Join("|", Signatures(new FloorPlanEngine().Generate(repeat))));
+        }
+
+        // Sum over every typed room of how far its long:short proportion exceeds the
+        // German furniture aspect cap for its type (0 when within the cap). A best-effort
+        // cap should lower this total versus the uncapped layout.
+        private static double TotalAspectOvershoot(EngineOutput output)
+        {
+            var maxAspect = new Dictionary<string, double>(System.StringComparer.OrdinalIgnoreCase)
+            {
+                { "bedroom", 1.7 }, { "living", 1.8 }, { "living_sleeping", 2.2 }, { "dining", 1.6 },
+                { "study", 2.0 }, { "kitchen", 2.6 }, { "bathroom", 2.0 }, { "utility", 2.0 },
+                { "balcony", 2.5 }, { "foyer", 3.0 }, { "pooja", 1.8 }, { "store", 2.2 },
+            };
+            double total = 0.0;
+            foreach (RoomLayout room in output.Variants.SelectMany(v => v.Rooms))
+            {
+                if (!maxAspect.TryGetValue(room.RoomType, out double cap)) continue;
+                double w = room.Dimensions.Width;
+                double d = room.Dimensions.Depth;
+                if (w <= 0.0 || d <= 0.0) continue;
+                double ratio = Math.Max(w, d) / Math.Min(w, d);
+                if (ratio > cap) total += ratio - cap;
+            }
+
+            return total;
+        }
+
+        // Counts rooms whose SHORT side (min of the two plan dimensions, which is the
+        // band-redistributed axis regardless of how the entry facade maps it onto X/Y)
+        // reaches the German furniture minimum width for its type.
+        private static int CountRoomsMeetingFurnitureMin(EngineOutput output)
+        {
+            var minShortSide = new Dictionary<string, double>(System.StringComparer.OrdinalIgnoreCase)
+            {
+                { "bedroom", 3.0 }, { "living", 3.4 }, { "living_sleeping", 3.4 }, { "dining", 2.6 },
+                { "study", 2.4 }, { "kitchen", 1.8 }, { "bathroom", 1.6 }, { "utility", 1.4 },
+                { "foyer", 1.2 }, { "pooja", 0.9 }, { "store", 0.8 },
+            };
+            int met = 0;
+            foreach (RoomLayout room in output.Variants.SelectMany(v => v.Rooms))
+            {
+                if (!minShortSide.TryGetValue(room.RoomType, out double min)) continue;
+                double shortSide = Math.Min(room.Dimensions.Width, room.Dimensions.Depth);
+                if (shortSide + 0.002 >= min) met++;
+            }
+
+            return met;
+        }
+
+        private static EngineInput FurnitureDwellingInput(int seed, double width, double depth, string type, bool furniture)
+        {
+            EngineInput input = SingleDwellingInput(seed, variantCount: 4, width: width, depth: depth, type: type);
+            input.Rules.ApplyFurnitureMinimums = furniture;
+            return input;
+        }
+
+        [Fact]
         public void MultiUnitMode_SnapsUnitBaysToGridModule()
         {
             // The plate spans exact 0.6 m multiples on both axes (36 = 60x, 18 = 30x),

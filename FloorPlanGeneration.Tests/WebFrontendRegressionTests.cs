@@ -1508,6 +1508,9 @@ namespace FloorPlanGeneration.Tests
             // land on module lines instead of arbitrary free-proportion fractions.
             Assert.Contains("gridModule: 0.6", buildDwelling, StringComparison.Ordinal);
 
+            // ...and into furniture-fit minimum room dimensions (German Neufert / DIN).
+            Assert.Contains("applyFurnitureMinimums: true", buildDwelling, StringComparison.Ordinal);
+
             // Form syncing keeps the mode intact: no core injection, no unit-mix
             // overwrite, and the small-plate floor of 4 m applies.
             Assert.Contains("const dwellingMode = isDwellingInput(input)", syncInputFromForm, StringComparison.Ordinal);
@@ -1849,6 +1852,26 @@ namespace FloorPlanGeneration.Tests
             // The engine keeps the grid opt-in: GridModule defaults to 0 (the historic
             // free-proportion behaviour) so untouched inputs stay byte-identical.
             Assert.Contains("GridModule", engineSchema, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void FormBuiltInputsOptIntoFurnitureMinimums()
+        {
+            string app = ReadWebFile("app.js");
+            string syncInputFromForm = SliceFunction(app, "syncInputFromForm");
+            string engineSchema = File.ReadAllText(
+                Path.Combine(RepositoryRoot(), "FloorPlanGeneration", "Schema", "EngineSchema.cs"));
+
+            // Every form-built input grows rooms best-effort toward furniture-fit
+            // minimum dimensions; on by default in the studio, an explicit false opts out.
+            Assert.Contains(
+                "input.rules.applyFurnitureMinimums = input.rules.applyFurnitureMinimums !== false",
+                syncInputFromForm,
+                StringComparison.Ordinal);
+
+            // The engine keeps it opt-in: ApplyFurnitureMinimums defaults to false so
+            // untouched inputs (and the golden fixtures) stay byte-identical.
+            Assert.Contains("ApplyFurnitureMinimums", engineSchema, StringComparison.Ordinal);
         }
 
         private static string ReadWebFile(string fileName)

@@ -535,6 +535,9 @@ function syncInputFromForm() {
   // Snap unit bays and room partitions to a 0.6 m planning grid so apartments
   // read as a regular bay rhythm instead of arbitrary widths (0 disables it).
   input.rules.gridModule = input.rules.gridModule || 0.6;
+  // Grow rooms best-effort toward furniture-fit minimum dimensions (German
+  // Neufert / DIN); on by default in the studio, set false to opt out.
+  input.rules.applyFurnitureMinimums = input.rules.applyFurnitureMinimums !== false;
 
   input.generationSettings.variantCount = clamp(Math.trunc(readNumber(els.variantInput, input.generationSettings.variantCount || 4)), 1, 20);
   input.generationSettings.strictness = els.strictnessInput.value || "balanced";
@@ -918,7 +921,8 @@ function buildSingleDwellingInput(intent) {
       requireDaylightForBedrooms: true,
       requireDaylightForLiving: true,
       minUnitArea: 16,
-      gridModule: 0.6
+      gridModule: 0.6,
+      applyFurnitureMinimums: true
     },
     generationSettings: {
       variantCount: 4,

@@ -953,7 +953,16 @@ namespace FloorPlanGeneration
             if (input.Program.TargetUnitTypes == null) input.Program.TargetUnitTypes = new List<UnitTypeTarget>();
             input.Program.TargetUnitTypes = input.Program.TargetUnitTypes.Where(t => t != null).ToList();
             if (input.Program.RoomTypes == null) input.Program.RoomTypes = new List<RoomTypeRule>();
-            input.Program.RoomTypes = input.Program.RoomTypes.Where(r => r != null).ToList();
+            input.Program.RoomTypes = input.Program.RoomTypes
+                .Where(r => r != null && !string.IsNullOrWhiteSpace(r.Type))
+                .ToList();
+            foreach (RoomTypeRule rule in input.Program.RoomTypes)
+            {
+                if (rule.MinWidth < 0.0 || double.IsNaN(rule.MinWidth)) rule.MinWidth = 0.0;
+                if (rule.MinDepth < 0.0 || double.IsNaN(rule.MinDepth)) rule.MinDepth = 0.0;
+                if (rule.MinArea < 0.0 || double.IsNaN(rule.MinArea)) rule.MinArea = 0.0;
+                if (rule.MaxAspect < 0.0 || double.IsNaN(rule.MaxAspect)) rule.MaxAspect = 0.0;
+            }
 
             if (input.Rules == null) input.Rules = new RuleSet();
             if (input.Rules.MinCorridorWidth <= 0.0) input.Rules.MinCorridorWidth = 1.8;
