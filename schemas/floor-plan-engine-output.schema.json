@@ -40,9 +40,67 @@
       "items": {
         "$ref": "#/$defs/diagnostic"
       }
+    },
+    "recommendation": {
+      "$ref": "#/$defs/recommendation"
     }
   },
   "$defs": {
+    "recommendation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "recommendedVariantId",
+        "rationale",
+        "ranking"
+      ],
+      "properties": {
+        "recommendedVariantId": {
+          "type": "string"
+        },
+        "rationale": {
+          "type": "string"
+        },
+        "ranking": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/variantRanking"
+          }
+        }
+      }
+    },
+    "variantRanking": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "variantId",
+        "rank",
+        "score",
+        "passed",
+        "highlights"
+      ],
+      "properties": {
+        "variantId": {
+          "type": "string"
+        },
+        "rank": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "score": {
+          "type": "number"
+        },
+        "passed": {
+          "type": "boolean"
+        },
+        "highlights": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
     "metadata": {
       "type": "object",
       "additionalProperties": false,

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Text.Json.Serialization;
 using FloorPlanGeneration.Geometry;
 using FloorPlanGeneration.Topology;
 
@@ -322,12 +323,22 @@ namespace FloorPlanGeneration.Schema
             WeightedVariation = true;
             LayoutMode = "multi_unit";
             ScoringWeights = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+            RecommendVariant = false;
         }
 
         public int VariantCount { get; set; }
         public int TimeLimitMilliseconds { get; set; }
         public string Strictness { get; set; }
         public bool WeightedVariation { get; set; }
+
+        /// <summary>
+        /// Opt-in (architectural-finetuning Phase 4): when true, the engine attaches an
+        /// explicit, explainable <see cref="VariantRecommendation"/> over the already-sorted
+        /// variants to <see cref="EngineOutput.Recommendation"/>. false leaves the output
+        /// byte-identical to the historic engine (the property stays null and is omitted).
+        /// Output annotation only — never re-orders or mutates the variants themselves.
+        /// </summary>
+        public bool RecommendVariant { get; set; }
 
         /// <summary>
         /// "multi_unit" (default): corridor + unit bands across a building floor.
@@ -355,6 +366,55 @@ namespace FloorPlanGeneration.Schema
         public EngineMetadata Metadata { get; set; }
         public List<LayoutVariant> Variants { get; set; }
         public List<Diagnostic> Diagnostics { get; set; }
+
+        /// <summary>
+        /// Phase-4 recommendation over <see cref="Variants"/>. Null (and omitted from the
+        /// serialized output) unless <see cref="GenerationSettings.RecommendVariant"/> is set,
+        /// which keeps the off-path output byte-identical to the historic engine.
+        /// </summary>
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public VariantRecommendation Recommendation { get; set; }
+    }
+
+    /// <summary>
+    /// Phase-4 (architectural-finetuning) recommendation over a generated variant set:
+    /// a machine-readable pointer to the surfaced best variant, a 1-based ranking, and a
+    /// short human rationale. Produced by <see cref="Generation.VariantRecommender"/>.
+    /// </summary>
+    public sealed class VariantRecommendation
+    {
+        public VariantRecommendation()
+        {
+            RecommendedVariantId = string.Empty;
+            Rationale = string.Empty;
+            Ranking = new List<VariantRanking>();
+        }
+
+        public string RecommendedVariantId { get; set; }
+        public string Rationale { get; set; }
+        public List<VariantRanking> Ranking { get; set; }
+    }
+
+    /// <summary>
+    /// One variant's place in the Phase-4 ranking: its 1-based rank in the engine's sort
+    /// order, the score it earned, whether it passed validation, and the criteria it leads on.
+    /// </summary>
+    public sealed class VariantRanking
+    {
+        public VariantRanking()
+        {
+            VariantId = string.Empty;
+            Rank = 0;
+            Score = 0.0;
+            Passed = false;
+            Highlights = new List<string>();
+        }
+
+        public string VariantId { get; set; }
+        public int Rank { get; set; }
+        public double Score { get; set; }
+        public bool Passed { get; set; }
+        public List<string> Highlights { get; set; }
     }
 
     public sealed class EngineMetadata

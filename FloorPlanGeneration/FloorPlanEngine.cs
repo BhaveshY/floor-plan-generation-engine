@@ -155,6 +155,13 @@ namespace FloorPlanGeneration
                 AddVariantGenerationDiagnosticSummary(output, includeWarnings: string.Equals(output.Status, "failed", StringComparison.OrdinalIgnoreCase));
             }
 
+            // Phase 4: annotate the sorted variants with an explicit recommendation when opted in.
+            // Output-only and gated, so the off-path output stays byte-identical.
+            if (input.GenerationSettings != null && input.GenerationSettings.RecommendVariant && output.Variants.Count > 0)
+            {
+                output.Recommendation = VariantRecommender.Recommend(output.Variants);
+            }
+
             return output;
         }
 

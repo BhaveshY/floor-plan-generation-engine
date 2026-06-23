@@ -46,6 +46,26 @@ namespace FloorPlanGeneration.Tests
         }
 
         [Fact]
+        public void GeneratedOutputWithRecommendationValidatesAgainstPublishedOutputSchema()
+        {
+            EngineInput input = JsonSerializer.Deserialize<EngineInput>(
+                File.ReadAllText(SamplePath("rectangular-core-input.json")),
+                JsonOptions());
+            input.GenerationSettings.VariantCount = 3;
+            input.GenerationSettings.RecommendVariant = true;
+
+            EngineOutput output = new FloorPlanEngine().Generate(input);
+            using JsonDocument schema = JsonDocument.Parse(File.ReadAllText(SchemaPath("floor-plan-engine-output.schema.json")));
+            using JsonDocument instance = JsonDocument.Parse(JsonSerializer.Serialize(output, JsonOptions()));
+
+            Assert.NotNull(output.Recommendation);
+            Assert.True(instance.RootElement.TryGetProperty("recommendation", out _));
+            List<string> errors = SchemaAssertions.Validate(schema.RootElement, instance.RootElement);
+
+            Assert.True(errors.Count == 0, string.Join(Environment.NewLine, errors));
+        }
+
+        [Fact]
         public void CliPrintInputSchema_WritesPublishedSchemaWithoutReadingInput()
         {
             StringWriter stdout = new StringWriter(CultureInfo.InvariantCulture);
