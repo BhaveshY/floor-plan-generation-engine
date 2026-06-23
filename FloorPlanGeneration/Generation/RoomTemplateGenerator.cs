@@ -493,14 +493,16 @@ namespace FloorPlanGeneration.Generation
 
         private static string NormalizeUnitType(string type)
         {
-            if (string.Equals(type, "2-bed", StringComparison.OrdinalIgnoreCase) ||
+            if (string.Equals(type, "two_bed", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(type, "2-bed", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(type, "2_bed", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(type, "two-bedroom", StringComparison.OrdinalIgnoreCase))
             {
                 return "two_bed";
             }
 
-            if (string.Equals(type, "1-bed", StringComparison.OrdinalIgnoreCase) ||
+            if (string.Equals(type, "one_bed", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(type, "1-bed", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(type, "1_bed", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(type, "one-bedroom", StringComparison.OrdinalIgnoreCase))
             {

@@ -17,66 +17,66 @@
                              "seed":  -546508551,
                              "score":  0.9075,
                              "units":  9,
-                             "rooms":  33,
+                             "rooms":  35,
                              "corridors":  1,
                              "firstUnit":  "unit-north-05",
-                             "topologyNodes":  45,
-                             "topologyEdges":  93
+                             "topologyNodes":  47,
+                             "topologyEdges":  99
                          },
                          {
                              "id":  "variant-06",
                              "seed":  -546508547,
                              "score":  0.8796,
                              "units":  9,
-                             "rooms":  34,
+                             "rooms":  37,
                              "corridors":  1,
                              "firstUnit":  "unit-north-05",
-                             "topologyNodes":  46,
-                             "topologyEdges":  96
+                             "topologyNodes":  49,
+                             "topologyEdges":  105
                          },
                          {
                              "id":  "variant-01",
                              "seed":  -546508550,
                              "score":  0.8747,
                              "units":  9,
-                             "rooms":  34,
+                             "rooms":  37,
                              "corridors":  1,
                              "firstUnit":  "unit-north-06",
-                             "topologyNodes":  46,
-                             "topologyEdges":  96
+                             "topologyNodes":  49,
+                             "topologyEdges":  105
                          },
                          {
                              "id":  "variant-04",
                              "seed":  -546508545,
                              "score":  0.8672,
                              "units":  8,
-                             "rooms":  30,
+                             "rooms":  33,
                              "corridors":  1,
                              "firstUnit":  "unit-north-05",
-                             "topologyNodes":  41,
-                             "topologyEdges":  85
+                             "topologyNodes":  44,
+                             "topologyEdges":  94
                          },
                          {
                              "id":  "variant-03",
                              "seed":  -546508552,
                              "score":  0.8375,
                              "units":  8,
-                             "rooms":  31,
+                             "rooms":  35,
                              "corridors":  1,
                              "firstUnit":  "unit-north-05",
-                             "topologyNodes":  42,
-                             "topologyEdges":  88
+                             "topologyNodes":  46,
+                             "topologyEdges":  100
                          },
                          {
                              "id":  "variant-05",
                              "seed":  -546508546,
                              "score":  0.8108,
                              "units":  8,
-                             "rooms":  31,
+                             "rooms":  36,
                              "corridors":  1,
                              "firstUnit":  "unit-north-05",
-                             "topologyNodes":  42,
-                             "topologyEdges":  88
+                             "topologyNodes":  47,
+                             "topologyEdges":  103
                          }
                      ]
     },
@@ -98,55 +98,55 @@
                              "seed":  2223593,
                              "score":  0.9242,
                              "units":  10,
-                             "rooms":  37,
+                             "rooms":  39,
                              "corridors":  1,
                              "firstUnit":  "unit-north-06",
-                             "topologyNodes":  50,
-                             "topologyEdges":  104
+                             "topologyNodes":  52,
+                             "topologyEdges":  110
                          },
                          {
                              "id":  "variant-02",
                              "seed":  2223599,
                              "score":  0.9132,
                              "units":  9,
-                             "rooms":  34,
+                             "rooms":  37,
                              "corridors":  1,
                              "firstUnit":  "unit-north-06",
-                             "topologyNodes":  46,
-                             "topologyEdges":  96
+                             "topologyNodes":  49,
+                             "topologyEdges":  105
                          },
                          {
                              "id":  "variant-05",
                              "seed":  2223592,
                              "score":  0.8267,
                              "units":  6,
-                             "rooms":  23,
+                             "rooms":  25,
                              "corridors":  1,
                              "firstUnit":  "unit-north-05",
-                             "topologyNodes":  32,
-                             "topologyEdges":  66
+                             "topologyNodes":  34,
+                             "topologyEdges":  72
                          },
                          {
                              "id":  "variant-01",
                              "seed":  2223596,
                              "score":  0.8246,
                              "units":  6,
-                             "rooms":  23,
+                             "rooms":  25,
                              "corridors":  1,
                              "firstUnit":  "unit-north-05",
-                             "topologyNodes":  32,
-                             "topologyEdges":  66
+                             "topologyNodes":  34,
+                             "topologyEdges":  72
                          },
                          {
                              "id":  "variant-03",
                              "seed":  2223598,
                              "score":  0.8229,
                              "units":  6,
-                             "rooms":  23,
+                             "rooms":  25,
                              "corridors":  1,
                              "firstUnit":  "unit-north-05",
-                             "topologyNodes":  32,
-                             "topologyEdges":  66
+                             "topologyNodes":  34,
+                             "topologyEdges":  72
                          }
                      ]
     },
@@ -168,44 +168,44 @@
                              "seed":  3930701,
                              "score":  0.9146,
                              "units":  10,
-                             "rooms":  37,
+                             "rooms":  39,
                              "corridors":  1,
                              "firstUnit":  "unit-north-06",
-                             "topologyNodes":  50,
-                             "topologyEdges":  104
+                             "topologyNodes":  52,
+                             "topologyEdges":  110
                          },
                          {
                              "id":  "variant-02",
                              "seed":  3930699,
                              "score":  0.908,
                              "units":  11,
-                             "rooms":  41,
+                             "rooms":  43,
                              "corridors":  1,
                              "firstUnit":  "unit-north-06",
-                             "topologyNodes":  55,
-                             "topologyEdges":  115
+                             "topologyNodes":  57,
+                             "topologyEdges":  121
                          },
                          {
                              "id":  "variant-03",
                              "seed":  3930698,
                              "score":  0.8846,
                              "units":  10,
-                             "rooms":  38,
+                             "rooms":  41,
                              "corridors":  1,
                              "firstUnit":  "unit-north-07",
-                             "topologyNodes":  51,
-                             "topologyEdges":  107
+                             "topologyNodes":  54,
+                             "topologyEdges":  116
                          },
                          {
                              "id":  "variant-01",
                              "seed":  3930696,
                              "score":  0.8825,
                              "units":  10,
-                             "rooms":  38,
+                             "rooms":  40,
                              "corridors":  1,
                              "firstUnit":  "unit-north-07",
-                             "topologyNodes":  51,
-                             "topologyEdges":  107
+                             "topologyNodes":  53,
+                             "topologyEdges":  113
                          }
                      ]
     },

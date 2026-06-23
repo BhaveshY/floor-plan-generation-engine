@@ -404,6 +404,30 @@ namespace FloorPlanGeneration.Tests
         }
 
         [Fact]
+        public void MultiUnitTwoBedUnits_RenderTwoBedroomLayouts()
+        {
+            // Regression: NormalizeUnitType did not recognise the canonical "two_bed"
+            // string the unit-mix planner emits, so every two_bed unit fell through to
+            // the one_bed branch and silently rendered a single bedroom.
+            EngineInput input = JsonSerializer.Deserialize<EngineInput>(
+                File.ReadAllText(Path.Combine(RepositoryRoot(), "samples", "floor-plan-generation", "rectangular-core-input.json")),
+                JsonOptions());
+
+            EngineOutput output = new FloorPlanEngine().Generate(input);
+
+            Assert.Equal("succeeded", output.Status);
+            List<UnitLayout> twoBedUnits = output.Variants
+                .SelectMany(v => v.Units)
+                .Where(u => string.Equals(u.Type, "two_bed", StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            Assert.NotEmpty(twoBedUnits);
+            Assert.All(
+                twoBedUnits,
+                unit => Assert.Equal(2, unit.Rooms.Count(r => string.Equals(r.RoomType, "bedroom", StringComparison.OrdinalIgnoreCase))));
+        }
+
+        [Fact]
         public void SameSeed_ProducesSameVariantIdsScoresAndLayoutCounts()
         {
             EngineOutput left = new FloorPlanEngine().Generate(RectangularInput(seed: 8128, variantCount: 5));
@@ -1446,11 +1470,13 @@ namespace FloorPlanGeneration.Tests
         public void MultiUnitMode_FurnitureMinimumsOff_GeometryIsByteIdenticalToFrozenBaseline()
         {
             // Byte-identity contract: with ApplyFurnitureMinimums off, the multi-unit
-            // path must emit the exact same full-precision geometry as the pre-Phase-1
-            // engine. This pins a hash of every room polygon vertex at round-trip ("R")
-            // precision (not the 4-dp signatures), so even a sub-micron boundary drift
-            // on the opted-out path fails loudly — a tighter guard than the golden
-            // fixtures, covering the whole reachable multi-unit render.
+            // path must emit the exact full-precision geometry of the frozen baseline —
+            // the pre-Phase-1 engine, plus the two_bed unit-type normalization fix that
+            // gives canonical "two_bed" units their second bedroom. This pins a hash of
+            // every room polygon vertex at round-trip ("R") precision (not the 4-dp
+            // signatures), so even a sub-micron boundary drift on the opted-out path
+            // fails loudly — a tighter guard than the golden fixtures, covering the
+            // whole reachable multi-unit render.
             EngineInput off = RectangularInput(seed: 1234, variantCount: 4);
             off.Rules.ApplyFurnitureMinimums = false;
 
@@ -1458,7 +1484,7 @@ namespace FloorPlanGeneration.Tests
 
             Assert.Equal("succeeded", output.Status);
             Assert.Equal(
-                "DFD7B64848C18D650AAA5F1BBDE61095CE8436FAFC6116FF066838B2AB64EE53",
+                "450759EF1EF063369FDDA10BDD7CC154AD7042DCD60B0DAD558BB15BD68E198A",
                 FullPrecisionGeometryHash(output));
         }
 
