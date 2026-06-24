@@ -8707,13 +8707,13 @@ function svgStyleElement() {
     .axon-floor.room-service{fill:#f1f0ec}
     .axon-floor-corridor{fill:#e9eef0}
     .axon-room-tag{fill:${ink500};font-weight:640;letter-spacing:0.1em;paint-order:stroke;stroke:rgba(255,255,255,0.85);stroke-width:0.08;stroke-linejoin:round}
-    .circ-spine{stroke:#007d78;stroke-width:0.16;stroke-dasharray:0.5 0.32;stroke-linecap:round;fill:none;opacity:0.9}
-    .circ-flow{stroke:#007d78;stroke-width:0.085;stroke-dasharray:0.3 0.22;stroke-linecap:round;stroke-linejoin:round;fill:none;opacity:0.95}
+    .circ-spine{stroke:#fa6400;stroke-width:0.16;stroke-dasharray:0.5 0.32;stroke-linecap:round;fill:none;opacity:0.9}
+    .circ-flow{stroke:#fa6400;stroke-width:0.085;stroke-dasharray:0.3 0.22;stroke-linecap:round;stroke-linejoin:round;fill:none;opacity:0.95}
     .circ-entry-flow{stroke-width:0.14;stroke-dasharray:none}
     .circ-spine-arrow{stroke-dasharray:none;stroke-width:0.12}
-    .circ-arrow-head{fill:#007d78}
-    .circ-door-dot{fill:#fff;stroke:#007d78;stroke-width:0.06}
-    .circ-entry-dot{fill:#007d78;stroke:#fff;stroke-width:0.06}
+    .circ-arrow-head{fill:#fa6400}
+    .circ-door-dot{fill:#fff;stroke:#fa6400;stroke-width:0.06}
+    .circ-entry-dot{fill:#fa6400;stroke:#fff;stroke-width:0.06}
   `;
   return style;
 }
