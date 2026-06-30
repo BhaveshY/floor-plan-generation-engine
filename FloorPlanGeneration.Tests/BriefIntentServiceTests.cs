@@ -1,4 +1,6 @@
+using System;
 using System.Collections.Generic;
+using System.IO;
 using FloorPlanGeneration.Web;
 using Xunit;
 
@@ -6,6 +8,53 @@ namespace FloorPlanGeneration.Tests
 {
     public sealed class BriefIntentServiceTests
     {
+        [Fact]
+        public void PickLatestVersionedCli_SelectsHighestVersionDirectoryThatHasTheExecutable()
+        {
+            string root = Path.Combine(Path.GetTempPath(), "fp-cli-" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                // Numeric ordering, not lexical: 2.10.0 must beat 2.1.187.
+                CreateStubExe(root, "2.1.9", "claude.exe");
+                CreateStubExe(root, "2.1.187", "claude.exe");
+                CreateStubExe(root, "2.10.0", "claude.exe");
+                Directory.CreateDirectory(Path.Combine(root, "2.99.0")); // version dir, no exe -> ignored
+                CreateStubExe(root, "not-a-version", "claude.exe");      // non-semver loses to any version
+
+                string picked = BriefIntentService.PickLatestVersionedCli(root, "claude.exe");
+
+                Assert.Equal(Path.Combine(root, "2.10.0", "claude.exe"), picked);
+            }
+            finally
+            {
+                if (Directory.Exists(root)) Directory.Delete(root, true);
+            }
+        }
+
+        [Fact]
+        public void PickLatestVersionedCli_ReturnsNullWhenNoExecutableOrBaseMissing()
+        {
+            string root = Path.Combine(Path.GetTempPath(), "fp-cli-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(Path.Combine(root, "1.0.0")); // version dir but no exe
+            try
+            {
+                Assert.Null(BriefIntentService.PickLatestVersionedCli(root, "claude.exe"));
+                Assert.Null(BriefIntentService.PickLatestVersionedCli(Path.Combine(root, "missing"), "claude.exe"));
+                Assert.Null(BriefIntentService.PickLatestVersionedCli(null, "claude.exe"));
+            }
+            finally
+            {
+                if (Directory.Exists(root)) Directory.Delete(root, true);
+            }
+        }
+
+        private static void CreateStubExe(string root, string version, string name)
+        {
+            string dir = Path.Combine(root, version);
+            Directory.CreateDirectory(dir);
+            File.WriteAllText(Path.Combine(dir, name), "stub");
+        }
+
         [Fact]
         public void ExtractJsonObject_FindsFirstBalancedObjectInFreeText()
         {

@@ -177,7 +177,7 @@ namespace FloorPlanGeneration.Web
                 // and the UI lets the user pick. FLOORPLAN_AI_PROVIDER narrows to one.
                 if (mode != "codex")
                 {
-                    string claude = FindOnPath("claude");
+                    string claude = FindClaudeCli();
                     if (claude != null)
                     {
                         _cliPaths["claude"] = claude;
@@ -186,7 +186,7 @@ namespace FloorPlanGeneration.Web
 
                 if (mode != "claude")
                 {
-                    string codex = FindOnPath("codex");
+                    string codex = FindCodexCli();
                     if (codex != null)
                     {
                         _cliPaths["codex"] = codex;
@@ -195,6 +195,116 @@ namespace FloorPlanGeneration.Web
 
                 _defaultProvider = _cliPaths.ContainsKey("claude") ? "claude" : (_cliPaths.Count > 0 ? "codex" : null);
             }
+        }
+
+        /// <summary>
+        /// The Claude Code and Codex CLIs install into versioned, per-user
+        /// directories (e.g. %APPDATA%\Claude\claude-code\2.1.187\claude.exe) that
+        /// are not on PATH — the harness launches them by absolute path. Given the
+        /// install base this returns the executable from the highest installed
+        /// version directory, so the brief parser finds an existing subscription
+        /// without any PATH setup. Versioned directories are compared numerically
+        /// (2.10.0 beats 2.1.187); a non-semver directory is only chosen when no
+        /// versioned one qualifies. Returns null when the base is missing or no
+        /// version directory actually contains the executable.
+        /// </summary>
+        public static string PickLatestVersionedCli(string baseDirectory, string executableName)
+        {
+            if (string.IsNullOrWhiteSpace(baseDirectory) || string.IsNullOrWhiteSpace(executableName))
+            {
+                return null;
+            }
+
+            if (!Directory.Exists(baseDirectory))
+            {
+                return null;
+            }
+
+            string best = null;
+            Version bestVersion = null;
+            string bestName = null;
+            try
+            {
+                foreach (string directory in Directory.EnumerateDirectories(baseDirectory))
+                {
+                    string candidate = Path.Combine(directory, executableName);
+                    if (!File.Exists(candidate))
+                    {
+                        continue;
+                    }
+
+                    string name = Path.GetFileName(directory);
+                    if (Version.TryParse(name, out Version version))
+                    {
+                        if (bestVersion == null || version > bestVersion)
+                        {
+                            bestVersion = version;
+                            best = candidate;
+                            bestName = name;
+                        }
+                    }
+                    else if (bestVersion == null && (bestName == null || string.CompareOrdinal(name, bestName) > 0))
+                    {
+                        best = candidate;
+                        bestName = name;
+                    }
+                }
+            }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+            {
+                // EnumerateDirectories is lazy and can throw mid-iteration on an
+                // unreadable or concurrently-removed install dir (DirectoryNotFound
+                // derives from IOException). Disable AI discovery and fall back to
+                // the heuristic parser rather than 500-ing /api/prompt/status.
+                return best;
+            }
+
+            return best;
+        }
+
+        /// <summary>
+        /// Resolves the Claude Code CLI: PATH first, then the canonical per-user
+        /// install location on Windows so an installed subscription is found even
+        /// when the versioned directory is not on PATH.
+        /// </summary>
+        private static string FindClaudeCli()
+        {
+            string onPath = FindOnPath("claude");
+            if (onPath != null)
+            {
+                return onPath;
+            }
+
+            if (!OperatingSystem.IsWindows())
+            {
+                return null;
+            }
+
+            string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+            string baseDir = Path.Combine(appData, "Claude", "claude-code");
+            return PickLatestVersionedCli(baseDir, "claude.exe");
+        }
+
+        /// <summary>
+        /// Resolves the Codex CLI: PATH first, then its canonical per-user install
+        /// location on Windows (%LOCALAPPDATA%\Programs\codex\codex.exe).
+        /// </summary>
+        private static string FindCodexCli()
+        {
+            string onPath = FindOnPath("codex");
+            if (onPath != null)
+            {
+                return onPath;
+            }
+
+            if (!OperatingSystem.IsWindows())
+            {
+                return null;
+            }
+
+            string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            string candidate = Path.Combine(localAppData, "Programs", "codex", "codex.exe");
+            return File.Exists(candidate) ? candidate : null;
         }
 
         private static string FindOnPath(string baseName)
