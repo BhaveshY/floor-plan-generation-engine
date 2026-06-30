@@ -19,3 +19,8 @@ TestResults/
 .tools/
 outputs/
 __pycache__/
+
+# Licensed commercial fonts (EBA corporate identity).
+# Akkurat Std is a commercially licensed typeface (Lineto) — provide it locally,
+# never commit it. See FloorPlanGeneration.Web/wwwroot/fonts/README.md
+FloorPlanGeneration.Web/wwwroot/fonts/Akkurat*.otf

@@ -20,15 +20,18 @@
   --surface-2: #fbfcfc;
   --surface-warm: #fdfcf8;
 
-  /* Calm primary accent — one deep teal-green ramp */
-  --teal: #10796b;
-  --teal-fill: #10796b;
-  --teal-strong: #0f6f63;
-  --teal-hover: #0b5b52;
-  --teal-deep: #094a43;
-  --teal-soft: #e6f3f0;
-  --teal-tint: #f1f8f6;
-  --teal-ring: rgba(16, 121, 107, 0.18);
+  /* Primary accent — EBA corporate identity orange ramp.
+     Variable names kept as --teal* to keep the diff small; values are EBA CI orange.
+     Energy #FA6400 carries fills/buttons/canvas (brand pop, white text on top);
+     the darker steps carry text/icons on white so labels stay legible (≈5:1). */
+  --teal: #fa6400;          /* EBA energy — fills, buttons, active states, canvas */
+  --teal-fill: #fa6400;
+  --teal-strong: #c2410c;   /* accent text + arrow strokes on white — legible burnt orange */
+  --teal-hover: #b23a08;    /* hover / pressed on filled controls */
+  --teal-deep: #9a3412;     /* deepest — text on tints, strong emphasis */
+  --teal-soft: #ffe0cc;     /* EBA soft — soft fills/backgrounds */
+  --teal-tint: #fff4ec;     /* faintest wash */
+  --teal-ring: rgba(250, 100, 0, 0.30);
   --accent-wash: var(--teal-tint);
 
   /* Secondary status hues (chips/diagnostics) */
@@ -149,7 +152,7 @@ body {
 
 /* Branded text selection. */
 ::selection {
-  background: rgba(16, 121, 107, 0.18);
+  background: rgba(250, 100, 0, 0.18);
 }
 
 button,
@@ -354,7 +357,7 @@ h3 {
   color: #fff;
   border-color: transparent;
   background: var(--teal-fill);
-  box-shadow: 0 2px 8px rgba(16, 121, 107, 0.24);
+  box-shadow: 0 2px 8px rgba(250, 100, 0, 0.24);
 }
 
 .top-nav a.active:hover {
@@ -561,7 +564,7 @@ h3 {
   border-color: transparent;
   color: #fff;
   background: var(--teal-fill);
-  box-shadow: 0 2px 8px rgba(16, 121, 107, 0.28);
+  box-shadow: 0 2px 8px rgba(250, 100, 0, 0.28);
 }
 
 .canvas-tools button[aria-pressed="true"]:hover,
@@ -678,7 +681,7 @@ legend {
 
 .brief-prompt:focus {
   border-color: var(--teal);
-  box-shadow: 0 0 0 3px rgba(0, 125, 120, 0.13);
+  box-shadow: 0 0 0 3px rgba(250, 100, 0, 0.13);
   outline: 0;
 }
 
@@ -1285,7 +1288,7 @@ textarea {
   outline: 0;
   resize: vertical;
   padding: 14px;
-  font-family: "Cascadia Mono", "SFMono-Regular", Consolas, monospace;
+  font-family: "Akkurat Mono Std", "Cascadia Mono", "SFMono-Regular", Consolas, monospace;
   font-size: 12px;
   line-height: 1.55;
   color: #2d3742;
@@ -1385,8 +1388,8 @@ textarea.dragging {
 .preview-frame.is-edit-mode {
   background: #eaedef;
   box-shadow:
-    inset 0 0 0 2px rgba(0, 125, 120, 0.55),
-    inset 0 0 0 7px rgba(0, 125, 120, 0.07);
+    inset 0 0 0 2px rgba(250, 100, 0, 0.55),
+    inset 0 0 0 7px rgba(250, 100, 0, 0.07);
 }
 
 .preview-frame.is-edit-mode::before {
@@ -1399,7 +1402,7 @@ textarea.dragging {
   display: inline-flex;
   align-items: center;
   padding: 0 11px;
-  border: 1px solid rgba(0, 125, 120, 0.4);
+  border: 1px solid rgba(250, 100, 0, 0.4);
   border-radius: 6px;
   color: var(--teal-strong);
   background: rgba(231, 255, 251, 0.96);
@@ -1575,7 +1578,7 @@ textarea.dragging {
 
 .edit-handle {
   fill: #faffff;
-  stroke: #006f6b;
+  stroke: var(--teal-strong);
   stroke-width: 0.34;
   vector-effect: non-scaling-stroke;
   cursor: grab;
@@ -1607,7 +1610,7 @@ textarea.dragging {
 }
 
 .edit-selection-box {
-  fill: rgba(0, 125, 120, 0.025);
+  fill: rgba(250, 100, 0, 0.025);
   stroke: var(--teal-strong);
   stroke-width: 0.13;
   stroke-dasharray: 0.55 0.34;
@@ -1637,7 +1640,7 @@ textarea.dragging {
 }
 
 .edit-core-move {
-  fill: #006f6b;
+  fill: var(--teal);
   stroke: #fff;
   stroke-width: 0.42;
   cursor: move;
@@ -1712,7 +1715,7 @@ textarea.dragging {
     box-shadow: none;
   }
   25% {
-    box-shadow: 0 0 0 3px rgba(0, 125, 120, 0.55);
+    box-shadow: 0 0 0 3px rgba(250, 100, 0, 0.55);
   }
 }
 
@@ -1736,10 +1739,10 @@ textarea.dragging {
 }
 
 #planSvg .selected-element {
-  stroke: #006f6b;
+  stroke: var(--teal-strong);
   stroke-width: 0.26;
   vector-effect: non-scaling-stroke;
-  filter: drop-shadow(0 0 2px rgba(0, 125, 120, 0.4));
+  filter: drop-shadow(0 0 2px rgba(250, 100, 0, 0.4));
 }
 
 .empty-preview {
@@ -1870,7 +1873,7 @@ textarea.dragging {
 }
 
 .variants-section summary span {
-  color: var(--teal);
+  color: var(--teal-strong);
   font-weight: 900;
 }
 
@@ -1884,7 +1887,7 @@ textarea.dragging {
 }
 
 .section-title span {
-  color: var(--teal);
+  color: var(--teal-strong);
   font-size: 12px;
   font-weight: var(--fw-bold);
   letter-spacing: 0.01em;
@@ -2332,13 +2335,13 @@ textarea.dragging {
 }
 
 .variant-item:hover {
-  border-color: rgba(0, 125, 120, 0.45);
+  border-color: rgba(250, 100, 0, 0.45);
   background: #fbfefe;
 }
 
 .variant-item.active {
   border-color: var(--teal);
-  background: linear-gradient(90deg, rgba(0, 125, 120, 0.08), #fff 62%);
+  background: linear-gradient(90deg, rgba(250, 100, 0, 0.08), #fff 62%);
   box-shadow: inset 4px 0 0 var(--teal);
 }
 
@@ -2368,7 +2371,7 @@ textarea.dragging {
 }
 
 .diagnostic-source {
-  font-family: "Cascadia Mono", "SFMono-Regular", Consolas, monospace;
+  font-family: "Akkurat Mono Std", "Cascadia Mono", "SFMono-Regular", Consolas, monospace;
   color: #4b5663;
 }
 
@@ -2582,7 +2585,7 @@ textarea.dragging {
 }
 
 .export-card:hover {
-  border-color: rgba(0, 125, 120, 0.48);
+  border-color: rgba(250, 100, 0, 0.48);
   background: #fbfefe;
 }
 
@@ -2709,8 +2712,8 @@ td {
   grid-template-columns: minmax(180px, 0.9fr) minmax(260px, 1.3fr) minmax(180px, 0.9fr);
   gap: 10px;
   background:
-    linear-gradient(90deg, rgba(0, 125, 120, 0.05) 1px, transparent 1px),
-    linear-gradient(180deg, rgba(0, 125, 120, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(250, 100, 0, 0.05) 1px, transparent 1px),
+    linear-gradient(180deg, rgba(250, 100, 0, 0.05) 1px, transparent 1px),
     #fff;
   background-size: 22px 22px;
 }
@@ -3021,7 +3024,7 @@ pre {
   overflow: auto;
   white-space: pre-wrap;
   word-break: break-word;
-  font-family: "Cascadia Mono", "SFMono-Regular", Consolas, monospace;
+  font-family: "Akkurat Mono Std", "Cascadia Mono", "SFMono-Regular", Consolas, monospace;
   font-size: 12px;
   line-height: 1.5;
   color: #d8e4ef;
@@ -3222,7 +3225,7 @@ pre {
 }
 
 #planSvg[data-view-mode="plan"] .room:hover {
-  fill: rgba(16, 121, 107, 0.12);
+  fill: rgba(250, 100, 0, 0.12);
 }
 
 .room-label {
@@ -3460,7 +3463,7 @@ pre {
 }
 
 .room-selected-halo {
-  fill: rgba(0, 125, 120, 0.045);
+  fill: rgba(250, 100, 0, 0.045);
   stroke: rgba(0, 111, 107, 0.72);
   stroke-width: 0.16;
   stroke-linejoin: round;
@@ -3837,21 +3840,67 @@ pre {
    wins the cascade over the base component styles above.
    ===================================================================== */
 
-/* Inter variable font, self-hosted (CSP: default-src 'self'). */
+/* EBA corporate typeface — Akkurat Std, self-hosted (CSP: default-src 'self'). */
 @font-face {
-  font-family: "InterVariable";
-  src: url("fonts/InterVariable.woff2") format("woff2");
-  font-weight: 100 900;
+  font-family: "Akkurat Std";
+  src: url("fonts/AkkuratStd-Light.otf") format("opentype");
+  font-weight: 300;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Akkurat Std";
+  src: url("fonts/AkkuratStd-LightItalic.otf") format("opentype");
+  font-weight: 300;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Akkurat Std";
+  src: url("fonts/AkkuratStd-Regular.otf") format("opentype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Akkurat Std";
+  src: url("fonts/AkkuratStd-Italic.otf") format("opentype");
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Akkurat Std";
+  src: url("fonts/AkkuratStd-Bold.otf") format("opentype");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Akkurat Std";
+  src: url("fonts/AkkuratStd-BoldItalic.otf") format("opentype");
+  font-weight: 700;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Akkurat Mono Std";
+  src: url("fonts/AkkuratMonoStd.otf") format("opentype");
+  font-weight: 400;
   font-style: normal;
   font-display: swap;
 }
 
+/* Akkurat ships Light/Regular/Bold (300/400/700); the 500/600/680/760 weights in the
+   type scale snap to the nearest real face (no faux-bold), giving a clean 3-tier hierarchy. */
 :root {
-  --font-sans: "InterVariable", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-sans: "Akkurat Std", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: "Akkurat Mono Std", "Cascadia Mono", "SFMono-Regular", ui-monospace, Consolas, "Liberation Mono", monospace;
 }
 
 body {
-  font-feature-settings: "cv05", "cv08", "ss01";
+  /* Inter-specific OpenType character variants removed; not applicable to Akkurat. */
+  font-feature-settings: normal;
 }
 
 /* ---- Canvas toolbar: floating glass pill with icon buttons ---- */
@@ -3890,7 +3939,7 @@ body {
 }
 
 .canvas-tools button:hover:not(:disabled) {
-  background: rgba(16, 121, 107, 0.1);
+  background: rgba(250, 100, 0, 0.1);
   color: var(--teal-deep);
 }
 
@@ -3958,7 +4007,7 @@ body {
   stroke-width: 1.3px;
   vector-effect: non-scaling-stroke;
   stroke-dasharray: none;
-  fill: rgba(16, 121, 107, 0.035);
+  fill: rgba(250, 100, 0, 0.035);
 }
 
 /* Selected room/unit reads as confidently picked, not just outlined. */
@@ -4038,7 +4087,7 @@ button:active:not(:disabled) {
 }
 
 .variant-item:hover {
-  border-color: rgba(16, 121, 107, 0.45);
+  border-color: rgba(250, 100, 0, 0.45);
   box-shadow: var(--shadow-soft);
   transform: translateY(-1px);
 }
@@ -4143,7 +4192,7 @@ button:active:not(:disabled) {
 
 .preview-frame.is-edit-mode #planSvg .wall-hit-v:hover,
 .preview-frame.is-edit-mode #planSvg .wall-hit-h:hover {
-  stroke: rgba(16, 121, 107, 0.28);
+  stroke: rgba(250, 100, 0, 0.28);
 }
 
 /* The sliding wall plane during a drag. */
@@ -4154,7 +4203,7 @@ button:active:not(:disabled) {
   stroke-dasharray: 6 4;
   fill: none;
   pointer-events: none;
-  filter: drop-shadow(0 0 3px rgba(16, 121, 107, 0.5));
+  filter: drop-shadow(0 0 3px rgba(250, 100, 0, 0.5));
 }
 
 /* Input-constraint grips (floorplate edges, core) share the geometry-grip
@@ -4233,7 +4282,7 @@ button:active:not(:disabled) {
 }
 
 .core-grab-overlay:hover {
-  fill: rgba(16, 121, 107, 0.12);
+  fill: rgba(250, 100, 0, 0.12);
 }
 
 /* On narrower canvases the title block keeps only its header line — the same
@@ -4264,7 +4313,7 @@ button:active:not(:disabled) {
 .pill.edited {
   color: var(--teal-deep);
   background: var(--teal-soft);
-  border-color: rgba(16, 121, 107, 0.25);
+  border-color: rgba(250, 100, 0, 0.25);
 }
 
 /* ------------------------------------------------------------------------ */
@@ -4340,7 +4389,7 @@ button:active:not(:disabled) {
   border-color: transparent;
   color: #fff;
   background: var(--teal-fill);
-  box-shadow: 0 2px 8px rgba(16, 121, 107, 0.28);
+  box-shadow: 0 2px 8px rgba(250, 100, 0, 0.28);
 }
 
 .viewer-toolbar button.active:hover {
