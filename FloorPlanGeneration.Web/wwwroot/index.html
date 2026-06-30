@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>EBA Floor Plan Generator</title>
-  <link rel="stylesheet" href="styles.css?v=20260612-9">
+  <link rel="stylesheet" href="styles.css?v=20260630-1">
 </head>
 <body>
   <main class="app-shell">
@@ -136,6 +136,32 @@
               <label class="toggle-row pref-row">
                 <input id="daylightLiving" type="checkbox">
                 <span>Living rooms need daylight</span>
+              </label>
+            </div>
+          </fieldset>
+
+          <fieldset data-setup-step="advanced">
+            <legend>Advanced / Experimental</legend>
+            <div class="pref-list">
+              <label class="toggle-row pref-row">
+                <input id="corridorSpine" type="checkbox">
+                <span>Corridor spine (P2)</span>
+              </label>
+              <label class="toggle-row pref-row">
+                <input id="driftToMargin" type="checkbox">
+                <span>Drift rooms to margins (P2)</span>
+              </label>
+              <label class="toggle-row pref-row">
+                <input id="usePortfolioPriors" type="checkbox">
+                <span>Use portfolio priors (P3)</span>
+              </label>
+              <label class="toggle-row pref-row">
+                <input id="recommendVariant" type="checkbox">
+                <span>Recommend best variant (P4)</span>
+              </label>
+              <label class="toggle-row pref-row">
+                <input id="critiqueVariants" type="checkbox">
+                <span>Critique variants (P5)</span>
               </label>
             </div>
           </fieldset>
@@ -384,7 +410,7 @@
     </section>
   </main>
 
-  <script src="app.js?v=20260616-4"></script>
+  <script src="app.js?v=20260630-2"></script>
 </body>
 </html>
 

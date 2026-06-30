@@ -90,6 +90,11 @@ const els = {
   strictnessInput: document.getElementById("strictnessInput"),
   daylightBedrooms: document.getElementById("daylightBedrooms"),
   daylightLiving: document.getElementById("daylightLiving"),
+  corridorSpine: document.getElementById("corridorSpine"),
+  driftToMargin: document.getElementById("driftToMargin"),
+  usePortfolioPriors: document.getElementById("usePortfolioPriors"),
+  recommendVariant: document.getElementById("recommendVariant"),
+  critiqueVariants: document.getElementById("critiqueVariants"),
   variantInput: document.getElementById("variantInput"),
   seedInput: document.getElementById("seedInput"),
   inputEditor: document.getElementById("inputEditor"),
@@ -476,6 +481,13 @@ function syncFormFromInput(input) {
     els.strictnessInput.value = settings.strictness || "balanced";
     els.daylightBedrooms.checked = rules.requireDaylightForBedrooms !== false;
     els.daylightLiving.checked = rules.requireDaylightForLiving !== false;
+    // Experimental passes default OFF: a strict === true leaves the control
+    // unchecked unless a loaded input explicitly opted in.
+    els.corridorSpine.checked = rules.corridorSpine === true;
+    els.driftToMargin.checked = rules.driftToMargin === true;
+    els.usePortfolioPriors.checked = rules.usePortfolioPriors === true;
+    els.recommendVariant.checked = settings.recommendVariant === true;
+    els.critiqueVariants.checked = settings.critiqueVariants === true;
     els.variantInput.value = settings.variantCount || 4;
     els.seedInput.value = Number.isFinite(Number(project.seed)) ? String(project.seed) : "1";
 
@@ -490,6 +502,17 @@ function syncFormFromInput(input) {
     els.setupSubtitle.textContent = project.name || titleCase(project.id || "project");
   } finally {
     state.syncing = false;
+  }
+}
+
+// Opt-in engine passes (architectural-finetuning P2-P5) are written to the
+// request only when the user enables them, and removed when disabled, so an
+// untouched form produces a request byte-identical to the historic studio.
+function setOptInFlag(target, key, enabled) {
+  if (enabled) {
+    target[key] = true;
+  } else {
+    delete target[key];
   }
 }
 
@@ -544,6 +567,15 @@ function syncInputFromForm() {
   input.generationSettings.timeLimitMilliseconds = input.generationSettings.timeLimitMilliseconds || 1000;
   input.generationSettings.weightedVariation = input.generationSettings.weightedVariation !== false;
   input.generationSettings.scoringWeights = input.generationSettings.scoringWeights || defaultScoringWeights();
+
+  // Advanced / experimental engine passes (P2-P5): corridor spine, drift-to-
+  // margin and portfolio priors are rules; recommend and critique are output
+  // annotations on generationSettings. All opt-in and default OFF.
+  setOptInFlag(input.rules, "corridorSpine", els.corridorSpine.checked);
+  setOptInFlag(input.rules, "driftToMargin", els.driftToMargin.checked);
+  setOptInFlag(input.rules, "usePortfolioPriors", els.usePortfolioPriors.checked);
+  setOptInFlag(input.generationSettings, "recommendVariant", els.recommendVariant.checked);
+  setOptInFlag(input.generationSettings, "critiqueVariants", els.critiqueVariants.checked);
 
   if (dwellingMode) {
     // A dwelling has no building core and ignores the unit-mix rows: the plate
@@ -889,7 +921,7 @@ function buildSingleDwellingInput(intent) {
   const width = clamp(Number.isFinite(intent.width) ? intent.width : neededWidth, 4, 40);
   const depth = clamp(Number.isFinite(intent.depth) ? intent.depth : neededDepth, 4, 30);
   const area = round(width * depth);
-  return ensureInputShape({
+  const input = ensureInputShape({
     project: { id: "single-dwelling", name: "Apartment Plan", units: "m", tolerance: 0.01, seed: 1 },
     floorplate: { outer: { id: "floorplate-01", points: rectPoints(0, 0, width, depth) }, holes: [] },
     fixedElements: [],
@@ -933,6 +965,14 @@ function buildSingleDwellingInput(intent) {
       scoringWeights: defaultScoringWeights()
     }
   });
+  // Carry the studio's experimental toggles into the dwelling request too, so a
+  // single apartment honours the same opt-in passes a multi-unit floor does.
+  setOptInFlag(input.rules, "corridorSpine", els.corridorSpine.checked);
+  setOptInFlag(input.rules, "driftToMargin", els.driftToMargin.checked);
+  setOptInFlag(input.rules, "usePortfolioPriors", els.usePortfolioPriors.checked);
+  setOptInFlag(input.generationSettings, "recommendVariant", els.recommendVariant.checked);
+  setOptInFlag(input.generationSettings, "critiqueVariants", els.critiqueVariants.checked);
+  return input;
 }
 
 // ---------------------------------------------------------------------------
@@ -7274,6 +7314,21 @@ function renderVariants(output) {
   }
 
   els.variantList.innerHTML = "";
+  // Optional P4/P5 annotations. Absent unless the user opted in, so a plain run
+  // renders exactly as before: no banner, no badge, no critique panel.
+  const recommendation = output && output.recommendation ? output.recommendation : null;
+  const recommendedId = recommendation && recommendation.recommendedVariantId ? recommendation.recommendedVariantId : "";
+  const critique = output && output.critique ? output.critique : null;
+  const flaggedIds = critique && Array.isArray(critique.flaggedVariantIds) ? critique.flaggedVariantIds : [];
+  if (recommendation && recommendation.rationale) {
+    const banner = document.createElement("div");
+    banner.className = "variant-recommendation";
+    // The id may be absent on a partial payload; fall back to a neutral label so
+    // the heading never prints a literal "undefined" beside a real rationale.
+    const heading = recommendedId ? `Recommended: ${escapeHtml(recommendedId)}` : "Recommended variant";
+    banner.innerHTML = `<strong>${heading}</strong><span>${escapeHtml(recommendation.rationale)}</span>`;
+    els.variantList.appendChild(banner);
+  }
   variants.forEach((variant, index) => {
     const metrics = variant.metrics || {};
     const units = Array.isArray(variant.units) ? variant.units : [];
@@ -7296,6 +7351,11 @@ function renderVariants(output) {
     const edits = state.geometryEdits[variant.variantId];
     const hasEdits = Boolean(edits && Object.keys(edits).length);
     const sellable = Number(metrics.sellableArea);
+    const critiqueData = critique && Array.isArray(critique.variants)
+      ? critique.variants.find((entry) => entry.variantId === variant.variantId)
+      : null;
+    const isFlagged = flaggedIds.indexOf(variant.variantId) >= 0;
+    const isRecommended = Boolean(recommendedId) && variant.variantId === recommendedId;
     const item = document.createElement("button");
     item.type = "button";
     item.className = `variant-item${variant.variantId === state.selectedVariantId ? " active" : ""}`;
@@ -7304,6 +7364,7 @@ function renderVariants(output) {
       <div class="variant-title">
         <span>#${index + 1} ${escapeHtml(variant.variantId)}</span>
         <span class="variant-title-pills">
+          ${isRecommended ? '<span class="pill recommended" title="Engine pick for this run">Recommended</span>' : ""}
           ${hasEdits ? '<span class="pill edited" title="This variant carries manual studio edits">Edited</span>' : ""}
           <span class="pill ${escapeHtml(variant.status)}">${escapeHtml(friendlyStatus(variant.status))}</span>
         </span>
@@ -7324,6 +7385,7 @@ function renderVariants(output) {
         </div>
       </div>
       <progress class="score-bar" value="${scoreWidth}" max="100" aria-label="Variant score ${scoreWidth}%"></progress>
+      ${renderVariantCritique(critiqueData, isFlagged)}
     `;
     item.addEventListener("click", () => {
       state.selectedVariantId = variant.variantId;
@@ -7335,6 +7397,33 @@ function renderVariants(output) {
     });
     els.variantList.appendChild(item);
   });
+}
+
+// Phase-5 soft quality critique for one variant. Returns "" when the variant has
+// no critique data so a run without the critique pass renders nothing new. Each
+// finding shows its dimension (daylight/egress/proportion/adjacency), severity
+// and a short message; the flagged mark mirrors output.critique.flaggedVariantIds.
+function renderVariantCritique(critiqueData, isFlagged) {
+  if (!critiqueData) {
+    return "";
+  }
+  const findings = Array.isArray(critiqueData.findings) ? critiqueData.findings : [];
+  const mark = isFlagged
+    ? '<span class="pill warning">Flagged</span>'
+    : '<span class="pill valid">Clear</span>';
+  const head = `<div class="variant-critique-head"><span>Critique</span>${mark}</div>`;
+  if (findings.length === 0) {
+    return `<div class="variant-critique">${head}<div class="empty-list good">No quality concerns raised.</div></div>`;
+  }
+  const items = findings.map((finding) => {
+    const severity = String(finding.severity || "info").toLowerCase();
+    const tone = severity === "error" ? "error" : severity === "warning" ? "warning" : "info";
+    const dimension = escapeHtml(String(finding.dimension || "quality"));
+    const message = escapeHtml(String(finding.message || ""));
+    return `<div class="critique-finding ${tone}"><span class="pill ${tone}">${dimension}</span>`
+      + `<span>${message}</span></div>`;
+  }).join("");
+  return `<div class="variant-critique">${head}${items}</div>`;
 }
 
 function renderDiagnostics(output) {

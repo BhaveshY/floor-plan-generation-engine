@@ -2455,6 +2455,74 @@ textarea.dragging {
   border-color: #c9e8d0;
 }
 
+/* P4 recommendation: a solid teal badge marks the engine's pick, with a banner
+   above the variant list carrying the human rationale for that choice. */
+.pill.recommended {
+  color: #fff;
+  background: var(--teal);
+}
+
+.variant-recommendation {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  padding: 11px;
+  border: 1px solid #b6e0d6;
+  border-left: 4px solid var(--teal);
+  border-radius: var(--radius-md);
+  background: var(--green-soft);
+}
+
+.variant-recommendation strong {
+  font-size: 13px;
+  font-weight: 850;
+  color: var(--teal);
+}
+
+.variant-recommendation span {
+  font-size: 12px;
+  line-height: 1.38;
+  color: var(--ink-soft);
+  overflow-wrap: anywhere;
+}
+
+/* P5 critique: a soft per-variant panel listing findings by dimension and
+   severity. Advisory only — it never changes the variant's pass/fail status. */
+.variant-critique {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+  padding-top: 9px;
+  border-top: 1px dashed var(--line);
+}
+
+.variant-critique-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 850;
+  color: var(--ink-soft);
+}
+
+.critique-finding {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 1.38;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.critique-finding .pill {
+  flex: none;
+  text-transform: capitalize;
+}
+
 .export-summary {
   display: grid;
   gap: 8px;

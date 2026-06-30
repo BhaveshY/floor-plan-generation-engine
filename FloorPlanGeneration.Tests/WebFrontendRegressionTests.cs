@@ -1874,6 +1874,111 @@ namespace FloorPlanGeneration.Tests
             Assert.Contains("ApplyFurnitureMinimums", engineSchema, StringComparison.Ordinal);
         }
 
+        [Fact]
+        public void AdvancedEngineFlagsAreReachableFromTheFormAndMapToCorrectJsonPaths()
+        {
+            string app = ReadWebFile("app.js");
+            string index = ReadWebFile("index.html");
+            string syncInputFromForm = SliceFunction(app, "syncInputFromForm");
+            string syncFormFromInput = SliceFunction(app, "syncFormFromInput");
+            string buildSingleDwellingInput = SliceFunction(app, "buildSingleDwellingInput");
+            string setOptInFlag = SliceFunction(app, "setOptInFlag");
+
+            // The five architectural-finetuning passes (P2-P5) are opt-in engine
+            // flags. Each must be clickable in the form and wired to its correct
+            // JSON namespace: corridor spine / drift / portfolio priors live under
+            // rules; recommend / critique live under generationSettings.
+            string[] ruleFlags = { "corridorSpine", "driftToMargin", "usePortfolioPriors" };
+            string[] settingsFlags = { "recommendVariant", "critiqueVariants" };
+
+            foreach (string flag in Concat(ruleFlags, settingsFlags))
+            {
+                // (a) a checkbox control exists in the setup form.
+                Assert.Contains("id=\"" + flag + "\" type=\"checkbox\"", index, StringComparison.Ordinal);
+                // (b) it is registered in the els element map.
+                Assert.Contains(flag + ": document.getElementById(\"" + flag + "\")", app, StringComparison.Ordinal);
+            }
+
+            // (c) syncInputFromForm maps each flag to the correct namespace.
+            foreach (string flag in ruleFlags)
+            {
+                string expected = "setOptInFlag(input.rules, \"" + flag + "\", els." + flag + ".checked)";
+                Assert.Contains(expected, syncInputFromForm, StringComparison.Ordinal);
+            }
+            foreach (string flag in settingsFlags)
+            {
+                string expected = "setOptInFlag(input.generationSettings, \"" + flag + "\", els." + flag + ".checked)";
+                Assert.Contains(expected, syncInputFromForm, StringComparison.Ordinal);
+            }
+
+            // (d) the single-dwelling builder honours the same toggles.
+            foreach (string flag in ruleFlags)
+            {
+                Assert.Contains("setOptInFlag(input.rules, \"" + flag + "\"", buildSingleDwellingInput, StringComparison.Ordinal);
+            }
+            foreach (string flag in settingsFlags)
+            {
+                Assert.Contains("setOptInFlag(input.generationSettings, \"" + flag + "\"", buildSingleDwellingInput, StringComparison.Ordinal);
+            }
+
+            // (e) default OFF: the form reads each flag back with a strict === true,
+            // so an absent or false value leaves the control unchecked.
+            Assert.Contains("rules.corridorSpine === true", syncFormFromInput, StringComparison.Ordinal);
+            Assert.Contains("rules.driftToMargin === true", syncFormFromInput, StringComparison.Ordinal);
+            Assert.Contains("rules.usePortfolioPriors === true", syncFormFromInput, StringComparison.Ordinal);
+            Assert.Contains("settings.recommendVariant === true", syncFormFromInput, StringComparison.Ordinal);
+            Assert.Contains("settings.critiqueVariants === true", syncFormFromInput, StringComparison.Ordinal);
+
+            // (f) the helper omits a disabled flag entirely so an untouched form
+            // produces a request byte-identical to the historic studio.
+            Assert.Contains("delete target[key]", setOptInFlag, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void RecommenderAndCriticResultsRenderWhenPresent()
+        {
+            string app = ReadWebFile("app.js");
+            string renderVariants = SliceFunction(app, "renderVariants");
+            string renderVariantCritique = SliceFunction(app, "renderVariantCritique");
+
+            // P4: when output.recommendation is present, the recommended variant is
+            // badged and its human rationale is surfaced.
+            Assert.Contains("output.recommendation", renderVariants, StringComparison.Ordinal);
+            Assert.Contains("recommendedVariantId", renderVariants, StringComparison.Ordinal);
+            Assert.Contains("pill recommended", renderVariants, StringComparison.Ordinal);
+            Assert.Contains("variant-recommendation", renderVariants, StringComparison.Ordinal);
+            Assert.Contains("recommendation.rationale", renderVariants, StringComparison.Ordinal);
+
+            // P5: when output.critique is present, each variant lists its findings
+            // (dimension / severity / message) and flagged variants are marked.
+            Assert.Contains("output.critique", renderVariants, StringComparison.Ordinal);
+            Assert.Contains("flaggedVariantIds", renderVariants, StringComparison.Ordinal);
+            Assert.Contains("finding.dimension", renderVariantCritique, StringComparison.Ordinal);
+            Assert.Contains("finding.severity", renderVariantCritique, StringComparison.Ordinal);
+            Assert.Contains("finding.message", renderVariantCritique, StringComparison.Ordinal);
+
+            // An absent block renders nothing new: the critique helper is a no-op
+            // when the variant has no critique data.
+            Assert.Contains("if (!critiqueData)", renderVariantCritique, StringComparison.Ordinal);
+
+            // A partial recommendation (rationale present but no recommendedVariantId)
+            // must not print a literal "undefined": the banner heading falls back to
+            // a neutral label when the id is absent.
+            Assert.Contains("\"Recommended variant\"", renderVariants, StringComparison.Ordinal);
+        }
+
+        private static IEnumerable<string> Concat(string[] first, string[] second)
+        {
+            foreach (string value in first)
+            {
+                yield return value;
+            }
+            foreach (string value in second)
+            {
+                yield return value;
+            }
+        }
+
         private static string ReadWebFile(string fileName)
         {
             return File.ReadAllText(Path.Combine(RepositoryRoot(), "FloorPlanGeneration.Web", "wwwroot", fileName));
